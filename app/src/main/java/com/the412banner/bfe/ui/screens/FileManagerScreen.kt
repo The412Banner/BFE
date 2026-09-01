@@ -277,7 +277,6 @@ private fun badgeColors(loc: FavLocation): Pair<Color, Color> {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 /**
  * Cross-pane-visible state for one [BrowserPane]: its current directory (saved across process death)
  * plus a reload signal the parent bumps to refresh the pane after a cross-pane operation. Everything
@@ -406,6 +405,7 @@ fun FileManagerScreen(
  * cross-pane copy/move/extract; everything else (selection, sort, view mode, scroll, search, hidden)
  * stays as this composable's own `remember` state and is therefore independent per pane automatically.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserPane(
     paneState: PaneState,
