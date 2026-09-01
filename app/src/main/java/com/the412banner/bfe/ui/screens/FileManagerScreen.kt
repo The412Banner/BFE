@@ -321,7 +321,7 @@ class PaneState(
     val canGoUp: Boolean get() = path != rootPath
 }
 
-private val PaneStateSaver: Saver<PaneState, List<String>> = listSaver(
+private val PaneStateSaver = listSaver<PaneState, String>(
     save = {
         listOf(
             it.path, it.rootPath, it.viewMode.name, it.sortBy,
