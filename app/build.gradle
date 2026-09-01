@@ -28,7 +28,7 @@ android {
         targetSdkVersion 28
         // Standalone app, versioned independently of the Bannerlator lineage it was lifted from.
         versionCode 1
-        versionName "1.0"
+        versionName "0.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {

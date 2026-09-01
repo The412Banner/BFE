@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -37,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.the412banner.bfe.ui.UnpackProgressPill
+import com.the412banner.bfe.ui.screens.FileManagerScreen
 import com.the412banner.bfe.ui.theme.BfeTheme
 
 /**
@@ -66,7 +65,7 @@ private fun AppRoot() {
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
             PermissionGate {
-                HomeContent()
+                FileManagerScreen()
             }
         }
         // Pinned app-wide extraction pill (renders nothing when idle).
@@ -120,25 +119,5 @@ private fun PermissionGate(content: @Composable () -> Unit) {
                 )
             }
         }) { Text("Grant All-Files-Access") }
-    }
-}
-
-/**
- * Placeholder home for P0 — the "extract an archive" app is fully usable via the OS "Open with"/Share
- * sheet (which routes archives to [UnpackArchiveActivity]). P1 replaces this with the File Manager.
- */
-@Composable
-private fun HomeContent() {
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-    ) {
-        Text("BFE", color = MaterialTheme.colorScheme.primary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "Open an archive, disc image, or a GOG/InnoSetup setup.exe from any app's Share / \"Open with\" " +
-                "menu and BFE will extract it. A running extraction shows a progress pill here and a " +
-                "notification you can tap to watch it.",
-            color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp,
-        )
     }
 }

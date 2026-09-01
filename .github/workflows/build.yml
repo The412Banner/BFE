@@ -2,6 +2,7 @@ name: Build BFE (signed release APK)
 
 # Single-variant build for the sideload-only BFE app. Sets up JDK 17 + the Android SDK, assembles
 # the (test-signed) release APK, and uploads it as an artifact. No flavors, no NDK build, no imagefs.
+# Caching is tuned for fast warm-starts (Gradle deps + build cache + configuration cache + SDK).
 
 on:
   workflow_dispatch:
@@ -10,6 +11,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -26,15 +31,32 @@ jobs:
       with:
         distribution: temurin
         java-version: '17'
+        # Belt-and-suspenders: setup-gradle below owns the primary Gradle cache.
+        cache: 'gradle'
 
     - name: Set up Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Set up Gradle (dependency + build cache)
+    # Cache the resolved SDK packages (platforms / build-tools) AGP auto-downloads, keyed on the
+    # toolchain inputs so it only re-provisions when compileSdk/build-tools/AGP actually change.
+    - name: Cache Android SDK packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.ANDROID_SDK_ROOT }}/platforms
+          ${{ env.ANDROID_SDK_ROOT }}/build-tools
+          ~/.android/build-cache
+        key: android-sdk-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/libs.versions.toml') }}
+        restore-keys: |
+          android-sdk-${{ runner.os }}-
+
+    - name: Set up Gradle (dependency + build + configuration cache)
       uses: gradle/actions/setup-gradle@v4
+      # setup-gradle keys its cache on the gradle files + wrapper automatically and restores from
+      # main's cache for branch/PR builds; it reports cache hit/miss in the job summary.
 
     - name: Assemble signed release APK
-      run: ./gradlew --no-daemon assembleRelease
+      run: ./gradlew --no-daemon --build-cache assembleRelease
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
