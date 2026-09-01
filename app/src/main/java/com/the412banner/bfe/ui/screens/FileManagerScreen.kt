@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -40,10 +41,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckBox
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DensitySmall
 import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
@@ -151,6 +155,12 @@ import java.util.Locale
  * offered and the wording is chosen per item type (files overwrite, folders merge).
  */
 enum class ConflictChoice { OVERWRITE, MERGE, KEEP_BOTH, SKIP }
+
+/**
+ * The three file-list view modes, cycled by the toolbar's view button and persisted as `fmViewMode`.
+ * GRID = thumbnail tiles; LIST = the tall cards; COMPACT = dense single-line rows (~4× more per screen).
+ */
+enum class FmViewMode { GRID, LIST, COMPACT }
 
 /**
  * Ordering for the file list. Folders always lead regardless of direction — a descending sort that
@@ -344,30 +354,35 @@ fun FileManagerScreen(
     }
 
     if (!effectiveDual) {
-        BrowserPane(
-            paneState = leftPane,
-            dualPane = false,
-            onToggleDualPane = toggleDual,
-            otherPaneDir = { null },
-            onRequestOtherReload = {},
-            showRail = !pickMode,
-            pickMode = pickMode,
-            pickDirMode = pickDirMode,
-            pickExtensions = pickExtensions,
-            initialDir = initialDir,
-            pickerTitle = pickerTitle,
-            onPick = onPick,
-        )
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            // Width-based (not orientation-based): a very narrow device also gets the adaptive header.
+            val narrow = maxWidth < 360.dp
+            BrowserPane(
+                paneState = leftPane,
+                dualPane = false,
+                onToggleDualPane = toggleDual,
+                otherPaneDir = { null },
+                onRequestOtherReload = {},
+                showRail = !pickMode,
+                narrowHeader = narrow,
+                pickMode = pickMode,
+                pickDirMode = pickDirMode,
+                pickExtensions = pickExtensions,
+                initialDir = initialDir,
+                pickerTitle = pickerTitle,
+                onPick = onPick,
+            )
+        }
         return
     }
 
-    // Two-pane commander view. Each pane is a fully independent BrowserPane instance.
-    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    // Two-pane commander view: ALWAYS side by side (a horizontal Row), in portrait and landscape.
+    // Each pane is a fully independent BrowserPane instance.
     val accent = MaterialTheme.colorScheme.primary
     val idleBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
 
     @Composable
-    fun Pane(index: Int, state: PaneState, other: PaneState, modifier: Modifier) {
+    fun Pane(index: Int, state: PaneState, other: PaneState, narrow: Boolean, modifier: Modifier) {
         val isActive = activeIndex == index
         Box(
             modifier = modifier
@@ -381,19 +396,18 @@ fun FileManagerScreen(
                 otherPaneDir = { File(other.path).takeIf { it.isDirectory } },
                 onRequestOtherReload = { other.requestReload() },
                 showRail = false,
+                narrowHeader = narrow,
             )
         }
     }
 
-    if (wide) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Each pane is ~half the width; below ~360dp per pane the full toolbar can't fit, so the
+        // per-pane header collapses to icons + a horizontally-scrollable action strip (never clips).
+        val narrow = (maxWidth / 2) < 360.dp
         Row(modifier = Modifier.fillMaxSize()) {
-            Pane(0, leftPane, rightPane, Modifier.weight(1f).fillMaxHeight())
-            Pane(1, rightPane, leftPane, Modifier.weight(1f).fillMaxHeight())
-        }
-    } else {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Pane(0, leftPane, rightPane, Modifier.weight(1f).fillMaxWidth())
-            Pane(1, rightPane, leftPane, Modifier.weight(1f).fillMaxWidth())
+            Pane(0, leftPane, rightPane, narrow, Modifier.weight(1f).fillMaxHeight())
+            Pane(1, rightPane, leftPane, narrow, Modifier.weight(1f).fillMaxHeight())
         }
     }
 }
@@ -416,6 +430,10 @@ fun BrowserPane(
     otherPaneDir: () -> File? = { null },
     onRequestOtherReload: () -> Unit = {},
     showRail: Boolean = true,
+    // When true (a narrow pane — e.g. a dual-pane column in portrait, ~half the phone width) the
+    // per-pane header collapses: the drive chip and "New Folder" become icons and the action cluster
+    // becomes a horizontally-scrollable strip, so nothing clips. Computed from ACTUAL pane width.
+    narrowHeader: Boolean = false,
     // Pick mode (issue #73): reuse this File Manager as a themed file picker. When on, editing/run
     // features are gated off and tapping a matching file returns it via [onPick]. Defaults keep the
     // full-featured File Manager nav destination unchanged.
@@ -497,8 +515,17 @@ fun BrowserPane(
     // choice persists across rotation). Grid is the default — most useful in landscape, and in
     // portrait GridCells.Adaptive naturally renders fewer columns (~2). Do NOT force portrait to list:
     // that broke the toggle on-device (tapping it did nothing in portrait).
-    var gridView by remember { mutableStateOf(browsePrefs.getBoolean("fmGridView", true)) }
-    val showGrid = gridView
+    // 3-value view mode, migrated from the old boolean `fmGridView` when `fmViewMode` isn't set yet.
+    var viewMode by remember {
+        mutableStateOf(
+            when (browsePrefs.getString("fmViewMode", null)) {
+                "list" -> FmViewMode.LIST
+                "compact" -> FmViewMode.COMPACT
+                "grid" -> FmViewMode.GRID
+                else -> if (browsePrefs.getBoolean("fmGridView", true)) FmViewMode.GRID else FmViewMode.LIST
+            }
+        )
+    }
     var compactRows by remember { mutableStateOf(browsePrefs.getBoolean("fmCompactRows", false)) }
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<File?>(null) }
@@ -1069,42 +1096,40 @@ fun BrowserPane(
                 Text("Select this folder")
             }
         }
-        // ── Path bar ──
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-        ) {
-            IconButton(onClick = {
-                val parent = currentDir.parentFile
-                // Don't climb above the current drive's root.
-                if (currentDir != currentRoot && parent != null && parent.exists()) loadDirectory(parent)
-            }, enabled = currentDir != currentRoot) {
-                Icon(Icons.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary)
-            }
+        // ── Path bar (ADAPTIVE) ──
+        // Wide pane: the full inline toolbar. Narrow pane (e.g. a dual-pane column in portrait, ~half
+        // the phone width): the drive chip + "New Folder" collapse to icons and the action cluster
+        // becomes a horizontally-scrollable strip, so nothing ever clips. Width-based, not orientation.
+        val currentDriveLabel = describeLocation(currentDir).driveLabel
+        val driveChipAlpha = if (showFavorites) 0.45f else 1f
 
-            val currentDriveLabel = describeLocation(currentDir).driveLabel
-            // Dim the drive chip while the Favorites list is open (it's not the active context).
-            val driveChipAlpha = if (showFavorites) 0.45f else 1f
+        // Drive selector: a labelled "Internal ▾" chip on a wide pane, an icon-only button when narrow.
+        @Composable
+        fun DriveControl() {
             Box {
-                // The drive/location selector opens the drive dropdown, so give it the same outlined
-                // look as the "New Folder" button + the rail location items — it reads as a button, not
-                // plain text. Border uses the theme accent token; behaviour unchanged.
-                val driveChipShape = RoundedCornerShape(8.dp)
-                Text(
-                    text = "  $currentDriveLabel  ▾",
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = driveChipAlpha),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clip(driveChipShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
-                        .clickable { showDriveMenu = true }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                )
+                if (narrowHeader) {
+                    IconButton(onClick = { showDriveMenu = true }) {
+                        Icon(
+                            Icons.Filled.Storage,
+                            "Storage: $currentDriveLabel",
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = driveChipAlpha),
+                        )
+                    }
+                } else {
+                    val driveChipShape = RoundedCornerShape(8.dp)
+                    Text(
+                        text = "  $currentDriveLabel  ▾",
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = driveChipAlpha),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(driveChipShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
+                            .clickable { showDriveMenu = true }
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                    )
+                }
                 DropdownMenu(
                     expanded = showDriveMenu,
                     onDismissRequest = { showDriveMenu = false },
@@ -1138,60 +1163,47 @@ fun BrowserPane(
                     }
                 }
             }
+        }
 
-            Spacer(Modifier.width(4.dp))
-
-            if (showFavorites) {
-                Text(
-                    text = "★ Favorites",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            } else if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                // PORTRAIT: hide the current-folder name — it's redundant with the path bar directly
-                // below (which shows the full path). The spacer keeps the action icons right-aligned.
-                Spacer(Modifier.weight(1f))
-            } else {
-                // LANDSCAPE: the CURRENT FOLDER, not the full path. A path ellipsised on the right
-                // hides its tail — the only part that says where you are ("…/Winlator/Game…"). The
-                // full path moves to the line below, where it has room.
-                Text(
-                    text = currentDir.name.ifBlank { currentDir.absolutePath },
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-
+        // Trailing actions. "New Folder" collapses to an icon when narrow; the view button cycles
+        // Grid → List → Compact. Emitted inline (wide) or inside the scrollable strip (narrow).
+        @Composable
+        fun HeaderActions() {
             if (!showFavorites) {
-                // New Folder moved off a bottom bar into the toolbar (next to the grid/list toggle),
-                // as a compact outlined button, so the file list reclaims that bottom strip.
                 if (!pickMode) {
-                    OutlinedButton(
-                        onClick = { showNewFolderDialog = true },
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                        modifier = Modifier.height(32.dp),
-                    ) {
-                        Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("New Folder", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
+                    if (narrowHeader) {
+                        IconButton(onClick = { showNewFolderDialog = true }) {
+                            Icon(Icons.Filled.CreateNewFolder, "New Folder", tint = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { showNewFolderDialog = true },
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("New Folder", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
+                        }
                     }
                 }
+                // View-mode cycle: Grid → List → Compact → Grid (persisted). Icon shows current mode.
                 IconButton(onClick = {
-                    gridView = !gridView
-                    browsePrefs.edit().putBoolean("fmGridView", gridView).apply()
+                    viewMode = when (viewMode) {
+                        FmViewMode.GRID -> FmViewMode.LIST
+                        FmViewMode.LIST -> FmViewMode.COMPACT
+                        FmViewMode.COMPACT -> FmViewMode.GRID
+                    }
+                    browsePrefs.edit().putString("fmViewMode", viewMode.name.lowercase()).apply()
                 }) {
                     Icon(
-                        if (gridView) Icons.Filled.ViewList else Icons.Filled.GridView,
-                        if (gridView) "List view" else "Grid view",
+                        when (viewMode) {
+                            FmViewMode.GRID -> Icons.Filled.GridView
+                            FmViewMode.LIST -> Icons.Filled.ViewList
+                            FmViewMode.COMPACT -> Icons.Filled.DensitySmall
+                        },
+                        "View mode",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -1241,8 +1253,7 @@ fun BrowserPane(
                     }
                 }
             }
-
-            // Star toggle: open/close the dedicated Favorites list.
+            // Favorites toggle (always visible).
             IconButton(onClick = { showFavorites = !showFavorites }) {
                 if (showFavorites) {
                     Icon(Icons.Filled.Star, "Hide favorites", tint = MaterialTheme.colorScheme.primary)
@@ -1259,6 +1270,65 @@ fun BrowserPane(
                         tint = if (dualPane) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        ) {
+            IconButton(onClick = {
+                val parent = currentDir.parentFile
+                // Don't climb above the current drive's root.
+                if (currentDir != currentRoot && parent != null && parent.exists()) loadDirectory(parent)
+            }, enabled = currentDir != currentRoot) {
+                Icon(Icons.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary)
+            }
+
+            DriveControl()
+            Spacer(Modifier.width(4.dp))
+
+            if (narrowHeader) {
+                // No folder-name; the action strip takes the remaining width and scrolls so nothing
+                // clips at ~half the phone width. (The full path shows on the line below.)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                ) {
+                    HeaderActions()
+                }
+            } else {
+                if (showFavorites) {
+                    Text(
+                        text = "★ Favorites",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT) {
+                    // PORTRAIT (wide, i.e. single pane): hide the folder name — the path line below
+                    // shows the full path; the spacer keeps the action icons right-aligned.
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    // LANDSCAPE: the CURRENT FOLDER name (the full path is on the line below).
+                    Text(
+                        text = currentDir.name.ifBlank { currentDir.absolutePath },
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                HeaderActions()
             }
         }
 
@@ -1552,7 +1622,7 @@ fun BrowserPane(
                         modifier = Modifier.padding(horizontal = 32.dp),
                     )
                 }
-            } else if (showGrid && entries.isNotEmpty()) {
+            } else if (viewMode == FmViewMode.GRID && entries.isNotEmpty()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 104.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -1647,6 +1717,8 @@ fun BrowserPane(
                             file = file,
                             showActions = !pickMode,
                             compact = compactRows,
+                            // COMPACT view mode → dense single-line rows (~4× more per screen).
+                            dense = viewMode == FmViewMode.COMPACT,
                             selectionMode = selectionMode,
                             selected = file.absolutePath in selectedPaths,
                             onLongPress = {
@@ -1861,6 +1933,9 @@ private fun FileItemRow(
     file: File,
     showActions: Boolean = true,
     compact: Boolean = false,
+    // COMPACT view mode: render a dense single-line row (no card, ~22dp icon, thin divider) instead of
+    // the tall card — ~4× more items per screen. Selection/long-press/multi-select still work.
+    dense: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onLongPress: () -> Unit = {},
@@ -1897,6 +1972,105 @@ private fun FileItemRow(
             val bmp = withContext(Dispatchers.IO) { PeIconExtractor.extract(file) }
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
+    }
+
+    // ── Compact (dense) row ── minimal single-line row, ~28dp tall, with a thin divider.
+    if (dense) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(
+                        onClick = { if (selectionMode) onToggleSelect() else onTap() },
+                        onLongClick = onLongPress,
+                    )
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else Color.Transparent
+                    )
+                    .padding(horizontal = 12.dp, vertical = 3.dp),
+            ) {
+                if (selectionMode) {
+                    Icon(
+                        if (selected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
+                        contentDescription = null,
+                        tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                when {
+                    exeIcon != null -> Image(bitmap = exeIcon!!, contentDescription = null, modifier = Modifier.size(22.dp))
+                    isExe -> Icon(Icons.Filled.Terminal, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
+                    isDir -> Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                    isImage -> AsyncImage(
+                        model = file,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
+                        error = rememberVectorPainter(Icons.Filled.InsertDriveFile),
+                        modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)),
+                    )
+                    else -> Icon(Icons.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = file.name,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (!isDir) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = StringUtils.formatBytes(file.length()),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                    )
+                }
+                if (showActions) {
+                    Box {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            "Actions",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(start = 4.dp)
+                                .size(18.dp)
+                                .clickable { onMenu() },
+                        )
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = onDismissMenu,
+                            modifier = Modifier.outlinedMenuCard(),
+                        ) {
+                            FileContextMenuItems(
+                                file = file,
+                                isFavorite = isFavorite,
+                                onSelect = onSelect,
+                                onOpenWith = onOpenWith,
+                                onInstallApk = onInstallApk,
+                                onShare = onShare,
+                                onUnpack = onUnpack,
+                                onFastExtract = onFastExtract,
+                                onRename = onRename,
+                                onCopy = onCopy,
+                                onCut = onCut,
+                                onDelete = onDelete,
+                                onToggleFavorite = onToggleFavorite,
+                                onProperties = onProperties,
+                                onDismissMenu = onDismissMenu,
+                            )
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+        }
+        return
     }
 
     Card(
