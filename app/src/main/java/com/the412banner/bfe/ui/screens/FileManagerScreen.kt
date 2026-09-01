@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import android.content.res.Configuration
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -1780,7 +1781,7 @@ fun BrowserPane(
                                 else if (pickMode) {
                                     if (matchesPickExt(file)) {
                                         currentFile?.let { pickPrefs.edit().putString("lastFilePickerDir", it.absolutePath).apply() }
-                                        onPick?.invoke(file)
+                                        (file as? Loc.FileLoc)?.file?.let { f -> onPick?.invoke(f) }
                                     }
                                 } else openWith(file)
                             },
@@ -1863,7 +1864,7 @@ fun BrowserPane(
                                 else if (pickMode) {
                                     if (matchesPickExt(file)) {
                                         currentFile?.let { pickPrefs.edit().putString("lastFilePickerDir", it.absolutePath).apply() }
-                                        onPick?.invoke(file)
+                                        (file as? Loc.FileLoc)?.file?.let { f -> onPick?.invoke(f) }
                                     }
                                 }
                                 else openWith(file)
