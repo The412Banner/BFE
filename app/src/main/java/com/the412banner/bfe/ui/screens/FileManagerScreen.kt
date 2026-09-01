@@ -172,6 +172,8 @@ private fun comparatorFor(sortBy: String, desc: Boolean): Comparator<File> {
         // Directory length() is meaningless, so folders sort by name within the size ordering
         // instead of pretending to have one.
         "size" -> compareBy { if (it.isDirectory) -1L else it.length() }
+        // Group by file type (extension), then by name within each type.
+        "type" -> compareBy<File> { it.extension.lowercase() }.thenBy { it.name.lowercase() }
         else -> compareBy { it.name.lowercase() }
     }
     val directed = if (desc) inner.reversed() else inner
@@ -1029,7 +1031,7 @@ fun FileManagerScreen(
                         Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                        listOf("name" to "Name", "date" to "Date modified", "size" to "Size")
+                        listOf("name" to "Name", "date" to "Date modified", "size" to "Size", "type" to "Type")
                             .forEach { (key, label) ->
                                 DropdownMenuItem(
                                     text = {
