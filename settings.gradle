@@ -16,6 +16,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // topjohnwu libsu (root storage backend) is jitpack-only.
+        maven { url 'https://jitpack.io' }
     }
 }
 

@@ -9,16 +9,29 @@ import androidx.preference.PreferenceManager
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** A pinned SAF "app storage" location: a persisted tree Uri plus a friendly label + owning app. */
+/**
+ * A pinned "app storage" location — EITHER a SAF tree ([treeUri], granted via the system picker) OR a
+ * root-backed path ([path], e.g. `/data/data/<pkg>`, no picker needed). [key] is the stable identity.
+ */
 data class PinnedLocation(
     val label: String,
-    val treeUri: Uri,
+    val kind: String,          // "saf" | "root"
+    val treeUri: Uri?,         // SAF only
+    val path: String?,         // root only
     val packageName: String?,
-)
+) {
+    val isRoot: Boolean get() = kind == KIND_ROOT
+    val key: String get() = if (isRoot) "root:$path" else treeUri.toString()
+
+    companion object {
+        const val KIND_SAF = "saf"
+        const val KIND_ROOT = "root"
+    }
+}
 
 /**
- * Persists the user's pinned SAF locations (label + tree Uri + owning package) in SharedPreferences,
- * and owns the persistable-Uri-permission lifecycle (take on pin, release on unpin).
+ * Persists the user's pinned locations (SAF trees and root paths) in SharedPreferences, and owns the
+ * SAF persistable-Uri-permission lifecycle (take on pin, release on unpin).
  */
 object PinnedStorage {
     private const val TAG = "PinnedStorage"
@@ -30,12 +43,16 @@ object PinnedStorage {
             val arr = JSONArray(raw)
             (0 until arr.length()).mapNotNull { i ->
                 val o = arr.optJSONObject(i) ?: return@mapNotNull null
-                val uri = o.optString("uri").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                PinnedLocation(
-                    label = o.optString("label").ifBlank { "App storage" },
-                    treeUri = Uri.parse(uri),
-                    packageName = o.optString("pkg").takeIf { it.isNotBlank() },
-                )
+                val kind = o.optString("kind").ifBlank { PinnedLocation.KIND_SAF }
+                val label = o.optString("label").ifBlank { "App storage" }
+                val pkg = o.optString("pkg").takeIf { it.isNotBlank() }
+                if (kind == PinnedLocation.KIND_ROOT) {
+                    val path = o.optString("path").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    PinnedLocation(label, kind, null, path, pkg)
+                } else {
+                    val uri = o.optString("uri").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    PinnedLocation(label, kind, Uri.parse(uri), null, pkg)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "list parse failed", e)
@@ -43,10 +60,7 @@ object PinnedStorage {
         }
     }
 
-    fun isPinned(context: Context, treeUri: Uri): Boolean =
-        list(context).any { it.treeUri == treeUri }
-
-    /** Take a persistable read+write grant on [treeUri] and pin it. Idempotent on the same Uri. */
+    /** Pin a SAF tree: take a persistable read+write grant, then persist. Idempotent on the Uri. */
     fun add(context: Context, label: String, treeUri: Uri, packageName: String?) {
         runCatching {
             context.contentResolver.takePersistableUriPermission(
@@ -54,16 +68,23 @@ object PinnedStorage {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
         }.onFailure { Log.e(TAG, "takePersistableUriPermission failed", it) }
-        val current = list(context).filterNot { it.treeUri == treeUri }
-        save(context, current + PinnedLocation(label, treeUri, packageName))
+        val item = PinnedLocation(label, PinnedLocation.KIND_SAF, treeUri, null, packageName)
+        save(context, list(context).filterNot { it.key == item.key } + item)
     }
 
-    /** Unpin [treeUri] and release its persistable grant. */
-    fun remove(context: Context, treeUri: Uri) {
-        save(context, list(context).filterNot { it.treeUri == treeUri })
+    /** Pin a root-backed path (no consent step — root needs no SAF grant). Idempotent on the path. */
+    fun addRoot(context: Context, label: String, path: String, packageName: String?) {
+        val item = PinnedLocation(label, PinnedLocation.KIND_ROOT, null, path, packageName)
+        save(context, list(context).filterNot { it.key == item.key } + item)
+    }
+
+    /** Unpin [item]; releases the SAF grant when it's a SAF pin. */
+    fun remove(context: Context, item: PinnedLocation) {
+        save(context, list(context).filterNot { it.key == item.key })
+        val uri = item.treeUri ?: return
         runCatching {
             context.contentResolver.releasePersistableUriPermission(
-                treeUri,
+                uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
         }.onFailure { Log.e(TAG, "releasePersistableUriPermission failed", it) }
@@ -75,11 +96,33 @@ object PinnedStorage {
             arr.put(
                 JSONObject()
                     .put("label", it.label)
-                    .put("uri", it.treeUri.toString())
+                    .put("kind", it.kind)
+                    .put("uri", it.treeUri?.toString() ?: "")
+                    .put("path", it.path ?: "")
                     .put("pkg", it.packageName ?: ""),
             )
         }
         PreferenceManager.getDefaultSharedPreferences(context).edit().putString(KEY, arr.toString()).apply()
+    }
+}
+
+/** Any installed app (for the root "All apps" picker — no DocumentsProvider needed). */
+data class InstalledApp(val label: String, val packageName: String)
+
+object InstalledApps {
+    /** Every installed app (label + package), sorted by label, excluding BFE itself. */
+    fun list(context: Context): List<InstalledApp> {
+        val pm = context.packageManager
+        val me = context.packageName
+        return try {
+            @Suppress("DEPRECATION")
+            pm.getInstalledApplications(0)
+                .filter { it.packageName != me }
+                .map { InstalledApp(runCatching { it.loadLabel(pm).toString() }.getOrDefault(it.packageName), it.packageName) }
+                .sortedBy { it.label.lowercase() }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 }
 

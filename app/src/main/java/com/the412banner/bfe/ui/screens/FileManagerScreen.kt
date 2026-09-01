@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Unarchive
@@ -95,11 +96,15 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -148,6 +153,10 @@ import com.the412banner.bfe.ui.components.RailLink
 import com.the412banner.bfe.ui.components.RailSection
 import com.the412banner.bfe.ui.components.rememberRailState
 import com.the412banner.bfe.storage.DocProviderApp
+import com.the412banner.bfe.storage.InstalledApp
+import com.the412banner.bfe.storage.InstalledApps
+import com.the412banner.bfe.storage.RootAccess
+import com.the412banner.bfe.storage.RootBackend
 import com.the412banner.bfe.storage.DocumentsProviderApps
 import com.the412banner.bfe.storage.Loc
 import com.the412banner.bfe.storage.PinnedLocation
@@ -325,8 +334,8 @@ class PaneState(
     var rootPath by mutableStateOf(initialRootPath)     // up/back floor (the File drive root)
     // SAF navigation: non-empty ⇒ browsing a pinned SAF tree; last() = current dir, first() = root.
     // Empty ⇒ ordinary File mode (path/rootPath above). Not persisted across process death.
-    var safStack by mutableStateOf<List<Loc.SafLoc>>(emptyList())
-    var safLabel by mutableStateOf("")                  // the pinned location's friendly label
+    var altStack by mutableStateOf<List<Loc>>(emptyList())
+    var altLabel by mutableStateOf("")                  // the pinned location's friendly label
     var reloadTick by mutableStateOf(0)
     // Per-pane browse controls, driven by the shared toolbar for whichever pane is active.
     var viewMode by mutableStateOf(initialViewMode)
@@ -344,18 +353,18 @@ class PaneState(
     fun requestReload() { reloadTick++ }
 
     /** Whether this pane is currently browsing a SAF ("app storage") tree rather than a File dir. */
-    val isSaf: Boolean get() = safStack.isNotEmpty()
+    val isAlt: Boolean get() = altStack.isNotEmpty()
 
     /** The pane's current directory, as a backend-agnostic [Loc]. */
-    val currentLoc: Loc get() = if (isSaf) safStack.last() else Loc.FileLoc(File(path))
+    val currentLoc: Loc get() = if (isAlt) altStack.last() else Loc.FileLoc(File(path))
 
-    val canGoUp: Boolean get() = if (isSaf) true else path != rootPath
+    val canGoUp: Boolean get() = if (isAlt) true else path != rootPath
 
-    fun openSafRoot(root: Loc.SafLoc, label: String) { safStack = listOf(root); safLabel = label }
-    fun openSafInto(child: Loc.SafLoc) { safStack = safStack + child }
-    fun exitSaf() { safStack = emptyList(); safLabel = "" }
+    fun openAltRoot(root: Loc, label: String) { altStack = listOf(root); altLabel = label }
+    fun openAltInto(child: Loc) { altStack = altStack + child }
+    fun exitAlt() { altStack = emptyList(); altLabel = "" }
     /** SAF back: up one level, or exit SAF back to the File location the pane was at. */
-    fun safUp() { if (safStack.size > 1) safStack = safStack.dropLast(1) else exitSaf() }
+    fun altUp() { if (altStack.size > 1) altStack = altStack.dropLast(1) else exitAlt() }
 }
 
 private val PaneStateSaver = listSaver<PaneState, String>(
@@ -466,12 +475,47 @@ fun FileManagerScreen(
     var pendingPkg by remember { mutableStateOf<String?>(null) }
     val activeState = rememberUpdatedState(active)
 
-    // Open a pinned SAF tree in the ACTIVE pane (resolving its root document off the main thread).
+    // Open a pinned location (SAF tree or root path) in the ACTIVE pane, resolving it off the main
+    // thread. Root pins request root lazily (Magisk prompts once); denied/unavailable ⇒ a clear
+    // message and nothing else — the app keeps working without root.
     fun openPinned(p: PinnedLocation) {
         scope.launch {
-            val root = withContext(Dispatchers.IO) { SafBackend.rootLoc(context, p.treeUri, p.label) }
-            if (root != null) activeState.value.openSafRoot(root, p.label)
-            else Toast.makeText(context, "Can't open ${p.label} — access may have been revoked", Toast.LENGTH_LONG).show()
+            if (p.isRoot) {
+                val ok = withContext(Dispatchers.IO) { RootAccess.ensure() }
+                if (!ok) {
+                    Toast.makeText(context, "Root access unavailable — grant BFE root in Magisk to browse app data", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val root = withContext(Dispatchers.IO) { RootBackend.stat(p.path ?: return@withContext null) }
+                if (root != null && root.isDir) activeState.value.openAltRoot(root, p.label)
+                else Toast.makeText(context, "Can't open ${p.label} — ${p.path} isn't a directory", Toast.LENGTH_LONG).show()
+            } else {
+                val uri = p.treeUri ?: return@launch
+                val root = withContext(Dispatchers.IO) { SafBackend.rootLoc(context, uri, p.label) }
+                if (root != null) activeState.value.openAltRoot(root, p.label)
+                else Toast.makeText(context, "Can't open ${p.label} — access may have been revoked", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Root "All apps" pick: pin /data/data/<pkg> IMMEDIATELY (no folder picker — root needs no SAF
+    // consent) plus the app's external data dir when it exists, then open the private dir.
+    fun pinRootApp(app: InstalledApp) {
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { RootAccess.ensure() }
+            if (!ok) {
+                Toast.makeText(context, "Root access unavailable — grant BFE root in Magisk to browse app data", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val priv = "/data/data/${app.packageName}"
+            val ext = "/storage/emulated/0/Android/data/${app.packageName}"
+            PinnedStorage.addRoot(context, app.label, priv, app.packageName)
+            val hasExt = withContext(Dispatchers.IO) { RootBackend.stat(ext)?.isDir == true }
+            if (hasExt) PinnedStorage.addRoot(context, "${app.label} — external data", ext, app.packageName)
+            pinnedTick++
+            val root = withContext(Dispatchers.IO) { RootBackend.stat(priv) }
+            if (root != null && root.isDir) activeState.value.openAltRoot(root, app.label)
+            else Toast.makeText(context, "Can't open ${app.label}'s data directory", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -482,7 +526,7 @@ fun FileManagerScreen(
             pinnedTick++
             scope.launch {
                 val root = withContext(Dispatchers.IO) { SafBackend.rootLoc(context, uri, pendingLabel) }
-                if (root != null) activeState.value.openSafRoot(root, pendingLabel)
+                if (root != null) activeState.value.openAltRoot(root, pendingLabel)
             }
         }
     }
@@ -521,6 +565,7 @@ fun FileManagerScreen(
         AddAppStorageDialog(
             onDismiss = { showAddStorage = false },
             onPick = { provider -> showAddStorage = false; launchTreePicker(provider) },
+            onPickRoot = { app -> showAddStorage = false; pinRootApp(app) },
         )
     }
 
@@ -533,12 +578,12 @@ fun FileManagerScreen(
         if (showSideRail) {
             val railState = rememberRailState("filemanager")
             val storageItems = buildList {
-                add(RailItem("Internal", Icons.Filled.Smartphone, false) { active.exitSaf(); active.onOpenDrive(File("/storage/emulated/0")) })
+                add(RailItem("Internal", Icons.Filled.Smartphone, false) { active.exitAlt(); active.onOpenDrive(File("/storage/emulated/0")) })
                 drives.filter { it.removable }.forEach { d ->
-                    add(RailItem(d.label, Icons.Filled.SdStorage, false) { if (d.readable) { active.exitSaf(); active.onOpenDrive(d.dir) } })
+                    add(RailItem(d.label, Icons.Filled.SdStorage, false) { if (d.readable) { active.exitAlt(); active.onOpenDrive(d.dir) } })
                 }
                 pinned.forEach { p ->
-                    add(RailItem(p.label, Icons.Filled.Cloud, active.isSaf && active.safLabel == p.label) { openPinned(p) })
+                    add(RailItem(p.label, if (p.isRoot) Icons.Filled.Security else Icons.Filled.Cloud, active.isAlt && active.altLabel == p.label) { openPinned(p) })
                 }
                 add(RailItem("Add app storage", Icons.Filled.Add, false) { showAddStorage = true })
             }
@@ -561,7 +606,7 @@ fun FileManagerScreen(
                 pickMode = pickMode,
                 onOpenPinned = { openPinned(it) },
                 onAddAppStorage = { showAddStorage = true },
-                onUnpin = { p -> PinnedStorage.remove(context, p.treeUri); pinnedTick++ },
+                onUnpin = { p -> PinnedStorage.remove(context, p); pinnedTick++ },
             )
 
             if (!effectiveDual) {
@@ -589,54 +634,115 @@ fun FileManagerScreen(
 }
 
 /**
- * "Add app storage" picker: lists installed DocumentsProviders (SAF storage apps) with icon + label +
- * package. Tapping one launches ACTION_OPEN_DOCUMENT_TREE seeded at that provider; "Choose a folder…"
- * opens the plain system picker. The result (a tree Uri) is pinned + granted by the caller.
+ * "Add app storage" picker with two sections:
+ *  • **Storage apps (SAF)** — installed DocumentsProviders (icon + label + package). Tapping one opens
+ *    ACTION_OPEN_DOCUMENT_TREE seeded at that provider's ROOT, so the user only confirms "Use this
+ *    folder" (that confirmation is Android's own SAF consent step — unavoidable).
+ *  • **All apps (root)** — EVERY installed app, with a filter box. Tapping one pins and opens
+ *    `/data/data/<pkg>` IMMEDIATELY — no folder picker, root needs no SAF consent (Magisk prompts
+ *    once for root the first time).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddAppStorageDialog(onDismiss: () -> Unit, onPick: (DocProviderApp?) -> Unit) {
+private fun AddAppStorageDialog(
+    onDismiss: () -> Unit,
+    onPick: (DocProviderApp?) -> Unit,
+    onPickRoot: (InstalledApp) -> Unit,
+) {
     val context = LocalContext.current
     val pm = context.packageManager
-    val apps = remember { DocumentsProviderApps.list(context) }
+    val safApps = remember { DocumentsProviderApps.list(context) }
+    var rootTab by remember { mutableStateOf(false) }
+    var filter by remember { mutableStateOf("") }
+    val allApps = remember(rootTab) { if (rootTab) InstalledApps.list(context) else emptyList() }
+    val shownApps = remember(allApps, filter) {
+        if (filter.isBlank()) allApps
+        else allApps.filter { it.label.contains(filter, true) || it.packageName.contains(filter, true) }
+    }
+
+    @Composable
+    fun AppIcon(pkg: String, size: androidx.compose.ui.unit.Dp) {
+        val bmp = remember(pkg) { runCatching { pm.getApplicationIcon(pkg).toBitmap(48, 48).asImageBitmap() }.getOrNull() }
+        if (bmp != null) Image(bitmap = bmp, contentDescription = null, modifier = Modifier.size(size))
+        else Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size))
+    }
+
     OutlinedAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add app storage") },
         text = {
-            Column(modifier = Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
-                Text(
-                    "Pick an app that provides storage, then choose a folder to grant BFE access to.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(8.dp))
-                if (apps.isEmpty()) {
-                    Text("No storage apps found — you can still pick any folder below.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            Column(modifier = Modifier.heightIn(max = 480.dp)) {
+                // Section switch.
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(selected = !rootTab, onClick = { rootTab = false }, shape = SegmentedButtonDefaults.itemShape(0, 2)) { Text("Storage apps", fontSize = 12.sp) }
+                    SegmentedButton(selected = rootTab, onClick = { rootTab = true }, shape = SegmentedButtonDefaults.itemShape(1, 2)) { Text("All apps (root)", fontSize = 12.sp) }
                 }
-                apps.forEach { app ->
-                    val iconBmp = remember(app.packageName) {
-                        runCatching { pm.getApplicationIcon(app.packageName).toBitmap(48, 48).asImageBitmap() }.getOrNull()
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().clickable { onPick(app) }.padding(vertical = 8.dp),
-                    ) {
-                        if (iconBmp != null) Image(bitmap = iconBmp, contentDescription = null, modifier = Modifier.size(28.dp))
-                        else Icon(Icons.Filled.Cloud, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(app.label, color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(app.packageName, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                if (!rootTab) {
+                    Text(
+                        "Pick an app that provides storage. Android will then ask you to confirm the folder " +
+                            "(the picker opens at the app's root — just tap \"Use this folder\"). That confirmation " +
+                            "is Android's consent step; the root section below skips it entirely.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        if (safApps.isEmpty()) {
+                            Text("No storage apps found — you can still pick any folder below.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                        }
+                        safApps.forEach { app ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { onPick(app) }.padding(vertical = 8.dp),
+                            ) {
+                                AppIcon(app.packageName, 28.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(app.label, color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(app.packageName, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { onPick(null) }.padding(vertical = 10.dp),
+                        ) {
+                            Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text("Choose a folder…", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
                         }
                     }
-                }
-                Spacer(Modifier.height(4.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().clickable { onPick(null) }.padding(vertical = 10.dp),
-                ) {
-                    Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Choose a folder…", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+                } else {
+                    Text(
+                        "Pick any app — its private data (/data/data) is pinned and opened immediately, no " +
+                            "folder picker. Needs root (Magisk will ask once). Files BFE writes there are handed " +
+                            "back to the app's own user so the app keeps working.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = filter, onValueChange = { filter = it }, singleLine = true,
+                        placeholder = { Text("Filter apps", fontSize = 13.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                        items(shownApps, key = { it.packageName }) { app ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().clickable { onPickRoot(app) }.padding(vertical = 8.dp),
+                            ) {
+                                AppIcon(app.packageName, 28.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(app.label, color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(app.packageName, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -668,8 +774,8 @@ private fun SharedToolbar(
     val context = LocalContext.current
     var showDriveMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
-    val driveLabel = if (active.isSaf) active.safLabel else describeLocation(File(active.path)).driveLabel
-    val folderName = if (active.isSaf) active.currentLoc.name else File(active.path).name.ifBlank { active.path }
+    val driveLabel = if (active.isAlt) active.altLabel else describeLocation(File(active.path)).driveLabel
+    val folderName = if (active.isAlt) active.currentLoc.name else File(active.path).name.ifBlank { active.path }
     val driveChipAlpha = if (active.showFavorites) 0.45f else 1f
 
     Row(
@@ -682,7 +788,7 @@ private fun SharedToolbar(
         // Up / back (operates on the active pane).
         IconButton(
             onClick = {
-                if (active.isSaf) active.safUp()
+                if (active.isAlt) active.altUp()
                 else {
                     val parent = File(active.path).parentFile
                     if (active.canGoUp && parent != null && parent.exists()) active.onOpenDir(parent)
@@ -727,7 +833,7 @@ private fun SharedToolbar(
                         },
                         onClick = {
                             showDriveMenu = false
-                            active.exitSaf()
+                            active.exitAlt()
                             if (drive.readable) active.onOpenDrive(drive.dir)
                             else Toast.makeText(context, "${drive.label} is mounted but not readable right now", Toast.LENGTH_SHORT).show()
                         },
@@ -738,7 +844,7 @@ private fun SharedToolbar(
                     MenuItemDivider()
                     DropdownMenuItem(
                         text = { Text(p.label) },
-                        leadingIcon = { Icon(Icons.Filled.Cloud, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) },
+                        leadingIcon = { Icon(if (p.isRoot) Icons.Filled.Security else Icons.Filled.Cloud, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) },
                         trailingIcon = {
                             Icon(
                                 Icons.Filled.Close, "Remove",
@@ -955,7 +1061,7 @@ fun BrowserPane(
     var loadError by remember { mutableStateOf<String?>(null) }
 
     // ── Reactive listing ── re-lists whenever the current dir, sort, hidden filter or a reload signal
-    // changes. Navigation is pure state mutation (paneState.path / safStack); this effect turns that
+    // changes. Navigation is pure state mutation (paneState.path / altStack); this effect turns that
     // into a fresh listing. Scroll resets only when the DIRECTORY changes, not on sort/refresh.
     val lastLocId = remember { mutableStateOf<String?>(null) }
     LaunchedEffect(currentLoc.id, paneState.sortBy, paneState.sortDesc, paneState.showHidden, paneState.reloadTick) {
@@ -988,7 +1094,7 @@ fun BrowserPane(
 
     // One-shot: if the saved File path no longer exists, fall back to a sensible start dir.
     LaunchedEffect(Unit) {
-        if (!paneState.isSaf && !File(paneState.path).isDirectory) {
+        if (!paneState.isAlt && !File(paneState.path).isDirectory) {
             paneState.path = rootDir.absolutePath
             paneState.rootPath = rootDir.absolutePath
         }
@@ -999,7 +1105,7 @@ fun BrowserPane(
 
     // Jump to a File drive's root (exits any SAF browse); pins the back floor to that root.
     fun openDrive(dir: File) {
-        paneState.exitSaf()
+        paneState.exitAlt()
         paneState.rootPath = dir.absolutePath
         paneState.path = dir.absolutePath
     }
@@ -1012,7 +1118,7 @@ fun BrowserPane(
     fun openLoc(loc: Loc) {
         when (loc) {
             is Loc.FileLoc -> navFileDir(loc.file)
-            is Loc.SafLoc -> paneState.openSafInto(loc)
+            is Loc.SafLoc, is Loc.RootLoc -> paneState.openAltInto(loc)
         }
     }
 
@@ -1027,8 +1133,8 @@ fun BrowserPane(
     // System/gesture Back: close Favorites first; else go up (SAF pops/exits; File climbs to parent).
     BackHandler(enabled = paneState.showFavorites || paneState.canGoUp) {
         if (paneState.showFavorites) { paneState.showFavorites = false; return@BackHandler }
-        if (paneState.isSaf) {
-            paneState.safUp()
+        if (paneState.isAlt) {
+            paneState.altUp()
         } else {
             val here = File(paneState.path)
             val parent = here.parentFile
@@ -1050,34 +1156,46 @@ fun BrowserPane(
         return cand
     }
 
-    // A shareable content:// Uri for [loc]: a FileProvider uri for File, or the SAF doc Uri directly.
+    // A shareable content:// Uri for [loc]: a FileProvider uri for File, the SAF doc Uri directly, or —
+    // for a root file (unreadable by other apps) — a copy staged into our cache. Blocking for root;
+    // callers run it on IO.
     fun viewUri(loc: Loc): Uri? = when (loc) {
         is Loc.FileLoc -> runCatching {
             androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", loc.file)
         }.getOrNull()
         is Loc.SafLoc -> loc.docUri
+        is Loc.RootLoc -> runCatching {
+            val dir = File(context.cacheDir, "rootshare").apply { mkdirs() }
+            val staged = File(dir, loc.name)
+            RootBackend.openInputStream(context, loc)?.use { i -> staged.outputStream().use { o -> i.copyTo(o) } }
+                ?: return@runCatching null
+            androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", staged)
+        }.getOrNull()
+    }
+
+    // Resolve the share Uri off the main thread (root staging copies), then hand it to [use].
+    fun withViewUri(loc: Loc, failMsg: String, use: (Uri) -> Unit) {
+        scope.launch {
+            val uri = withContext(Dispatchers.IO) { viewUri(loc) }
+            if (uri == null) { Toast.makeText(context, failMsg, Toast.LENGTH_SHORT).show(); return@launch }
+            runCatching { use(uri) }.onFailure { Toast.makeText(context, failMsg, Toast.LENGTH_SHORT).show() }
+        }
     }
 
     // "Open with": hand the file to another app through a plain ACTION_VIEW chooser (best-effort).
-    fun openWith(loc: Loc) {
-        runCatching {
-            val uri = viewUri(loc) ?: throw IllegalStateException()
-            val mime = context.contentResolver.getType(uri) ?: "*/*"
-            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }, "Open with"))
-        }.onFailure { Toast.makeText(context, "No app can open ${loc.name}", Toast.LENGTH_SHORT).show() }
+    fun openWith(loc: Loc) = withViewUri(loc, "No app can open ${loc.name}") { uri ->
+        val mime = context.contentResolver.getType(uri) ?: "*/*"
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, "Open with"))
     }
 
     // Share a file to another app via ACTION_SEND.
-    fun shareFile(loc: Loc) {
-        runCatching {
-            val uri = viewUri(loc) ?: throw IllegalStateException()
-            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                type = context.contentResolver.getType(uri) ?: "*/*"
-                putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }, "Share ${loc.name}"))
-        }.onFailure { Toast.makeText(context, "Couldn't share ${loc.name}", Toast.LENGTH_SHORT).show() }
+    fun shareFile(loc: Loc) = withViewUri(loc, "Couldn't share ${loc.name}") { uri ->
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = context.contentResolver.getType(uri) ?: "*/*"
+            putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }, "Share ${loc.name}"))
     }
 
     // Share several files at once via ACTION_SEND_MULTIPLE (used by the selection action bar).
@@ -1085,29 +1203,74 @@ fun BrowserPane(
         val files = locs.filter { !it.isDir }
         if (files.isEmpty()) return
         if (files.size == 1) { shareFile(files.first()); return }
-        runCatching {
-            val uris = ArrayList(files.mapNotNull { viewUri(it) })
-            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = "*/*"; putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }, "Share ${files.size} files"))
-        }.onFailure { Toast.makeText(context, "Couldn't share the selection", Toast.LENGTH_SHORT).show() }
+        scope.launch {
+            val uris = withContext(Dispatchers.IO) { ArrayList(files.mapNotNull { viewUri(it) }) }
+            runCatching {
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    type = "*/*"; putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, "Share ${files.size} files"))
+            }.onFailure { Toast.makeText(context, "Couldn't share the selection", Toast.LENGTH_SHORT).show() }
+        }
     }
 
     // Install an .apk via the system package installer (needs REQUEST_INSTALL_PACKAGES).
-    fun installApk(loc: Loc) {
-        runCatching {
-            val uri = viewUri(loc) ?: throw IllegalStateException()
-            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-        }.onFailure { Toast.makeText(context, "Couldn't start the installer for ${loc.name}", Toast.LENGTH_SHORT).show() }
+    fun installApk(loc: Loc) = withViewUri(loc, "Couldn't start the installer for ${loc.name}") { uri ->
+        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
     }
 
-    // In dual-pane mode, extraction defaults into the OTHER pane's directory when it's a File dir (the
-    // native extractors need a real path); single-pane keeps the engine's own sibling-folder default.
-    fun extractDest(): File? = if (dualPane) (otherPaneDir() as? Loc.FileLoc)?.file else null
+    // Extraction into a SAF/root pane: the native engines need a real app-owned path, so we extract
+    // into a temp dir under our cache and, once the job reports DONE, stream-copy the result into the
+    // target location (root writes get chown'd to the app uid by RootBackend), then delete the temp.
+    var pendingExtractCopy by remember { mutableStateOf<Pair<File, Loc>?>(null) }
+
+    // In dual-pane mode, extraction defaults into the OTHER pane: directly when it's a File dir, via a
+    // temp dir + post-copy when it's SAF/root. Single-pane keeps the engine's sibling-folder default.
+    fun extractDest(): File? {
+        if (!dualPane) return null
+        return when (val other = otherPaneDir()) {
+            null -> null
+            is Loc.FileLoc -> other.file
+            else -> File(context.cacheDir, "extract-${System.currentTimeMillis()}").also {
+                it.mkdirs()
+                pendingExtractCopy = it to other
+            }
+        }
+    }
+
+    val unpackState by com.the412banner.bfe.unpack.UnpackManager.state.collectAsState()
+    LaunchedEffect(unpackState.phase, pendingExtractCopy) {
+        val pending = pendingExtractCopy ?: return@LaunchedEffect
+        val (tmp, target) = pending
+        when (unpackState.phase) {
+            com.the412banner.bfe.unpack.UnpackPhase.DONE -> {
+                if (!unpackState.destPath.startsWith(tmp.absolutePath)) return@LaunchedEffect
+                pendingExtractCopy = null
+                isOperationRunning = true
+                operationDeterminate = false
+                operationLabel = "Copying extracted files into ${target.name}…"
+                val ok = withContext(Dispatchers.IO) {
+                    val extracted = File(unpackState.destPath)
+                    val r = StorageTransfer.copyInto(context, Loc.FileLoc(extracted), target, extracted.name)
+                    tmp.deleteRecursively()
+                    r
+                }
+                isOperationRunning = false
+                onRequestOtherReload()
+                Toast.makeText(context, if (ok) "Extracted into ${target.name}" else "Some extracted files couldn't be copied", Toast.LENGTH_LONG).show()
+            }
+            com.the412banner.bfe.unpack.UnpackPhase.ERROR, com.the412banner.bfe.unpack.UnpackPhase.CANCELLED -> {
+                if (unpackState.destPath.startsWith(tmp.absolutePath)) {
+                    pendingExtractCopy = null
+                    withContext(Dispatchers.IO) { tmp.deleteRecursively() }
+                }
+            }
+            else -> Unit
+        }
+    }
 
     // Archive extraction is File-only (the native engines need a real path); guard SAF entries.
     fun launchFastExtract(loc: Loc) {
@@ -1503,7 +1666,7 @@ fun BrowserPane(
             currentFile?.let { runCatching { it.usableSpace }.getOrDefault(0L) } ?: 0L
         }
         val locDisplayPath = currentFile?.absolutePath
-            ?: (paneState.safLabel + paneState.safStack.drop(1).joinToString("") { " / ${it.name}" })
+            ?: (paneState.altLabel + paneState.altStack.drop(1).joinToString("") { " / ${it.name}" })
         if (!paneState.showFavorites) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -2098,7 +2261,7 @@ private fun FileItemRow(
         }
     }
     // Thumbnail source: the File for direct storage, the SAF doc Uri otherwise (Coil handles both).
-    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as Loc.SafLoc).docUri
+    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as? Loc.SafLoc)?.docUri ?: ""
 
     // ── Compact (dense) row ── minimal single-line row, ~28dp tall, with a thin divider.
     if (dense) {
@@ -2525,7 +2688,7 @@ private fun FileGridTile(
         }
     }
     // Thumbnail source: the File for direct storage, the SAF doc Uri otherwise (Coil handles both).
-    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as Loc.SafLoc).docUri
+    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as? Loc.SafLoc)?.docUri ?: ""
     // The tile has no ⋮ button — long-press opens this menu, anchored to the Box around the Card.
     Box {
         Card(

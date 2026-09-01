@@ -51,6 +51,17 @@ sealed class Loc {
         val docUri: Uri get() = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
         override val id get() = docUri.toString()
     }
+
+    /** A root-backed filesystem path (any app's private storage on a rooted device). */
+    class RootLoc(
+        val path: String,
+        override val name: String,
+        override val isDir: Boolean,
+        override val size: Long,
+        override val lastModified: Long,
+    ) : Loc() {
+        override val id get() = "root:$path"
+    }
 }
 
 /**
@@ -75,6 +86,7 @@ object Storage {
     fun backend(loc: Loc): StorageBackend = when (loc) {
         is Loc.FileLoc -> FileBackend
         is Loc.SafLoc -> SafBackend
+        is Loc.RootLoc -> RootBackend
     }
 }
 
