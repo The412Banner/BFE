@@ -26,10 +26,15 @@ class UnpackArchiveActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val archivePath = resolveArchivePath()
+        val initialDest = intent.getStringExtra(EXTRA_INITIAL_DEST)?.takeIf { it.isNotBlank() }
         setContent {
             BfeTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    UnpackArchiveScreen(archivePath = archivePath, onClose = { finish() })
+                    UnpackArchiveScreen(
+                        archivePath = archivePath,
+                        initialDestPath = initialDest,
+                        onClose = { finish() },
+                    )
                 }
             }
         }
@@ -50,9 +55,16 @@ class UnpackArchiveActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_ARCHIVE_PATH = "archivePath"
+        const val EXTRA_INITIAL_DEST = "initialDest"
 
-        fun intent(context: Context, archivePath: String): Intent =
+        /**
+         * @param initialDest optional starting extract destination (BFE dual-pane: the other pane's
+         *   directory). When set, the screen seeds "Extract to" with a subfolder inside it; the user
+         *   can still change it. Null keeps the screen's own sibling-folder default.
+         */
+        fun intent(context: Context, archivePath: String, initialDest: String? = null): Intent =
             Intent(context, UnpackArchiveActivity::class.java)
                 .putExtra(EXTRA_ARCHIVE_PATH, archivePath)
+                .apply { initialDest?.let { putExtra(EXTRA_INITIAL_DEST, it) } }
     }
 }

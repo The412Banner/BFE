@@ -11,6 +11,9 @@ server, Steam/GOG store plumbing) and keeps only the browse-and-extract core.
 ## What it does
 
 - Browse internal storage and SD cards; sort, copy, move, delete, rename, multi-select, favorites.
+- **Dual-pane ("commander") split view** (toggle in the toolbar): two independent browsers side by
+  side (wide screens) or stacked (portrait), with one-tap **Copy →/Move →** and extract-into-the-
+  other-pane between them.
 - Grid + compact views, search, Coil thumbnails and PE (`.exe`) icon extraction.
 - Extract `.iso`/`.udf`/`.img`, `.7z`/`.zip`/`.rar` (incl. multi-part), split volumes, `.tar.*`, and more.
 - One-tap **Fast Extract**, or a full **Unpack Archive** screen with a background foreground-service job,

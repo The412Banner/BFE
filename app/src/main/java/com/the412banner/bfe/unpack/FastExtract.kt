@@ -33,7 +33,12 @@ object FastExtract {
         data class OpenScreen(val archivePath: String, val toast: String?) : Outcome
     }
 
-    suspend fun start(context: Context, file: File): Outcome {
+    /**
+     * @param destOverride when non-null (BFE dual-pane: the OTHER pane's directory), the extracted
+     *   game/archive folder lands inside it instead of a sibling of the source; null keeps the
+     *   engine's default (a new sibling folder next to the archive).
+     */
+    suspend fun start(context: Context, file: File, destOverride: File? = null): Outcome {
         if (UnpackManager.current.isRunning) return Outcome.Busy
 
         val innoTarget = SevenZip.resolveInnoTarget(file)
@@ -50,7 +55,7 @@ object FastExtract {
             return when (cls.route) {
                 SevenZip.InnoRoute.INNOEXTRACT -> {
                     if (!hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
-                    val dest = defaultDest(archive, isInno = true)
+                    val dest = defaultDest(archive, isInno = true, overrideBase = destOverride)
                     // Auto-detect GOG DLC/extra setups in the same folder and extract them all into one
                     // merged game folder (base first, DLC overlaid on top). `size` already sums every
                     // .bin in the folder, so it doubles as the combined batch payload for the bar.
@@ -66,7 +71,7 @@ object FastExtract {
                 SevenZip.InnoRoute.FREEARC_NATIVE -> {
                     if (!hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
                     val job = cls.freeArcArchive ?: archive
-                    val dest = defaultDest(archive, isInno = true)
+                    val dest = defaultDest(archive, isInno = true, overrideBase = destOverride)
                     UnpackService.start(context, job.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, "unarc")
                     Outcome.Started(job.name)
                 }
@@ -81,17 +86,17 @@ object FastExtract {
         if (info?.type.isNullOrBlank()) return Outcome.NotArchive(file.name)
         if (!hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
 
-        val dest = defaultDest(archive, isInno = false)
+        val dest = defaultDest(archive, isInno = false, overrideBase = destOverride)
         val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
         UnpackService.start(context, archive.absolutePath, dest, UnpackManager.mmtFor(PowerMode.AUTO, cores), ReadBuffer.MB1.bytes, false, archive.length(), "7z")
         return Outcome.Started(archive.name)
     }
 
     /** The screen's default destination: a NEW sibling folder named for the game/archive, uniquified. */
-    private fun defaultDest(archive: File, isInno: Boolean): String {
+    private fun defaultDest(archive: File, isInno: Boolean, overrideBase: File? = null): String {
         val name = if (isInno) (archive.parentFile?.name?.takeIf { it.isNotBlank() } ?: "game")
         else SevenZip.suggestedTargetName(archive)
-        val base = if (isInno) (archive.parentFile?.parentFile ?: archive.parentFile) else archive.parentFile
+        val base = overrideBase ?: (if (isInno) (archive.parentFile?.parentFile ?: archive.parentFile) else archive.parentFile)
         var candidate = File(base, name)
         var i = 1
         while (candidate.exists()) { candidate = File(base, "$name ($i)"); i++ }

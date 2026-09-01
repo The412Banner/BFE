@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.ViewColumn
 import com.the412banner.bfe.ui.components.CollapsibleRail
 import com.the412banner.bfe.ui.components.RailItem
 import com.the412banner.bfe.ui.components.RailSection
@@ -101,7 +103,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -271,8 +278,144 @@ private fun badgeColors(loc: FavLocation): Pair<Color, Color> {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Cross-pane-visible state for one [BrowserPane]: its current directory (saved across process death)
+ * plus a reload signal the parent bumps to refresh the pane after a cross-pane operation. Everything
+ * else a pane needs stays as the pane composable's own `remember` state.
+ */
+class PaneState(initialPath: String) {
+    var path by mutableStateOf(initialPath)
+    var reloadTick by mutableStateOf(0)
+    fun requestReload() { reloadTick++ }
+}
+
+private val PaneStateSaver: Saver<PaneState, String> = Saver(
+    save = { it.path },
+    restore = { PaneState(it) },
+)
+
+@Composable
+fun rememberPaneState(key: String, initialPath: String): PaneState =
+    rememberSaveable(key = key, saver = PaneStateSaver) { PaneState(initialPath) }
+
+// Fire [onActivate] the instant a touch lands anywhere in this pane (Initial pass, before children
+// consume it), so tapping a pane focuses it without stealing the tap from whatever was tapped.
+private fun Modifier.activateOnTouch(active: Boolean, onActivate: () -> Unit): Modifier =
+    this.pointerInput(active) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (!active && event.type == PointerEventType.Press) onActivate()
+            }
+        }
+    }
+
+/**
+ * The File Manager entry point. Hosts one or two [BrowserPane]s: a persisted split toggle switches
+ * between the single full-pane view (default) and a two-pane commander view — side by side on wide
+ * screens (≥600dp), stacked top/bottom on narrow ones. Exactly one pane is active (accent-bordered);
+ * its controls + multi-select operate on it, and its "Copy →"/"Move →" and extraction target the
+ * OTHER pane. Pick mode always uses a single pane.
+ */
 @Composable
 fun FileManagerScreen(
+    pickMode: Boolean = false,
+    pickDirMode: Boolean = false,
+    pickExtensions: List<String> = emptyList(),
+    initialDir: File? = null,
+    pickerTitle: String? = null,
+    onPick: ((File) -> Unit)? = null,
+) {
+    val context = LocalContext.current
+    val prefs = remember { androidx.preference.PreferenceManager.getDefaultSharedPreferences(context) }
+    val startPath = remember {
+        (initialDir?.takeIf { it.isDirectory } ?: File("/storage/emulated/0")).absolutePath
+    }
+    val leftPane = rememberPaneState("fm_pane_left", startPath)
+    val rightPane = rememberPaneState("fm_pane_right", startPath)
+
+    var dualPane by rememberSaveable { mutableStateOf(prefs.getBoolean("fmDualPane", false)) }
+    var activeIndex by rememberSaveable { mutableStateOf(0) }
+    // Dual-pane never applies while picking a file/folder — a picker stays single-pane.
+    val effectiveDual = dualPane && !pickMode
+    val toggleDual: () -> Unit = {
+        dualPane = !dualPane
+        prefs.edit().putBoolean("fmDualPane", dualPane).apply()
+        activeIndex = 0
+    }
+
+    if (!effectiveDual) {
+        BrowserPane(
+            paneState = leftPane,
+            dualPane = false,
+            onToggleDualPane = toggleDual,
+            otherPaneDir = { null },
+            onRequestOtherReload = {},
+            showRail = !pickMode,
+            pickMode = pickMode,
+            pickDirMode = pickDirMode,
+            pickExtensions = pickExtensions,
+            initialDir = initialDir,
+            pickerTitle = pickerTitle,
+            onPick = onPick,
+        )
+        return
+    }
+
+    // Two-pane commander view. Each pane is a fully independent BrowserPane instance.
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    val accent = MaterialTheme.colorScheme.primary
+    val idleBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+
+    @Composable
+    fun Pane(index: Int, state: PaneState, other: PaneState, modifier: Modifier) {
+        val isActive = activeIndex == index
+        Box(
+            modifier = modifier
+                .activateOnTouch(isActive) { activeIndex = index }
+                .border(2.dp, if (isActive) accent else idleBorder),
+        ) {
+            BrowserPane(
+                paneState = state,
+                dualPane = true,
+                onToggleDualPane = toggleDual,
+                otherPaneDir = { File(other.path).takeIf { it.isDirectory } },
+                onRequestOtherReload = { other.requestReload() },
+                showRail = false,
+            )
+        }
+    }
+
+    if (wide) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            Pane(0, leftPane, rightPane, Modifier.weight(1f).fillMaxHeight())
+            Pane(1, rightPane, leftPane, Modifier.weight(1f).fillMaxHeight())
+        }
+    } else {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Pane(0, leftPane, rightPane, Modifier.weight(1f).fillMaxWidth())
+            Pane(1, rightPane, leftPane, Modifier.weight(1f).fillMaxWidth())
+        }
+    }
+}
+
+/**
+ * One independent file-browser instance. Two of these coexist in dual-pane mode; the single-pane
+ * File Manager is just one of them. Its cross-pane-visible state (the current directory + a reload
+ * signal) lives in [paneState] so the parent can read this pane's dir and refresh it after a
+ * cross-pane copy/move/extract; everything else (selection, sort, view mode, scroll, search, hidden)
+ * stays as this composable's own `remember` state and is therefore independent per pane automatically.
+ */
+@Composable
+fun BrowserPane(
+    paneState: PaneState,
+    // Dual-pane wiring. In single-pane mode: dualPane=false, otherPaneDir returns null, the reload
+    // callback is a no-op, and the rail is shown.
+    dualPane: Boolean = false,
+    onToggleDualPane: () -> Unit = {},
+    otherPaneDir: () -> File? = { null },
+    onRequestOtherReload: () -> Unit = {},
+    showRail: Boolean = true,
     // Pick mode (issue #73): reuse this File Manager as a themed file picker. When on, editing/run
     // features are gated off and tapping a matching file returns it via [onPick]. Defaults keep the
     // full-featured File Manager nav destination unchanged.
@@ -299,11 +442,10 @@ fun FileManagerScreen(
     val pickPrefs = remember { androidx.preference.PreferenceManager.getDefaultSharedPreferences(context) }
     val browsePrefs = pickPrefs
     val rootDir = remember {
-        // Both modes: honour an explicit caller-supplied start dir (e.g. Log Manager's game-log
-        // folder), else open at the INTERNAL STORAGE ROOT. Selection screens (drive-folder pick,
-        // local component pick, imports) previously defaulted to Download which — combined with the
-        // currentRoot floor below — trapped users in Download with no way up (reported bug).
-        initialDir?.takeIf { it.isDirectory } ?: File("/storage/emulated/0")
+        // The pane's start dir comes from its saved [paneState] path (which the parent seeds from
+        // initialDir or the internal storage root), so a pane survives process death at its own path.
+        val saved = File(paneState.path).takeIf { it.isDirectory }
+        saved ?: initialDir?.takeIf { it.isDirectory } ?: File("/storage/emulated/0")
     }
 
     var currentDir by remember { mutableStateOf(rootDir) }
@@ -382,6 +524,8 @@ fun FileManagerScreen(
     // after delete/paste/rename/refresh so the user keeps their scroll position).
     fun loadDirectory(dir: File, resetScroll: Boolean = true) {
         currentDir = dir
+        // Publish the current dir so the parent (dual-pane) can read it as the cross-pane target.
+        paneState.path = dir.absolutePath
         // Remember the browsed directory so the next pick resumes here.
         if (pickMode) pickPrefs.edit().putString("lastFilePickerDir", dir.absolutePath).apply()
         loading = true
@@ -416,6 +560,12 @@ fun FileManagerScreen(
             loadDirectory(currentDir, resetScroll = false)
             pullState.endRefresh()
         }
+    }
+
+    // Cross-pane refresh: the parent bumps [paneState.reloadTick] after a copy/move/extract into this
+    // pane's directory, so the newly-arrived files appear without a manual pull-to-refresh.
+    LaunchedEffect(paneState.reloadTick) {
+        if (paneState.reloadTick > 0) loadDirectory(currentDir, resetScroll = false)
     }
 
     // Jump to a drive's root; pins the Back boundary so we don't climb above it.
@@ -508,12 +658,20 @@ fun FileManagerScreen(
 
     // Shared by both the list rows and the grid tiles so the big Fast-Extract when-branch and the
     // Unpack-screen launch aren't duplicated per call site. Both close the context menu first.
+    // In dual-pane mode, extraction defaults into the OTHER pane's directory (so "extract left →
+    // into right" is one tap); single-pane keeps the engine's own sibling-folder default.
+    fun extractDest(): File? = if (dualPane) otherPaneDir() else null
+
     fun launchFastExtract(file: File) {
         showMenuFor = null
+        val dest = extractDest()
         scope.launch {
-            when (val o = com.the412banner.bfe.unpack.FastExtract.start(context, file)) {
-                is com.the412banner.bfe.unpack.FastExtract.Outcome.Started ->
+            when (val o = com.the412banner.bfe.unpack.FastExtract.start(context, file, dest)) {
+                is com.the412banner.bfe.unpack.FastExtract.Outcome.Started -> {
                     Toast.makeText(context, "Unpacking ${o.name}…", Toast.LENGTH_SHORT).show()
+                    // Show the extracted files in the target pane as soon as the job finishes.
+                    if (dualPane) onRequestOtherReload()
+                }
                 com.the412banner.bfe.unpack.FastExtract.Outcome.Busy ->
                     Toast.makeText(context, "Another unpack is already in progress", Toast.LENGTH_SHORT).show()
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.NotArchive ->
@@ -521,7 +679,7 @@ fun FileManagerScreen(
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.OpenScreen -> {
                     o.toast?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
                     context.startActivity(
-                        com.the412banner.bfe.UnpackArchiveActivity.intent(context, o.archivePath)
+                        com.the412banner.bfe.UnpackArchiveActivity.intent(context, o.archivePath, dest?.absolutePath)
                     )
                 }
             }
@@ -531,7 +689,7 @@ fun FileManagerScreen(
     fun launchUnpack(file: File) {
         showMenuFor = null
         context.startActivity(
-            com.the412banner.bfe.UnpackArchiveActivity.intent(context, file.absolutePath)
+            com.the412banner.bfe.UnpackArchiveActivity.intent(context, file.absolutePath, extractDest()?.absolutePath)
         )
     }
 
@@ -571,12 +729,11 @@ fun FileManagerScreen(
         return conflictChoice
     }
 
-    fun performPaste() {
-        val sources = clipboardFiles
+    // Copy or move [sources] into [dstDir]. Used by within-pane paste (dst = currentDir) and by the
+    // cross-pane "Copy →"/"Move →" actions (dst = the other pane's dir). [onDone] refreshes the OTHER
+    // pane after a cross-pane op; the source pane is always refreshed (a move removes items from it).
+    fun performCopyMove(sources: List<File>, dstDir: File, cut: Boolean, onDone: () -> Unit = {}) {
         if (sources.isEmpty()) return
-        val dstDir = currentDir
-        val cut = isCutOperation
-
         operationJob = scope.launch {
             operationProgress = 0f
             operationDeterminate = true
@@ -640,11 +797,10 @@ fun FileManagerScreen(
             isOperationRunning = false
             operationDeterminate = false
             operationJob = null
-            clipboardFiles = emptyList()
-            isCutOperation = false
             selectionMode = false
             selectedPaths = emptySet()
             loadDirectory(currentDir, resetScroll = false)
+            onDone()
 
             val message = when {
                 failed > 0 -> "$done done, $failed failed"
@@ -654,6 +810,22 @@ fun FileManagerScreen(
             }
             if (message != null) Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // Within-pane clipboard paste: copy/move the clipboard into the current directory.
+    fun performPaste() {
+        val sources = clipboardFiles
+        val cut = isCutOperation
+        clipboardFiles = emptyList()
+        isCutOperation = false
+        performCopyMove(sources, currentDir, cut)
+    }
+
+    // Cross-pane: copy or move the current selection into the OTHER pane's directory, then refresh it.
+    fun crossPaneTransfer(cut: Boolean) {
+        val target = otherPaneDir() ?: return
+        val sources = entries.filter { it.absolutePath in selectedPaths }
+        performCopyMove(sources, target, cut) { onRequestOtherReload() }
     }
 
     fun performRename(file: File, newName: String) {
@@ -1078,6 +1250,16 @@ fun FileManagerScreen(
                     Icon(Icons.Filled.StarBorder, "Show favorites", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            // Dual-pane (split) toggle — opens/collapses the two-pane commander view (persisted).
+            if (!pickMode) {
+                IconButton(onClick = onToggleDualPane) {
+                    Icon(
+                        Icons.Filled.ViewColumn,
+                        if (dualPane) "Single pane" else "Dual pane",
+                        tint = if (dualPane) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
 
         // ── Search field ── filters the current folder only; it is not a recursive search.
@@ -1176,6 +1358,23 @@ fun FileManagerScreen(
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Cut", fontSize = 12.sp) }
+                    // Cross-pane: copy / move the selection straight into the OTHER pane's directory.
+                    if (dualPane && otherPaneDir() != null) {
+                        Spacer(Modifier.width(4.dp))
+                        OutlinedButton(
+                            enabled = selectedPaths.isNotEmpty(),
+                            onClick = { crossPaneTransfer(cut = false) },
+                            contentPadding = selBarPadding,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        ) { Text("Copy →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
+                        Spacer(Modifier.width(4.dp))
+                        OutlinedButton(
+                            enabled = selectedPaths.isNotEmpty(),
+                            onClick = { crossPaneTransfer(cut = true) },
+                            contentPadding = selBarPadding,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        ) { Text("Move →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
+                    }
                     Spacer(Modifier.width(4.dp))
                     OutlinedButton(
                         enabled = selectedPaths.any { p -> entries.any { it.absolutePath == p && it.isFile } },
@@ -1303,8 +1502,9 @@ fun FileManagerScreen(
         }
 
         Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            // The slim picker hides the rail; the full File Manager shows it.
-            if (!pickMode) {
+            // The nav rail is shown only in the single full-pane File Manager. The slim picker and
+            // each dual-pane column hide it (they navigate via the drive chip in the path bar).
+            if (showRail) {
                 CollapsibleRail(state = fmRailState, title = "Files", sections = locationSections, outlinedItems = true)
             }
             Box(modifier = Modifier.weight(1f).fillMaxSize()) {

@@ -89,6 +89,9 @@ import java.io.File
 @Composable
 fun UnpackArchiveScreen(
     archivePath: String,
+    // Optional starting extract destination (BFE dual-pane: the other pane's directory). When set,
+    // "Extract to" seeds a subfolder inside it instead of a sibling of the archive; still overridable.
+    initialDestPath: String? = null,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -138,9 +141,12 @@ fun UnpackArchiveScreen(
         typeLoading = false
     }
 
-    // Destination defaults to a sibling folder (of the repack folder, for InnoSetup) named for the game.
-    var destPath by remember(archivePath) {
-        val base = if (isInno) archive.parentFile?.parentFile ?: archive.parentFile else selected.parentFile
+    // Destination: an explicit [initialDestPath] (dual-pane: the other pane) wins; otherwise a sibling
+    // folder (of the repack folder, for InnoSetup) named for the game. Always a named subfolder.
+    var destPath by remember(archivePath, initialDestPath) {
+        val overrideBase = initialDestPath?.let { File(it) }?.takeIf { it.isDirectory }
+        val base = overrideBase
+            ?: if (isInno) archive.parentFile?.parentFile ?: archive.parentFile else selected.parentFile
         mutableStateOf(File(base, defaultName).absolutePath)
     }
     val destPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
