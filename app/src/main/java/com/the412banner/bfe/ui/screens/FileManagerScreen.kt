@@ -75,10 +75,6 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.ViewColumn
-import com.the412banner.bfe.ui.components.CollapsibleRail
-import com.the412banner.bfe.ui.components.RailItem
-import com.the412banner.bfe.ui.components.RailSection
-import com.the412banner.bfe.ui.components.rememberRailState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -108,6 +104,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -136,6 +133,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.core.FileUtils
 import com.the412banner.bfe.core.PeIconExtractor
+import com.the412banner.bfe.core.StorageRoot
 import com.the412banner.bfe.core.StorageRoots
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.util.FavoritesStore
@@ -288,24 +286,65 @@ private fun badgeColors(loc: FavLocation): Pair<Color, Color> {
 }
 
 /**
- * Cross-pane-visible state for one [BrowserPane]: its current directory (saved across process death)
- * plus a reload signal the parent bumps to refresh the pane after a cross-pane operation. Everything
- * else a pane needs stays as the pane composable's own `remember` state.
+ * All the per-pane state the [BrowserPane] and the single shared toolbar coordinate on. The shared
+ * toolbar reads and mutates the ACTIVE pane's PaneState (its path/drive, view mode, sort, search,
+ * favourites, new-folder), and BrowserPane reacts — so view mode and sort are PER PANE and toggling
+ * one never syncs the other. The navigation hooks ([onOpenDir]/[onOpenDrive]) are wired by BrowserPane
+ * because they need its coroutine scope + pick filtering; they're plain (non-observable) vars.
  */
-class PaneState(initialPath: String) {
-    var path by mutableStateOf(initialPath)
+class PaneState(
+    initialPath: String,
+    initialRootPath: String = initialPath,
+    initialViewMode: FmViewMode = FmViewMode.LIST,
+    initialSortBy: String = "name",
+    initialSortDesc: Boolean = false,
+    initialShowHidden: Boolean = true,
+    initialCompactRows: Boolean = false,
+) {
+    var path by mutableStateOf(initialPath)             // current directory
+    var rootPath by mutableStateOf(initialRootPath)     // up/back floor (the drive root)
     var reloadTick by mutableStateOf(0)
+    // Per-pane browse controls, driven by the shared toolbar for whichever pane is active.
+    var viewMode by mutableStateOf(initialViewMode)
+    var sortBy by mutableStateOf(initialSortBy)
+    var sortDesc by mutableStateOf(initialSortDesc)
+    var showHidden by mutableStateOf(initialShowHidden)
+    var compactRows by mutableStateOf(initialCompactRows)
+    var showSearch by mutableStateOf(false)
+    var searchQuery by mutableStateOf("")
+    var showFavorites by mutableStateOf(false)
+    var showNewFolderDialog by mutableStateOf(false)
+    // Wired by BrowserPane (navigation needs its scope + pick filtering). Non-observable on purpose.
+    var onOpenDir: (File) -> Unit = {}
+    var onOpenDrive: (File) -> Unit = {}
     fun requestReload() { reloadTick++ }
+    val canGoUp: Boolean get() = path != rootPath
 }
 
-private val PaneStateSaver: Saver<PaneState, String> = Saver(
-    save = { it.path },
-    restore = { PaneState(it) },
+private val PaneStateSaver: Saver<PaneState, List<String>> = listSaver(
+    save = {
+        listOf(
+            it.path, it.rootPath, it.viewMode.name, it.sortBy,
+            it.sortDesc.toString(), it.showHidden.toString(), it.compactRows.toString(),
+        )
+    },
+    restore = {
+        PaneState(it[0], it[1], FmViewMode.valueOf(it[2]), it[3], it[4].toBoolean(), it[5].toBoolean(), it[6].toBoolean())
+    },
 )
 
 @Composable
-fun rememberPaneState(key: String, initialPath: String): PaneState =
-    rememberSaveable(key = key, saver = PaneStateSaver) { PaneState(initialPath) }
+fun rememberPaneState(
+    key: String,
+    initialPath: String,
+    initialViewMode: FmViewMode,
+    initialSortBy: String,
+    initialSortDesc: Boolean,
+    initialShowHidden: Boolean,
+    initialCompactRows: Boolean,
+): PaneState = rememberSaveable(key = key, saver = PaneStateSaver) {
+    PaneState(initialPath, initialPath, initialViewMode, initialSortBy, initialSortDesc, initialShowHidden, initialCompactRows)
+}
 
 // Fire [onActivate] the instant a touch lands anywhere in this pane (Initial pass, before children
 // consume it), so tapping a pane focuses it without stealing the tap from whatever was tapped.
@@ -320,11 +359,11 @@ private fun Modifier.activateOnTouch(active: Boolean, onActivate: () -> Unit): M
     }
 
 /**
- * The File Manager entry point. Hosts one or two [BrowserPane]s: a persisted split toggle switches
- * between the single full-pane view (default) and a two-pane commander view — side by side on wide
- * screens (≥600dp), stacked top/bottom on narrow ones. Exactly one pane is active (accent-bordered);
- * its controls + multi-select operate on it, and its "Copy →"/"Move →" and extraction target the
- * OTHER pane. Pick mode always uses a single pane.
+ * The File Manager entry point — the classic commander layout: ONE full-width toolbar at the top,
+ * and one or two file panes below it. The persisted split toggle switches between a single pane and
+ * two side-by-side panes (in both orientations). Exactly one pane is active (accent-bordered, focused
+ * by a tap); the shared toolbar reflects and controls ONLY the active pane, and its "Copy →"/"Move →"
+ * and extraction target the OTHER pane. View mode and sort are per pane. Pick mode uses a single pane.
  */
 @Composable
 fun FileManagerScreen(
@@ -340,8 +379,24 @@ fun FileManagerScreen(
     val startPath = remember {
         (initialDir?.takeIf { it.isDirectory } ?: File("/storage/emulated/0")).absolutePath
     }
-    val leftPane = rememberPaneState("fm_pane_left", startPath)
-    val rightPane = rememberPaneState("fm_pane_right", startPath)
+
+    // GLOBAL defaults — used ONLY to initialize a pane's per-pane view/sort. Toggling in the toolbar
+    // updates just the active pane (and rewrites the default for the NEXT fresh pane), never the other.
+    val defViewMode = remember {
+        when (prefs.getString("fmViewMode", null)) {
+            "list" -> FmViewMode.LIST
+            "compact" -> FmViewMode.COMPACT
+            "grid" -> FmViewMode.GRID
+            else -> if (prefs.getBoolean("fmGridView", true)) FmViewMode.GRID else FmViewMode.LIST
+        }
+    }
+    val defSortBy = remember { prefs.getString("fmSortBy", "name") ?: "name" }
+    val defSortDesc = remember { prefs.getBoolean("fmSortDesc", false) }
+    val defHidden = remember { prefs.getBoolean("fmShowHidden", true) }
+    val defCompact = remember { prefs.getBoolean("fmCompactRows", false) }
+
+    val leftPane = rememberPaneState("fm_pane_left", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact)
+    val rightPane = rememberPaneState("fm_pane_right", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact)
 
     var dualPane by rememberSaveable { mutableStateOf(prefs.getBoolean("fmDualPane", false)) }
     var activeIndex by rememberSaveable { mutableStateOf(0) }
@@ -352,37 +407,24 @@ fun FileManagerScreen(
         prefs.edit().putBoolean("fmDualPane", dualPane).apply()
         activeIndex = 0
     }
+    val active = if (effectiveDual && activeIndex == 1) rightPane else leftPane
 
-    if (!effectiveDual) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            // Width-based (not orientation-based): a very narrow device also gets the adaptive header.
-            val narrow = maxWidth < 360.dp
-            BrowserPane(
-                paneState = leftPane,
-                dualPane = false,
-                onToggleDualPane = toggleDual,
-                otherPaneDir = { null },
-                onRequestOtherReload = {},
-                showRail = !pickMode,
-                narrowHeader = narrow,
-                pickMode = pickMode,
-                pickDirMode = pickDirMode,
-                pickExtensions = pickExtensions,
-                initialDir = initialDir,
-                pickerTitle = pickerTitle,
-                onPick = onPick,
-            )
-        }
-        return
+    // Drive list for the toolbar's dropdown; re-enumerated when we come back to the screen.
+    var storageTick by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) storageTick++ }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
+    val drives = remember(storageTick) { StorageRoots.list(context) }
 
-    // Two-pane commander view: ALWAYS side by side (a horizontal Row), in portrait and landscape.
-    // Each pane is a fully independent BrowserPane instance.
     val accent = MaterialTheme.colorScheme.primary
     val idleBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
 
+    // One dual-pane column: an activate-on-touch + accent-bordered box hosting an independent pane.
     @Composable
-    fun Pane(index: Int, state: PaneState, other: PaneState, narrow: Boolean, modifier: Modifier) {
+    fun PaneColumn(index: Int, state: PaneState, other: PaneState, modifier: Modifier) {
         val isActive = activeIndex == index
         Box(
             modifier = modifier
@@ -392,48 +434,263 @@ fun FileManagerScreen(
             BrowserPane(
                 paneState = state,
                 dualPane = true,
-                onToggleDualPane = toggleDual,
                 otherPaneDir = { File(other.path).takeIf { it.isDirectory } },
                 onRequestOtherReload = { other.requestReload() },
-                showRail = false,
-                narrowHeader = narrow,
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        // Each pane is ~half the width; below ~360dp per pane the full toolbar can't fit, so the
-        // per-pane header collapses to icons + a horizontally-scrollable action strip (never clips).
-        val narrow = (maxWidth / 2) < 360.dp
-        Row(modifier = Modifier.fillMaxSize()) {
-            Pane(0, leftPane, rightPane, narrow, Modifier.weight(1f).fillMaxHeight())
-            Pane(1, rightPane, leftPane, narrow, Modifier.weight(1f).fillMaxHeight())
+    Column(modifier = Modifier.fillMaxSize()) {
+        // ── ONE shared toolbar, full width, bound to the active pane ──
+        SharedToolbar(
+            active = active,
+            drives = drives,
+            prefs = prefs,
+            dualPane = effectiveDual,
+            onToggleDualPane = toggleDual,
+            pickMode = pickMode,
+        )
+
+        if (!effectiveDual) {
+            BrowserPane(
+                paneState = leftPane,
+                dualPane = false,
+                otherPaneDir = { null },
+                onRequestOtherReload = {},
+                pickMode = pickMode,
+                pickDirMode = pickDirMode,
+                pickExtensions = pickExtensions,
+                initialDir = initialDir,
+                pickerTitle = pickerTitle,
+                onPick = onPick,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
+        } else {
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                PaneColumn(0, leftPane, rightPane, Modifier.weight(1f).fillMaxHeight())
+                PaneColumn(1, rightPane, leftPane, Modifier.weight(1f).fillMaxHeight())
+            }
         }
     }
 }
 
 /**
- * One independent file-browser instance. Two of these coexist in dual-pane mode; the single-pane
- * File Manager is just one of them. Its cross-pane-visible state (the current directory + a reload
- * signal) lives in [paneState] so the parent can read this pane's dir and refresh it after a
- * cross-pane copy/move/extract; everything else (selection, sort, view mode, scroll, search, hidden)
- * stays as this composable's own `remember` state and is therefore independent per pane automatically.
+ * The single shared toolbar (classic commander chrome). Full width, above the pane(s), it reflects
+ * and controls ONLY the [active] pane: up/back, drive dropdown, New Folder, view-mode cycle, search,
+ * sort, favourites, and the dual-pane split toggle. View-mode and sort mutate the active pane's
+ * [PaneState] (per-pane; toggling never syncs the other pane) and also rewrite the persisted global
+ * default for the next fresh pane. Navigation goes through the active pane's wired hooks.
+ */
+@Composable
+private fun SharedToolbar(
+    active: PaneState,
+    drives: List<StorageRoot>,
+    prefs: android.content.SharedPreferences,
+    dualPane: Boolean,
+    onToggleDualPane: () -> Unit,
+    pickMode: Boolean,
+) {
+    val context = LocalContext.current
+    var showDriveMenu by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
+    val currentDir = File(active.path)
+    val driveLabel = describeLocation(currentDir).driveLabel
+    val driveChipAlpha = if (active.showFavorites) 0.45f else 1f
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        // Up / back (operates on the active pane).
+        IconButton(
+            onClick = {
+                val parent = currentDir.parentFile
+                if (active.canGoUp && parent != null && parent.exists()) active.onOpenDir(parent)
+            },
+            enabled = active.canGoUp,
+        ) {
+            Icon(Icons.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary)
+        }
+
+        // Drive selector.
+        Box {
+            val driveChipShape = RoundedCornerShape(8.dp)
+            Text(
+                text = "  $driveLabel  ▾",
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = driveChipAlpha),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(driveChipShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
+                    .clickable { showDriveMenu = true }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+            )
+            DropdownMenu(
+                expanded = showDriveMenu,
+                onDismissRequest = { showDriveMenu = false },
+                modifier = Modifier.outlinedMenuCard(),
+            ) {
+                drives.forEachIndexed { index, drive ->
+                    if (index > 0) MenuItemDivider()
+                    DropdownMenuItem(
+                        text = { Text(drive.label) },
+                        leadingIcon = {
+                            Icon(
+                                if (drive.removable) Icons.Filled.SdStorage else Icons.Filled.Storage,
+                                null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
+                        onClick = {
+                            showDriveMenu = false
+                            if (drive.readable) active.onOpenDrive(drive.dir)
+                            else Toast.makeText(context, "${drive.label} is mounted but not readable right now", Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(4.dp))
+
+        // Current folder name (or the Favorites label), full-width — the toolbar spans the whole screen.
+        if (active.showFavorites) {
+            Text(
+                "★ Favorites",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            Text(
+                currentDir.name.ifBlank { currentDir.absolutePath },
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        if (!active.showFavorites) {
+            if (!pickMode) {
+                OutlinedButton(
+                    onClick = { active.showNewFolderDialog = true },
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp),
+                ) {
+                    Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("New Folder", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
+                }
+            }
+            // View-mode cycle: Grid → List → Compact → Grid. Per-pane; also persists the global default.
+            IconButton(onClick = {
+                active.viewMode = when (active.viewMode) {
+                    FmViewMode.GRID -> FmViewMode.LIST
+                    FmViewMode.LIST -> FmViewMode.COMPACT
+                    FmViewMode.COMPACT -> FmViewMode.GRID
+                }
+                prefs.edit().putString("fmViewMode", active.viewMode.name.lowercase()).apply()
+            }) {
+                Icon(
+                    when (active.viewMode) {
+                        FmViewMode.GRID -> Icons.Filled.GridView
+                        FmViewMode.LIST -> Icons.Filled.ViewList
+                        FmViewMode.COMPACT -> Icons.Filled.DensitySmall
+                    },
+                    "View mode",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = { active.showSearch = !active.showSearch; if (!active.showSearch) active.searchQuery = "" }) {
+                Icon(Icons.Filled.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Box {
+                IconButton(onClick = { showSortMenu = true }) {
+                    Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                    listOf("name" to "Name", "date" to "Date modified", "size" to "Size", "type" to "Type")
+                        .forEach { (key, label) ->
+                            DropdownMenuItem(
+                                text = { Text(if (active.sortBy == key) "$label  ${if (active.sortDesc) "↓" else "↑"}" else label) },
+                                onClick = {
+                                    if (active.sortBy == key) active.sortDesc = !active.sortDesc
+                                    else { active.sortBy = key; active.sortDesc = false }
+                                    prefs.edit().putString("fmSortBy", active.sortBy).putBoolean("fmSortDesc", active.sortDesc).apply()
+                                    showSortMenu = false
+                                    active.requestReload()
+                                },
+                            )
+                        }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    DropdownMenuItem(
+                        text = { Text(if (active.compactRows) "Comfortable rows" else "Compact rows") },
+                        onClick = {
+                            active.compactRows = !active.compactRows
+                            prefs.edit().putBoolean("fmCompactRows", active.compactRows).apply()
+                            showSortMenu = false
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (active.showHidden) "Hide hidden files" else "Show hidden files") },
+                        onClick = {
+                            active.showHidden = !active.showHidden
+                            prefs.edit().putBoolean("fmShowHidden", active.showHidden).apply()
+                            showSortMenu = false
+                            active.requestReload()
+                        },
+                    )
+                }
+            }
+        }
+        // Favorites toggle (always visible).
+        IconButton(onClick = { active.showFavorites = !active.showFavorites }) {
+            if (active.showFavorites) {
+                Icon(Icons.Filled.Star, "Hide favorites", tint = MaterialTheme.colorScheme.primary)
+            } else {
+                Icon(Icons.Filled.StarBorder, "Show favorites", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        // Dual-pane (split) toggle.
+        if (!pickMode) {
+            IconButton(onClick = onToggleDualPane) {
+                Icon(
+                    Icons.Filled.ViewColumn,
+                    if (dualPane) "Single pane" else "Dual pane",
+                    tint = if (dualPane) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One independent file-browser instance: just a PATH/location bar and the file list (NO toolbar — the
+ * shared toolbar above controls it). Its current directory + a reload signal + its per-pane browse
+ * state live in [paneState] so the shared toolbar (bound to the active pane) can read and drive it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserPane(
     paneState: PaneState,
-    // Dual-pane wiring. In single-pane mode: dualPane=false, otherPaneDir returns null, the reload
-    // callback is a no-op, and the rail is shown.
+    // Dual-pane wiring. In single-pane mode: dualPane=false, otherPaneDir returns null, no-op reload.
     dualPane: Boolean = false,
-    onToggleDualPane: () -> Unit = {},
     otherPaneDir: () -> File? = { null },
     onRequestOtherReload: () -> Unit = {},
-    showRail: Boolean = true,
-    // When true (a narrow pane — e.g. a dual-pane column in portrait, ~half the phone width) the
-    // per-pane header collapses: the drive chip and "New Folder" become icons and the action cluster
-    // becomes a horizontally-scrollable strip, so nothing clips. Computed from ACTUAL pane width.
-    narrowHeader: Boolean = false,
+    modifier: Modifier = Modifier,
     // Pick mode (issue #73): reuse this File Manager as a themed file picker. When on, editing/run
     // features are gated off and tapping a matching file returns it via [onPick]. Defaults keep the
     // full-featured File Manager nav destination unchanged.
@@ -466,24 +723,11 @@ fun BrowserPane(
         saved ?: initialDir?.takeIf { it.isDirectory } ?: File("/storage/emulated/0")
     }
 
-    var currentDir by remember { mutableStateOf(rootDir) }
-    // The up/back FLOOR — back + the up-arrow are disabled while currentDir == currentRoot. It MUST be
-    // the VOLUME ROOT of the start dir (internal /storage/emulated/0, or an SD card /storage/XXXX-XXXX),
-    // NOT the start dir itself: otherwise opening at any subfolder disables up/back and traps the user
-    // there. (Mirrors the volume-root logic in favLocationOf above.)
-    var currentRoot by remember {
-        val abs = rootDir.absolutePath
-        val internal = "/storage/emulated/0"
-        val vol = when {
-            abs == internal || abs.startsWith("$internal/") -> File(internal)
-            abs.startsWith("/storage/") -> {
-                val name = abs.removePrefix("/storage/").substringBefore('/')
-                if (name.isNotEmpty() && name != "emulated" && name != "self") File("/storage/$name") else rootDir
-            }
-            else -> rootDir
-        }
-        mutableStateOf(vol)
-    }
+    // currentDir + currentRoot are DERIVED from the shared PaneState so the single toolbar (bound to
+    // the active pane) can read/drive them. Navigation writes paneState.path / paneState.rootPath;
+    // rootPath is the up/back FLOOR (the drive root), set by openDrive.
+    val currentDir = File(paneState.path)
+    val currentRoot = File(paneState.rootPath)
     var entries by remember { mutableStateOf(listOf<File>()) }
     var selectedEntry by remember { mutableStateOf<File?>(null) }
     var showMenuFor by remember { mutableStateOf<File?>(null) }
@@ -502,32 +746,9 @@ fun BrowserPane(
     // Set while a copy/move runs so the progress UI can offer a cancel.
     var operationJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var pendingBulkDelete by remember { mutableStateOf<List<File>>(emptyList()) }
-    // Browse controls. Persisted so the list doesn't reset its order every time you open a folder.
-    var searchQuery by remember { mutableStateOf("") }
-    var showSearch by remember { mutableStateOf(false) }
-    var sortBy by remember { mutableStateOf(browsePrefs.getString("fmSortBy", "name") ?: "name") }
-    var sortDesc by remember { mutableStateOf(browsePrefs.getBoolean("fmSortDesc", false)) }
-    var showHidden by remember { mutableStateOf(browsePrefs.getBoolean("fmShowHidden", true)) }
-    var showSortMenu by remember { mutableStateOf(false) }
-    // View mode: list of cards (default) or a thumbnail grid. Density applies to the list only —
-    // a grid tile has no second line to compact.
-    // The grid/list toggle is the SOURCE OF TRUTH in BOTH orientations (it drives the view and its
-    // choice persists across rotation). Grid is the default — most useful in landscape, and in
-    // portrait GridCells.Adaptive naturally renders fewer columns (~2). Do NOT force portrait to list:
-    // that broke the toggle on-device (tapping it did nothing in portrait).
-    // 3-value view mode, migrated from the old boolean `fmGridView` when `fmViewMode` isn't set yet.
-    var viewMode by remember {
-        mutableStateOf(
-            when (browsePrefs.getString("fmViewMode", null)) {
-                "list" -> FmViewMode.LIST
-                "compact" -> FmViewMode.COMPACT
-                "grid" -> FmViewMode.GRID
-                else -> if (browsePrefs.getBoolean("fmGridView", true)) FmViewMode.GRID else FmViewMode.LIST
-            }
-        )
-    }
-    var compactRows by remember { mutableStateOf(browsePrefs.getBoolean("fmCompactRows", false)) }
-    var showNewFolderDialog by remember { mutableStateOf(false) }
+    // Browse controls (search / sort / hidden / view-mode / compact / new-folder) now live on the
+    // shared PaneState: the single toolbar mutates them for whichever pane is active; this pane reads
+    // paneState.searchQuery / .sortBy / .viewMode / … below.
     var renameTarget by remember { mutableStateOf<File?>(null) }
     // Properties sheet (basic info + Read-only toggle) target; null when closed.
     var propertiesTarget by remember { mutableStateOf<File?>(null) }
@@ -550,8 +771,7 @@ fun BrowserPane(
     // resetScroll: jump to the top of the list (true for navigation; false for in-place reloads
     // after delete/paste/rename/refresh so the user keeps their scroll position).
     fun loadDirectory(dir: File, resetScroll: Boolean = true) {
-        currentDir = dir
-        // Publish the current dir so the parent (dual-pane) can read it as the cross-pane target.
+        // Publish the current dir onto the shared PaneState (the toolbar + cross-pane target read it).
         paneState.path = dir.absolutePath
         // Remember the browsed directory so the next pick resumes here.
         if (pickMode) pickPrefs.edit().putString("lastFilePickerDir", dir.absolutePath).apply()
@@ -565,8 +785,8 @@ fun BrowserPane(
                         ?.filter { if (pickDirMode) it.isDirectory else !pickMode || it.isDirectory || matchesPickExt(it) }
                         // Dotfiles are noise in a storage root (.aya, .$recycle_bin$) but occasionally
                         // the thing you came for, so it's a toggle rather than a permanent filter.
-                        ?.filter { showHidden || !it.name.startsWith(".") }
-                        ?.sortedWith(comparatorFor(sortBy, sortDesc))
+                        ?.filter { paneState.showHidden || !it.name.startsWith(".") }
+                        ?.sortedWith(comparatorFor(paneState.sortBy, paneState.sortDesc))
                 }
             }
             val list = result.getOrNull()
@@ -595,20 +815,30 @@ fun BrowserPane(
         if (paneState.reloadTick > 0) loadDirectory(currentDir, resetScroll = false)
     }
 
-    // Jump to a drive's root; pins the Back boundary so we don't climb above it.
+    // Jump to a drive's root; pins the Back boundary (rootPath) so we don't climb above it.
     fun openDrive(dir: File) {
-        currentRoot = dir
+        paneState.rootPath = dir.absolutePath
         loadDirectory(dir)
     }
 
-    LaunchedEffect(Unit) { openDrive(rootDir) }
+    // Wire the navigation hooks so the shared toolbar (bound to the active pane) can drive THIS pane.
+    paneState.onOpenDir = { dir -> loadDirectory(dir) }
+    paneState.onOpenDrive = { dir -> openDrive(dir) }
+
+    // Initial listing: list the pane's current dir WITHOUT resetting rootPath (the back floor is the
+    // saved/seeded rootPath — a fresh pane's rootPath equals its start dir). rootDir is referenced so
+    // a stale saved path that no longer exists still has a sensible starting point.
+    LaunchedEffect(Unit) {
+        if (!File(paneState.path).isDirectory) { paneState.path = rootDir.absolutePath; paneState.rootPath = rootDir.absolutePath }
+        loadDirectory(File(paneState.path))
+    }
 
     // System/gesture Back: while the Favorites view is open it closes that first; otherwise
     // it goes up one directory. Only at the current drive's root with Favorites closed is it
     // disabled, letting Back propagate to close the File Manager.
-    BackHandler(enabled = showFavorites || currentDir != currentRoot) {
-        if (showFavorites) {
-            showFavorites = false
+    BackHandler(enabled = paneState.showFavorites || currentDir != currentRoot) {
+        if (paneState.showFavorites) {
+            paneState.showFavorites = false
             return@BackHandler
         }
         val parent = currentDir.parentFile
@@ -887,25 +1117,12 @@ fun BrowserPane(
         }
     }
 
-    var showDriveMenu by remember { mutableStateOf(false) }
-    // Re-enumerated whenever we come back to the screen so the volume set is re-read, not cached.
-    var storageTick by remember { mutableIntStateOf(0) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) storageTick++
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    val drives = remember(storageTick) { StorageRoots.list(context) }
-
     // ── Dialogs ──
 
-    if (showNewFolderDialog) {
+    if (paneState.showNewFolderDialog) {
         var folderName by remember { mutableStateOf("") }
         OutlinedAlertDialog(
-            onDismissRequest = { showNewFolderDialog = false },
+            onDismissRequest = { paneState.showNewFolderDialog = false },
             title = { Text("New Folder") },
             text = {
                 OutlinedTextField(
@@ -917,11 +1134,11 @@ fun BrowserPane(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    showNewFolderDialog = false
+                    paneState.showNewFolderDialog = false
                     if (folderName.isNotBlank()) createFolder(currentDir, folderName)
                 }) { Text("Create") }
             },
-            dismissButton = { TextButton(onClick = { showNewFolderDialog = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { paneState.showNewFolderDialog = false }) { Text("Cancel") } },
         )
     }
 
@@ -1069,7 +1286,7 @@ fun BrowserPane(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = modifier) {
         // ── Pick-mode title ──
         if (pickMode && !pickerTitle.isNullOrEmpty()) {
             Text(
@@ -1096,247 +1313,11 @@ fun BrowserPane(
                 Text("Select this folder")
             }
         }
-        // ── Path bar (ADAPTIVE) ──
-        // Wide pane: the full inline toolbar. Narrow pane (e.g. a dual-pane column in portrait, ~half
-        // the phone width): the drive chip + "New Folder" collapse to icons and the action cluster
-        // becomes a horizontally-scrollable strip, so nothing ever clips. Width-based, not orientation.
-        val currentDriveLabel = describeLocation(currentDir).driveLabel
-        val driveChipAlpha = if (showFavorites) 0.45f else 1f
-
-        // Drive selector: a labelled "Internal ▾" chip on a wide pane, an icon-only button when narrow.
-        @Composable
-        fun DriveControl() {
-            Box {
-                if (narrowHeader) {
-                    IconButton(onClick = { showDriveMenu = true }) {
-                        Icon(
-                            Icons.Filled.Storage,
-                            "Storage: $currentDriveLabel",
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = driveChipAlpha),
-                        )
-                    }
-                } else {
-                    val driveChipShape = RoundedCornerShape(8.dp)
-                    Text(
-                        text = "  $currentDriveLabel  ▾",
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = driveChipAlpha),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .clip(driveChipShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainer)
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
-                            .clickable { showDriveMenu = true }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                    )
-                }
-                DropdownMenu(
-                    expanded = showDriveMenu,
-                    onDismissRequest = { showDriveMenu = false },
-                    modifier = Modifier.outlinedMenuCard(),
-                ) {
-                    drives.forEachIndexed { index, drive ->
-                        if (index > 0) MenuItemDivider()
-                        DropdownMenuItem(
-                            text = { Text(drive.label) },
-                            leadingIcon = {
-                                Icon(
-                                    if (drive.removable) Icons.Filled.SdStorage else Icons.Filled.Storage,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            },
-                            onClick = {
-                                showDriveMenu = false
-                                if (drive.readable) {
-                                    openDrive(drive.dir)
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        "${drive.label} is mounted but not readable right now",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                            },
-                        )
-                    }
-                }
-            }
-        }
-
-        // Trailing actions. "New Folder" collapses to an icon when narrow; the view button cycles
-        // Grid → List → Compact. Emitted inline (wide) or inside the scrollable strip (narrow).
-        @Composable
-        fun HeaderActions() {
-            if (!showFavorites) {
-                if (!pickMode) {
-                    if (narrowHeader) {
-                        IconButton(onClick = { showNewFolderDialog = true }) {
-                            Icon(Icons.Filled.CreateNewFolder, "New Folder", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    } else {
-                        OutlinedButton(
-                            onClick = { showNewFolderDialog = true },
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            modifier = Modifier.height(32.dp),
-                        ) {
-                            Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text("New Folder", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
-                        }
-                    }
-                }
-                // View-mode cycle: Grid → List → Compact → Grid (persisted). Icon shows current mode.
-                IconButton(onClick = {
-                    viewMode = when (viewMode) {
-                        FmViewMode.GRID -> FmViewMode.LIST
-                        FmViewMode.LIST -> FmViewMode.COMPACT
-                        FmViewMode.COMPACT -> FmViewMode.GRID
-                    }
-                    browsePrefs.edit().putString("fmViewMode", viewMode.name.lowercase()).apply()
-                }) {
-                    Icon(
-                        when (viewMode) {
-                            FmViewMode.GRID -> Icons.Filled.GridView
-                            FmViewMode.LIST -> Icons.Filled.ViewList
-                            FmViewMode.COMPACT -> Icons.Filled.DensitySmall
-                        },
-                        "View mode",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = { showSearch = !showSearch; if (!showSearch) searchQuery = "" }) {
-                    Icon(Icons.Filled.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Box {
-                    IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                        listOf("name" to "Name", "date" to "Date modified", "size" to "Size", "type" to "Type")
-                            .forEach { (key, label) ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(if (sortBy == key) "$label  ${if (sortDesc) "↓" else "↑"}" else label)
-                                    },
-                                    onClick = {
-                                        // Tapping the active field flips direction; a different
-                                        // field switches to it ascending.
-                                        if (sortBy == key) sortDesc = !sortDesc else { sortBy = key; sortDesc = false }
-                                        browsePrefs.edit().putString("fmSortBy", sortBy)
-                                            .putBoolean("fmSortDesc", sortDesc).apply()
-                                        showSortMenu = false
-                                        loadDirectory(currentDir, resetScroll = false)
-                                    },
-                                )
-                            }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                        DropdownMenuItem(
-                            text = { Text(if (compactRows) "Comfortable rows" else "Compact rows") },
-                            onClick = {
-                                compactRows = !compactRows
-                                browsePrefs.edit().putBoolean("fmCompactRows", compactRows).apply()
-                                showSortMenu = false
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (showHidden) "Hide hidden files" else "Show hidden files") },
-                            onClick = {
-                                showHidden = !showHidden
-                                browsePrefs.edit().putBoolean("fmShowHidden", showHidden).apply()
-                                showSortMenu = false
-                                loadDirectory(currentDir, resetScroll = false)
-                            },
-                        )
-                    }
-                }
-            }
-            // Favorites toggle (always visible).
-            IconButton(onClick = { showFavorites = !showFavorites }) {
-                if (showFavorites) {
-                    Icon(Icons.Filled.Star, "Hide favorites", tint = MaterialTheme.colorScheme.primary)
-                } else {
-                    Icon(Icons.Filled.StarBorder, "Show favorites", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            // Dual-pane (split) toggle — opens/collapses the two-pane commander view (persisted).
-            if (!pickMode) {
-                IconButton(onClick = onToggleDualPane) {
-                    Icon(
-                        Icons.Filled.ViewColumn,
-                        if (dualPane) "Single pane" else "Dual pane",
-                        tint = if (dualPane) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-        ) {
-            IconButton(onClick = {
-                val parent = currentDir.parentFile
-                // Don't climb above the current drive's root.
-                if (currentDir != currentRoot && parent != null && parent.exists()) loadDirectory(parent)
-            }, enabled = currentDir != currentRoot) {
-                Icon(Icons.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary)
-            }
-
-            DriveControl()
-            Spacer(Modifier.width(4.dp))
-
-            if (narrowHeader) {
-                // No folder-name; the action strip takes the remaining width and scrolls so nothing
-                // clips at ~half the phone width. (The full path shows on the line below.)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End,
-                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                ) {
-                    HeaderActions()
-                }
-            } else {
-                if (showFavorites) {
-                    Text(
-                        text = "★ Favorites",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                } else if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT) {
-                    // PORTRAIT (wide, i.e. single pane): hide the folder name — the path line below
-                    // shows the full path; the spacer keeps the action icons right-aligned.
-                    Spacer(Modifier.weight(1f))
-                } else {
-                    // LANDSCAPE: the CURRENT FOLDER name (the full path is on the line below).
-                    Text(
-                        text = currentDir.name.ifBlank { currentDir.absolutePath },
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                HeaderActions()
-            }
-        }
-
-        // ── Search field ── filters the current folder only; it is not a recursive search.
-        if (showSearch && !showFavorites) {
+        // ── Search field ── (toggled by the shared toolbar) filters the current folder only.
+        if (paneState.showSearch && !paneState.showFavorites) {
             OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
+                value = paneState.searchQuery,
+                onValueChange = { paneState.searchQuery = it },
                 singleLine = true,
                 placeholder = { Text("Filter this folder", fontSize = 13.sp) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -1347,7 +1328,7 @@ fun BrowserPane(
         val freeSpace = remember(currentDir.absolutePath, entries) {
             runCatching { currentDir.usableSpace }.getOrDefault(0L)
         }
-        if (!showFavorites) {
+        if (!paneState.showFavorites) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
@@ -1541,45 +1522,10 @@ fun BrowserPane(
             }
         }
 
-        // ── Left locations rail (mockup Option 2) + content ──
-        // Shared collapsible rail: landscape expanded by default, portrait collapsed icon-only. Not
-        // shown in pick mode (the themed picker keeps its slim layout). Built each recompose (cheap)
-        // so it tracks the current drive/favourites without stale click lambdas.
-        val fmRailState = rememberRailState("filemanager")
-        fun locItem(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, dir: File) =
-            RailItem(label, icon, !showFavorites && currentRoot.absolutePath == dir.absolutePath) {
-                showFavorites = false; openDrive(dir)
-            }
-        val storageItems = buildList {
-            add(locItem("Internal", Icons.Filled.Smartphone, File("/storage/emulated/0")))
-            drives.filter { it.removable }.forEach { d ->
-                add(RailItem(d.label, Icons.Filled.SdStorage, !showFavorites && currentRoot.absolutePath == d.dir.absolutePath) {
-                    showFavorites = false; if (d.readable) openDrive(d.dir)
-                })
-            }
-        }
-        val quickItems = buildList {
-            File("/storage/emulated/0/Download").takeIf { it.isDirectory }?.let { add(locItem("Downloads", Icons.Filled.Download, it)) }
-            File("/storage/emulated/0/Winlator/Games").takeIf { it.isDirectory }?.let { add(locItem("Games", Icons.Filled.SportsEsports, it)) }
-            File("/storage/emulated/0/Pictures").takeIf { it.isDirectory }?.let { add(locItem("Pictures", Icons.Filled.Image, it)) }
-        }
-        val favItems = remember(favTick) { FavoritesStore.list(context).map(::File).filter { it.exists() } }
-            .map { d -> RailItem(d.name, Icons.Filled.Star, false) { showFavorites = false; openDrive(d) } }
-        val locationSections = buildList {
-            add(RailSection("STORAGE", storageItems))
-            if (quickItems.isNotEmpty()) add(RailSection("QUICK", quickItems))
-            if (favItems.isNotEmpty()) add(RailSection("★ FAVORITES", favItems))
-        }
-
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            // The nav rail is shown only in the single full-pane File Manager. The slim picker and
-            // each dual-pane column hide it (they navigate via the drive chip in the path bar).
-            if (showRail) {
-                CollapsibleRail(state = fmRailState, title = "Files", sections = locationSections, outlinedItems = true)
-            }
-            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
+        // ── Content: favorites list OR file list (fills the height below the shared toolbar) ──
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
         // ── Favorites list OR file list ──
-        if (showFavorites) {
+        if (paneState.showFavorites) {
             FavoritesList(
                 currentDir = currentDir,
                 favTick = favTick,
@@ -1589,7 +1535,7 @@ fun BrowserPane(
                     Toast.makeText(context, "Added \"${currentDir.name}\" to Favorites", Toast.LENGTH_SHORT).show()
                 },
                 onJump = { dir ->
-                    showFavorites = false
+                    paneState.showFavorites = false
                     openDrive(dir)
                 },
                 onUnpin = { dir ->
@@ -1606,8 +1552,8 @@ fun BrowserPane(
                 .fillMaxSize()
                 .nestedScroll(pullState.nestedScrollConnection),
         ) {
-            val shownEntries = if (searchQuery.isBlank()) entries
-            else entries.filter { it.name.contains(searchQuery, ignoreCase = true) }
+            val shownEntries = if (paneState.searchQuery.isBlank()) entries
+            else entries.filter { it.name.contains(paneState.searchQuery, ignoreCase = true) }
 
             if (loading && entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1622,7 +1568,7 @@ fun BrowserPane(
                         modifier = Modifier.padding(horizontal = 32.dp),
                     )
                 }
-            } else if (viewMode == FmViewMode.GRID && entries.isNotEmpty()) {
+            } else if (paneState.viewMode == FmViewMode.GRID && entries.isNotEmpty()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 104.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -1716,9 +1662,9 @@ fun BrowserPane(
                         FileItemRow(
                             file = file,
                             showActions = !pickMode,
-                            compact = compactRows,
+                            compact = paneState.compactRows,
                             // COMPACT view mode → dense single-line rows (~4× more per screen).
-                            dense = viewMode == FmViewMode.COMPACT,
+                            dense = paneState.viewMode == FmViewMode.COMPACT,
                             selectionMode = selectionMode,
                             selected = file.absolutePath in selectedPaths,
                             onLongPress = {
@@ -1793,9 +1739,7 @@ fun BrowserPane(
             }
         }
         }
-            } // end content Box (beside the rail)
-        } // end rail + content Row
-        // (New Folder moved into the top toolbar; the bottom bar was removed to reclaim its strip.)
+        } // end content Box
     }
 }
 
