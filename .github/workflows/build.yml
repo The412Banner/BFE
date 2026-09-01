@@ -1,0 +1,44 @@
+name: Build BFE (signed release APK)
+
+# Single-variant build for the sideload-only BFE app. Sets up JDK 17 + the Android SDK, assembles
+# the (test-signed) release APK, and uploads it as an artifact. No flavors, no NDK build, no imagefs.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Set up Gradle (dependency + build cache)
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Assemble signed release APK
+      run: ./gradlew --no-daemon assembleRelease
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bfe-release-apk
+        path: app/build/outputs/apk/release/*.apk
+        if-no-files-found: error

@@ -1,0 +1,15 @@
+# Build outputs
+/build
+**/build/
+.gradle/
+
+# Local config
+local.properties
+
+# IDE
+*.iml
+.idea/
+.kotlin/
+
+# NOTE: keystore/ and app/src/main/jniLibs/ are intentionally committed — this is a
+# sideload test app, so the test key and the prebuilt native extractors ship in the repo.
