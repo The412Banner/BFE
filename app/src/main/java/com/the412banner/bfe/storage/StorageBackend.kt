@@ -27,6 +27,11 @@ sealed class Loc {
     /** Stable identity for selection sets, list keys and favourites. */
     abstract val id: String
 
+    // Structural equality by id so `showMenuFor == entry` matches across re-listings (entries are
+    // rebuilt each listing, so identity equality would never match).
+    override fun equals(other: Any?): Boolean = other is Loc && other.id == id
+    override fun hashCode(): Int = id.hashCode()
+
     class FileLoc(val file: File) : Loc() {
         override val name get() = file.name
         override val isDir get() = file.isDirectory

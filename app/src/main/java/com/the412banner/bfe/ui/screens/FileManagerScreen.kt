@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import android.content.res.Configuration
@@ -44,6 +46,8 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
@@ -103,6 +107,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -116,6 +121,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
@@ -135,6 +141,19 @@ import com.the412banner.bfe.core.FileUtils
 import com.the412banner.bfe.core.PeIconExtractor
 import com.the412banner.bfe.core.StorageRoot
 import com.the412banner.bfe.core.StorageRoots
+import com.the412banner.bfe.ui.components.CollapsibleRail
+import com.the412banner.bfe.ui.components.RailItem
+import com.the412banner.bfe.ui.components.RailLink
+import com.the412banner.bfe.ui.components.RailSection
+import com.the412banner.bfe.ui.components.rememberRailState
+import com.the412banner.bfe.storage.DocProviderApp
+import com.the412banner.bfe.storage.DocumentsProviderApps
+import com.the412banner.bfe.storage.Loc
+import com.the412banner.bfe.storage.PinnedLocation
+import com.the412banner.bfe.storage.PinnedStorage
+import com.the412banner.bfe.storage.SafBackend
+import com.the412banner.bfe.storage.Storage
+import com.the412banner.bfe.storage.StorageTransfer
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.util.FavoritesStore
 import kotlinx.coroutines.Dispatchers
@@ -181,18 +200,18 @@ private fun elidePathStart(path: String, max: Int): String {
     return if (out.isEmpty()) "…" + path.takeLast(max - 1) else "…$out"
 }
 
-private fun comparatorFor(sortBy: String, desc: Boolean): Comparator<File> {
-    val inner: Comparator<File> = when (sortBy) {
-        "date" -> compareBy { it.lastModified() }
-        // Directory length() is meaningless, so folders sort by name within the size ordering
+private fun comparatorFor(sortBy: String, desc: Boolean): Comparator<Loc> {
+    val inner: Comparator<Loc> = when (sortBy) {
+        "date" -> compareBy { it.lastModified }
+        // Directory size is meaningless, so folders sort by name within the size ordering
         // instead of pretending to have one.
-        "size" -> compareBy { if (it.isDirectory) -1L else it.length() }
+        "size" -> compareBy { if (it.isDir) -1L else it.size }
         // Group by file type (extension), then by name within each type.
-        "type" -> compareBy<File> { it.extension.lowercase() }.thenBy { it.name.lowercase() }
+        "type" -> compareBy<Loc> { File(it.name).extension.lowercase() }.thenBy { it.name.lowercase() }
         else -> compareBy { it.name.lowercase() }
     }
     val directed = if (desc) inner.reversed() else inner
-    return compareBy<File> { if (it.isDirectory) 0 else 1 }.then(directed)
+    return compareBy<Loc> { if (it.isDir) 0 else 1 }.then(directed)
 }
 
 private val FileTypeIcon: Map<String, ImageVector> = mapOf(
@@ -301,8 +320,12 @@ class PaneState(
     initialShowHidden: Boolean = true,
     initialCompactRows: Boolean = false,
 ) {
-    var path by mutableStateOf(initialPath)             // current directory
-    var rootPath by mutableStateOf(initialRootPath)     // up/back floor (the drive root)
+    var path by mutableStateOf(initialPath)             // current File directory (File mode)
+    var rootPath by mutableStateOf(initialRootPath)     // up/back floor (the File drive root)
+    // SAF navigation: non-empty ⇒ browsing a pinned SAF tree; last() = current dir, first() = root.
+    // Empty ⇒ ordinary File mode (path/rootPath above). Not persisted across process death.
+    var safStack by mutableStateOf<List<Loc.SafLoc>>(emptyList())
+    var safLabel by mutableStateOf("")                  // the pinned location's friendly label
     var reloadTick by mutableStateOf(0)
     // Per-pane browse controls, driven by the shared toolbar for whichever pane is active.
     var viewMode by mutableStateOf(initialViewMode)
@@ -314,11 +337,24 @@ class PaneState(
     var searchQuery by mutableStateOf("")
     var showFavorites by mutableStateOf(false)
     var showNewFolderDialog by mutableStateOf(false)
-    // Wired by BrowserPane (navigation needs its scope + pick filtering). Non-observable on purpose.
+    // File-mode navigation hooks (wired by BrowserPane; navigation needs its scope + pick filtering).
     var onOpenDir: (File) -> Unit = {}
     var onOpenDrive: (File) -> Unit = {}
     fun requestReload() { reloadTick++ }
-    val canGoUp: Boolean get() = path != rootPath
+
+    /** Whether this pane is currently browsing a SAF ("app storage") tree rather than a File dir. */
+    val isSaf: Boolean get() = safStack.isNotEmpty()
+
+    /** The pane's current directory, as a backend-agnostic [Loc]. */
+    val currentLoc: Loc get() = if (isSaf) safStack.last() else Loc.FileLoc(File(path))
+
+    val canGoUp: Boolean get() = if (isSaf) true else path != rootPath
+
+    fun openSafRoot(root: Loc.SafLoc, label: String) { safStack = listOf(root); safLabel = label }
+    fun openSafInto(child: Loc.SafLoc) { safStack = safStack + child }
+    fun exitSaf() { safStack = emptyList(); safLabel = "" }
+    /** SAF back: up one level, or exit SAF back to the File location the pane was at. */
+    fun safUp() { if (safStack.size > 1) safStack = safStack.dropLast(1) else exitSaf() }
 }
 
 private val PaneStateSaver = listSaver<PaneState, String>(
@@ -419,6 +455,44 @@ fun FileManagerScreen(
     }
     val drives = remember(storageTick) { StorageRoots.list(context) }
 
+    // ── Pinned SAF "app storage" locations + the "Add app storage" picker (shared by the toolbar
+    //    dropdown in portrait and the side rail in landscape) ──
+    val scope = rememberCoroutineScope()
+    var pinnedTick by remember { mutableIntStateOf(0) }
+    val pinned = remember(pinnedTick) { PinnedStorage.list(context) }
+    var showAddStorage by remember { mutableStateOf(false) }
+    var pendingLabel by remember { mutableStateOf("App storage") }
+    var pendingPkg by remember { mutableStateOf<String?>(null) }
+    val activeState = rememberUpdatedState(active)
+
+    // Open a pinned SAF tree in the ACTIVE pane (resolving its root document off the main thread).
+    fun openPinned(p: PinnedLocation) {
+        scope.launch {
+            val root = withContext(Dispatchers.IO) { SafBackend.rootLoc(context, p.treeUri, p.label) }
+            if (root != null) activeState.value.openSafRoot(root, p.label)
+            else Toast.makeText(context, "Can't open ${p.label} — access may have been revoked", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // ACTION_OPEN_DOCUMENT_TREE result → take a persistable grant, PIN it, and open it in the active pane.
+    val treeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            PinnedStorage.add(context, pendingLabel, uri, pendingPkg)
+            pinnedTick++
+            scope.launch {
+                val root = withContext(Dispatchers.IO) { SafBackend.rootLoc(context, uri, pendingLabel) }
+                if (root != null) activeState.value.openSafRoot(root, pendingLabel)
+            }
+        }
+    }
+    fun launchTreePicker(provider: DocProviderApp?) {
+        pendingLabel = provider?.label ?: "App storage"
+        pendingPkg = provider?.packageName
+        val initial = provider?.let { DocumentsProviderApps.initialTreeUri(context, it.authority) }
+        runCatching { treeLauncher.launch(initial) }
+            .onFailure { Toast.makeText(context, "No folder picker available", Toast.LENGTH_SHORT).show() }
+    }
+
     val accent = MaterialTheme.colorScheme.primary
     val idleBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
 
@@ -434,45 +508,140 @@ fun FileManagerScreen(
             BrowserPane(
                 paneState = state,
                 dualPane = true,
-                otherPaneDir = { File(other.path).takeIf { it.isDirectory } },
+                otherPaneDir = { other.currentLoc },
                 onRequestOtherReload = { other.requestReload() },
                 modifier = Modifier.fillMaxSize(),
             )
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // ── ONE shared toolbar, full width, bound to the active pane ──
-        SharedToolbar(
-            active = active,
-            drives = drives,
-            prefs = prefs,
-            dualPane = effectiveDual,
-            onToggleDualPane = toggleDual,
-            pickMode = pickMode,
+    // ── "Add app storage" picker dialog (lists installed DocumentsProviders) ──
+    if (showAddStorage) {
+        AddAppStorageDialog(
+            onDismiss = { showAddStorage = false },
+            onPick = { provider -> showAddStorage = false; launchTreePicker(provider) },
         )
+    }
 
-        if (!effectiveDual) {
-            BrowserPane(
-                paneState = leftPane,
-                dualPane = false,
-                otherPaneDir = { null },
-                onRequestOtherReload = {},
-                pickMode = pickMode,
-                pickDirMode = pickDirMode,
-                pickExtensions = pickExtensions,
-                initialDir = initialDir,
-                pickerTitle = pickerTitle,
-                onPick = onPick,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+    // Landscape gets the side nav rail back (STORAGE + pinned app storage + "Add app storage");
+    // portrait relies on the toolbar's drive dropdown. Every rail action targets the ACTIVE pane.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val showSideRail = landscape && !pickMode
+
+    Row(modifier = Modifier.fillMaxSize()) {
+        if (showSideRail) {
+            val railState = rememberRailState("filemanager")
+            val storageItems = buildList {
+                add(RailItem("Internal", Icons.Filled.Smartphone, false) { active.exitSaf(); active.onOpenDrive(File("/storage/emulated/0")) })
+                drives.filter { it.removable }.forEach { d ->
+                    add(RailItem(d.label, Icons.Filled.SdStorage, false) { if (d.readable) { active.exitSaf(); active.onOpenDrive(d.dir) } })
+                }
+                pinned.forEach { p ->
+                    add(RailItem(p.label, Icons.Filled.Cloud, active.isSaf && active.safLabel == p.label) { openPinned(p) })
+                }
+                add(RailItem("Add app storage", Icons.Filled.Add, false) { showAddStorage = true })
+            }
+            CollapsibleRail(
+                state = railState,
+                title = "Files",
+                sections = listOf(RailSection("STORAGE", storageItems)),
+                outlinedItems = true,
             )
-        } else {
-            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                PaneColumn(0, leftPane, rightPane, Modifier.weight(1f).fillMaxHeight())
-                PaneColumn(1, rightPane, leftPane, Modifier.weight(1f).fillMaxHeight())
+        }
+        Column(modifier = Modifier.weight(1f).fillMaxSize()) {
+            // ── ONE shared toolbar, full width, bound to the active pane ──
+            SharedToolbar(
+                active = active,
+                drives = drives,
+                pinned = pinned,
+                prefs = prefs,
+                dualPane = effectiveDual,
+                onToggleDualPane = toggleDual,
+                pickMode = pickMode,
+                onOpenPinned = { openPinned(it) },
+                onAddAppStorage = { showAddStorage = true },
+                onUnpin = { p -> PinnedStorage.remove(context, p.treeUri); pinnedTick++ },
+            )
+
+            if (!effectiveDual) {
+                BrowserPane(
+                    paneState = leftPane,
+                    dualPane = false,
+                    otherPaneDir = { null },
+                    onRequestOtherReload = {},
+                    pickMode = pickMode,
+                    pickDirMode = pickDirMode,
+                    pickExtensions = pickExtensions,
+                    initialDir = initialDir,
+                    pickerTitle = pickerTitle,
+                    onPick = onPick,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            } else {
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    PaneColumn(0, leftPane, rightPane, Modifier.weight(1f).fillMaxHeight())
+                    PaneColumn(1, rightPane, leftPane, Modifier.weight(1f).fillMaxHeight())
+                }
             }
         }
     }
+}
+
+/**
+ * "Add app storage" picker: lists installed DocumentsProviders (SAF storage apps) with icon + label +
+ * package. Tapping one launches ACTION_OPEN_DOCUMENT_TREE seeded at that provider; "Choose a folder…"
+ * opens the plain system picker. The result (a tree Uri) is pinned + granted by the caller.
+ */
+@Composable
+private fun AddAppStorageDialog(onDismiss: () -> Unit, onPick: (DocProviderApp?) -> Unit) {
+    val context = LocalContext.current
+    val pm = context.packageManager
+    val apps = remember { DocumentsProviderApps.list(context) }
+    OutlinedAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add app storage") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "Pick an app that provides storage, then choose a folder to grant BFE access to.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (apps.isEmpty()) {
+                    Text("No storage apps found — you can still pick any folder below.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                }
+                apps.forEach { app ->
+                    val iconBmp = remember(app.packageName) {
+                        runCatching { pm.getApplicationIcon(app.packageName).toBitmap(48, 48).asImageBitmap() }.getOrNull()
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable { onPick(app) }.padding(vertical = 8.dp),
+                    ) {
+                        if (iconBmp != null) Image(bitmap = iconBmp, contentDescription = null, modifier = Modifier.size(28.dp))
+                        else Icon(Icons.Filled.Cloud, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(app.label, color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(app.packageName, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { onPick(null) }.padding(vertical = 10.dp),
+                ) {
+                    Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Choose a folder…", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**
@@ -486,16 +655,20 @@ fun FileManagerScreen(
 private fun SharedToolbar(
     active: PaneState,
     drives: List<StorageRoot>,
+    pinned: List<PinnedLocation>,
     prefs: android.content.SharedPreferences,
     dualPane: Boolean,
     onToggleDualPane: () -> Unit,
     pickMode: Boolean,
+    onOpenPinned: (PinnedLocation) -> Unit,
+    onAddAppStorage: () -> Unit,
+    onUnpin: (PinnedLocation) -> Unit,
 ) {
     val context = LocalContext.current
     var showDriveMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
-    val currentDir = File(active.path)
-    val driveLabel = describeLocation(currentDir).driveLabel
+    val driveLabel = if (active.isSaf) active.safLabel else describeLocation(File(active.path)).driveLabel
+    val folderName = if (active.isSaf) active.currentLoc.name else File(active.path).name.ifBlank { active.path }
     val driveChipAlpha = if (active.showFavorites) 0.45f else 1f
 
     Row(
@@ -508,8 +681,11 @@ private fun SharedToolbar(
         // Up / back (operates on the active pane).
         IconButton(
             onClick = {
-                val parent = currentDir.parentFile
-                if (active.canGoUp && parent != null && parent.exists()) active.onOpenDir(parent)
+                if (active.isSaf) active.safUp()
+                else {
+                    val parent = File(active.path).parentFile
+                    if (active.canGoUp && parent != null && parent.exists()) active.onOpenDir(parent)
+                }
             },
             enabled = active.canGoUp,
         ) {
@@ -550,11 +726,34 @@ private fun SharedToolbar(
                         },
                         onClick = {
                             showDriveMenu = false
+                            active.exitSaf()
                             if (drive.readable) active.onOpenDrive(drive.dir)
                             else Toast.makeText(context, "${drive.label} is mounted but not readable right now", Toast.LENGTH_SHORT).show()
                         },
                     )
                 }
+                // Pinned SAF "app storage" locations, then the "+ Add app storage" entry.
+                pinned.forEach { p ->
+                    MenuItemDivider()
+                    DropdownMenuItem(
+                        text = { Text(p.label) },
+                        leadingIcon = { Icon(Icons.Filled.Cloud, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) },
+                        trailingIcon = {
+                            Icon(
+                                Icons.Filled.Close, "Remove",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp).clickable { showDriveMenu = false; onUnpin(p) },
+                            )
+                        },
+                        onClick = { showDriveMenu = false; onOpenPinned(p) },
+                    )
+                }
+                MenuItemDivider()
+                DropdownMenuItem(
+                    text = { Text("Add app storage") },
+                    leadingIcon = { Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) },
+                    onClick = { showDriveMenu = false; onAddAppStorage() },
+                )
             }
         }
         Spacer(Modifier.width(4.dp))
@@ -572,7 +771,7 @@ private fun SharedToolbar(
             )
         } else {
             Text(
-                currentDir.name.ifBlank { currentDir.absolutePath },
+                folderName,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -688,7 +887,7 @@ fun BrowserPane(
     paneState: PaneState,
     // Dual-pane wiring. In single-pane mode: dualPane=false, otherPaneDir returns null, no-op reload.
     dualPane: Boolean = false,
-    otherPaneDir: () -> File? = { null },
+    otherPaneDir: () -> Loc? = { null },
     onRequestOtherReload: () -> Unit = {},
     modifier: Modifier = Modifier,
     // Pick mode (issue #73): reuse this File Manager as a themed file picker. When on, editing/run
@@ -708,9 +907,9 @@ fun BrowserPane(
 
     // Only matching files are shown in pick mode (directories are always shown). Empty = all files.
     val lowerExts = remember(pickExtensions) { pickExtensions.map { it.lowercase() } }
-    fun matchesPickExt(file: File): Boolean {
+    fun matchesPickExt(loc: Loc): Boolean {
         if (lowerExts.isEmpty()) return true
-        val name = file.name.lowercase()
+        val name = loc.name.lowercase()
         return lowerExts.any { name.endsWith(".$it") }
     }
 
@@ -723,210 +922,203 @@ fun BrowserPane(
         saved ?: initialDir?.takeIf { it.isDirectory } ?: File("/storage/emulated/0")
     }
 
-    // currentDir + currentRoot are DERIVED from the shared PaneState so the single toolbar (bound to
-    // the active pane) can read/drive them. Navigation writes paneState.path / paneState.rootPath;
-    // rootPath is the up/back FLOOR (the drive root), set by openDrive.
-    val currentDir = File(paneState.path)
-    val currentRoot = File(paneState.rootPath)
-    var entries by remember { mutableStateOf(listOf<File>()) }
-    var selectedEntry by remember { mutableStateOf<File?>(null) }
-    var showMenuFor by remember { mutableStateOf<File?>(null) }
-    // Clipboard holds a LIST so one paste can carry a whole selection. Cut/copy semantics are a
-    // flag on the batch rather than per item — mixing the two in one clipboard has no sane meaning.
-    var clipboardFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+    // The pane's current directory as a backend-agnostic Loc. All the list/row/op code works on Loc;
+    // File ops delegate to the same java.io.File / FileUtils code (unchanged), SAF plugs in the same
+    // way. currentFile is non-null only in File mode, for the File-only extras (free space, favourites).
+    val currentLoc: Loc = paneState.currentLoc
+    val currentFile: File? = (currentLoc as? Loc.FileLoc)?.file
+    var entries by remember { mutableStateOf<List<Loc>>(emptyList()) }
+    var selectedEntry by remember { mutableStateOf<Loc?>(null) }
+    var showMenuFor by remember { mutableStateOf<Loc?>(null) }
+    // Clipboard holds a LIST so one paste can carry a whole selection.
+    var clipboard by remember { mutableStateOf<List<Loc>>(emptyList()) }
     var isCutOperation by remember { mutableStateOf(false) }
-    // Multi-select. Keyed by absolute path rather than File so a directory reload (which builds
-    // fresh File objects) doesn't silently drop the selection.
+    // Multi-select, keyed by loc.id (path for File, doc-uri for SAF) so a reload keeps the selection.
     var selectionMode by remember { mutableStateOf(false) }
-    var selectedPaths by remember { mutableStateOf<Set<String>>(emptySet()) }
-    // Paste conflict resolution, surfaced from the IO coroutine and answered by the dialog.
-    var pendingConflict by remember { mutableStateOf<File?>(null) }
+    var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var pendingConflict by remember { mutableStateOf<Loc?>(null) }
     var conflictChoice by remember { mutableStateOf<ConflictChoice?>(null) }
     var conflictApplyToAll by remember { mutableStateOf(false) }
-    // Set while a copy/move runs so the progress UI can offer a cancel.
     var operationJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var pendingBulkDelete by remember { mutableStateOf<List<File>>(emptyList()) }
-    // Browse controls (search / sort / hidden / view-mode / compact / new-folder) now live on the
-    // shared PaneState: the single toolbar mutates them for whichever pane is active; this pane reads
-    // paneState.searchQuery / .sortBy / .viewMode / … below.
-    var renameTarget by remember { mutableStateOf<File?>(null) }
-    // Properties sheet (basic info + Read-only toggle) target; null when closed.
-    var propertiesTarget by remember { mutableStateOf<File?>(null) }
+    var pendingBulkDelete by remember { mutableStateOf<List<Loc>>(emptyList()) }
+    var renameTarget by remember { mutableStateOf<Loc?>(null) }
+    var propertiesTarget by remember { mutableStateOf<Loc?>(null) }
     var isOperationRunning by remember { mutableStateOf(false) }
     var operationLabel by remember { mutableStateOf("") }
     var operationDeterminate by remember { mutableStateOf(false) }
     var operationProgress by remember { mutableFloatStateOf(0f) }
     val listState = rememberLazyListState()
     val pullState = rememberPullToRefreshState()
-
-    // Favorites view: when on, a dedicated bookmarks list replaces the file list.
-    // favTick is bumped on any add/remove/toggle so the favorites view + per-row star recompute.
-    var showFavorites by remember { mutableStateOf(false) }
     var favTick by remember { mutableIntStateOf(0) }
-    // Listing state: a brief spinner covers a slow directory read; a non-null [loadError] surfaces a
-    // read failure (e.g. an unreadable path) as an in-list message rather than a silent empty list.
     var loading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
 
-    // resetScroll: jump to the top of the list (true for navigation; false for in-place reloads
-    // after delete/paste/rename/refresh so the user keeps their scroll position).
-    fun loadDirectory(dir: File, resetScroll: Boolean = true) {
-        // Publish the current dir onto the shared PaneState (the toolbar + cross-pane target read it).
-        paneState.path = dir.absolutePath
-        // Remember the browsed directory so the next pick resumes here.
-        if (pickMode) pickPrefs.edit().putString("lastFilePickerDir", dir.absolutePath).apply()
+    // ── Reactive listing ── re-lists whenever the current dir, sort, hidden filter or a reload signal
+    // changes. Navigation is pure state mutation (paneState.path / safStack); this effect turns that
+    // into a fresh listing. Scroll resets only when the DIRECTORY changes, not on sort/refresh.
+    val lastLocId = remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentLoc.id, paneState.sortBy, paneState.sortDesc, paneState.showHidden, paneState.reloadTick) {
+        val loc = paneState.currentLoc
+        val reset = lastLocId.value != loc.id
+        lastLocId.value = loc.id
+        if (pickMode) (loc as? Loc.FileLoc)?.let { pickPrefs.edit().putString("lastFilePickerDir", it.file.absolutePath).apply() }
         loading = true
         loadError = null
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    dir.listFiles()?.toList()
-                        // Dir-pick mode: folders only. File-pick: folders + matching files. Else: all.
-                        ?.filter { if (pickDirMode) it.isDirectory else !pickMode || it.isDirectory || matchesPickExt(it) }
-                        // Dotfiles are noise in a storage root (.aya, .$recycle_bin$) but occasionally
-                        // the thing you came for, so it's a toggle rather than a permanent filter.
-                        ?.filter { paneState.showHidden || !it.name.startsWith(".") }
-                        ?.sortedWith(comparatorFor(paneState.sortBy, paneState.sortDesc))
-                }
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                Storage.backend(loc).listChildren(context, loc)
+                    // Dir-pick mode: folders only. File-pick: folders + matching files. Else: all.
+                    .filter { if (pickDirMode) it.isDir else !pickMode || it.isDir || matchesPickExt(it) }
+                    // Dotfiles are noise in a storage root — a toggle rather than a permanent filter.
+                    .filter { paneState.showHidden || !it.name.startsWith(".") }
+                    .sortedWith(comparatorFor(paneState.sortBy, paneState.sortDesc))
             }
-            val list = result.getOrNull()
-            loadError = when {
-                result.isFailure -> "Couldn't read this folder."
-                list == null && !dir.canRead() -> "This folder isn't readable."
-                else -> null
-            }
-            entries = list ?: emptyList()
-            loading = false
-            if (resetScroll) listState.scrollToItem(0)
         }
+        entries = result.getOrNull() ?: emptyList()
+        loadError = if (result.isFailure) "Couldn't read this folder." else null
+        loading = false
+        if (reset) runCatching { listState.scrollToItem(0) }
     }
 
-    // Pull-to-refresh: re-list the current directory, keeping scroll position.
+    // Pull-to-refresh → re-list, keeping scroll.
     if (pullState.isRefreshing) {
-        LaunchedEffect(true) {
-            loadDirectory(currentDir, resetScroll = false)
-            pullState.endRefresh()
+        LaunchedEffect(true) { paneState.requestReload(); pullState.endRefresh() }
+    }
+
+    // One-shot: if the saved File path no longer exists, fall back to a sensible start dir.
+    LaunchedEffect(Unit) {
+        if (!paneState.isSaf && !File(paneState.path).isDirectory) {
+            paneState.path = rootDir.absolutePath
+            paneState.rootPath = rootDir.absolutePath
         }
     }
 
-    // Cross-pane refresh: the parent bumps [paneState.reloadTick] after a copy/move/extract into this
-    // pane's directory, so the newly-arrived files appear without a manual pull-to-refresh.
-    LaunchedEffect(paneState.reloadTick) {
-        if (paneState.reloadTick > 0) loadDirectory(currentDir, resetScroll = false)
-    }
+    // File-mode navigation into a directory (the effect re-lists on the paneState.path change).
+    fun navFileDir(dir: File) { paneState.path = dir.absolutePath }
 
-    // Jump to a drive's root; pins the Back boundary (rootPath) so we don't climb above it.
+    // Jump to a File drive's root (exits any SAF browse); pins the back floor to that root.
     fun openDrive(dir: File) {
+        paneState.exitSaf()
         paneState.rootPath = dir.absolutePath
-        loadDirectory(dir)
+        paneState.path = dir.absolutePath
     }
 
-    // Wire the navigation hooks so the shared toolbar (bound to the active pane) can drive THIS pane.
-    paneState.onOpenDir = { dir -> loadDirectory(dir) }
+    // Wire the File-mode navigation hooks the shared toolbar uses (back / drive dropdown).
+    paneState.onOpenDir = { dir -> navFileDir(dir) }
     paneState.onOpenDrive = { dir -> openDrive(dir) }
 
-    // Initial listing: list the pane's current dir WITHOUT resetting rootPath (the back floor is the
-    // saved/seeded rootPath — a fresh pane's rootPath equals its start dir). rootDir is referenced so
-    // a stale saved path that no longer exists still has a sensible starting point.
-    LaunchedEffect(Unit) {
-        if (!File(paneState.path).isDirectory) { paneState.path = rootDir.absolutePath; paneState.rootPath = rootDir.absolutePath }
-        loadDirectory(File(paneState.path))
-    }
-
-    // System/gesture Back: while the Favorites view is open it closes that first; otherwise
-    // it goes up one directory. Only at the current drive's root with Favorites closed is it
-    // disabled, letting Back propagate to close the File Manager.
-    BackHandler(enabled = paneState.showFavorites || currentDir != currentRoot) {
-        if (paneState.showFavorites) {
-            paneState.showFavorites = false
-            return@BackHandler
+    // Navigate into a directory entry, whichever backend it belongs to.
+    fun openLoc(loc: Loc) {
+        when (loc) {
+            is Loc.FileLoc -> navFileDir(loc.file)
+            is Loc.SafLoc -> paneState.openSafInto(loc)
         }
-        val parent = currentDir.parentFile
-        if (parent != null && parent.exists()) loadDirectory(parent)
     }
 
-    // A content:// Uri for [file] via our FileProvider, for VIEW / SEND / INSTALL hand-offs.
-    fun contentUri(file: File) = androidx.core.content.FileProvider.getUriForFile(
-        context, "${context.packageName}.fileprovider", file,
-    )
+    // Favourites are File-only (they store absolute paths). SAF entries just get a no-op star.
+    fun isLocFav(loc: Loc): Boolean =
+        (loc as? Loc.FileLoc)?.let { FavoritesStore.isFavorite(context, it.file.absolutePath) } ?: false
+    fun toggleFav(loc: Loc): Boolean {
+        val f = (loc as? Loc.FileLoc)?.file ?: return false
+        return FavoritesStore.toggle(context, f.absolutePath)
+    }
+
+    // System/gesture Back: close Favorites first; else go up (SAF pops/exits; File climbs to parent).
+    BackHandler(enabled = paneState.showFavorites || paneState.canGoUp) {
+        if (paneState.showFavorites) { paneState.showFavorites = false; return@BackHandler }
+        if (paneState.isSaf) {
+            paneState.safUp()
+        } else {
+            val here = File(paneState.path)
+            val parent = here.parentFile
+            if (here != File(paneState.rootPath) && parent != null && parent.exists()) paneState.path = parent.absolutePath
+        }
+    }
+
+    // A non-colliding child name for [name] within [dir] ("foo.txt" -> "foo (1).txt"). Backend-aware;
+    // does IPC for SAF, so callers invoke it off the main thread.
+    fun uniqueName(dir: Loc, name: String): String {
+        val backend = Storage.backend(dir)
+        if (backend.childNamed(context, dir, name) == null) return name
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var i = 1
+        var cand = "$base ($i)$ext"
+        while (backend.childNamed(context, dir, cand) != null) { i++; cand = "$base ($i)$ext" }
+        return cand
+    }
+
+    // A shareable content:// Uri for [loc]: a FileProvider uri for File, or the SAF doc Uri directly.
+    fun viewUri(loc: Loc): Uri? = when (loc) {
+        is Loc.FileLoc -> runCatching {
+            androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", loc.file)
+        }.getOrNull()
+        is Loc.SafLoc -> loc.docUri
+    }
 
     // "Open with": hand the file to another app through a plain ACTION_VIEW chooser (best-effort).
-    // Replaces the emulator's "run this .exe in a Wine container" action — BFE has no container.
-    fun openWith(file: File) {
+    fun openWith(loc: Loc) {
         runCatching {
-            val uri = contentUri(file)
+            val uri = viewUri(loc) ?: throw IllegalStateException()
             val mime = context.contentResolver.getType(uri) ?: "*/*"
-            val view = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mime)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(view, "Open with"))
-        }.onFailure {
-            Toast.makeText(context, "No app can open ${file.name}", Toast.LENGTH_SHORT).show()
-        }
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, "Open with"))
+        }.onFailure { Toast.makeText(context, "No app can open ${loc.name}", Toast.LENGTH_SHORT).show() }
     }
 
     // Share a file to another app via ACTION_SEND.
-    fun shareFile(file: File) {
+    fun shareFile(loc: Loc) {
         runCatching {
-            val uri = contentUri(file)
-            val send = Intent(Intent.ACTION_SEND).apply {
+            val uri = viewUri(loc) ?: throw IllegalStateException()
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                 type = context.contentResolver.getType(uri) ?: "*/*"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(send, "Share ${file.name}"))
-        }.onFailure {
-            Toast.makeText(context, "Couldn't share ${file.name}", Toast.LENGTH_SHORT).show()
-        }
+                putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, "Share ${loc.name}"))
+        }.onFailure { Toast.makeText(context, "Couldn't share ${loc.name}", Toast.LENGTH_SHORT).show() }
     }
 
     // Share several files at once via ACTION_SEND_MULTIPLE (used by the selection action bar).
-    fun shareFiles(files: List<File>) {
-        val onlyFiles = files.filter { it.isFile }
-        if (onlyFiles.isEmpty()) return
-        if (onlyFiles.size == 1) { shareFile(onlyFiles.first()); return }
+    fun shareFiles(locs: List<Loc>) {
+        val files = locs.filter { !it.isDir }
+        if (files.isEmpty()) return
+        if (files.size == 1) { shareFile(files.first()); return }
         runCatching {
-            val uris = ArrayList(onlyFiles.map { contentUri(it) })
-            val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                type = "*/*"
-                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            val uris = ArrayList(files.mapNotNull { viewUri(it) })
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "*/*"; putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(send, "Share ${onlyFiles.size} files"))
-        }.onFailure {
-            Toast.makeText(context, "Couldn't share the selection", Toast.LENGTH_SHORT).show()
-        }
+            }, "Share ${files.size} files"))
+        }.onFailure { Toast.makeText(context, "Couldn't share the selection", Toast.LENGTH_SHORT).show() }
     }
 
     // Install an .apk via the system package installer (needs REQUEST_INSTALL_PACKAGES).
-    fun installApk(file: File) {
+    fun installApk(loc: Loc) {
         runCatching {
-            val uri = contentUri(file)
-            val install = Intent(Intent.ACTION_VIEW).apply {
+            val uri = viewUri(loc) ?: throw IllegalStateException()
+            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(install)
-        }.onFailure {
-            Toast.makeText(context, "Couldn't start the installer for ${file.name}", Toast.LENGTH_SHORT).show()
-        }
+            })
+        }.onFailure { Toast.makeText(context, "Couldn't start the installer for ${loc.name}", Toast.LENGTH_SHORT).show() }
     }
 
-    // Shared by both the list rows and the grid tiles so the big Fast-Extract when-branch and the
-    // Unpack-screen launch aren't duplicated per call site. Both close the context menu first.
-    // In dual-pane mode, extraction defaults into the OTHER pane's directory (so "extract left →
-    // into right" is one tap); single-pane keeps the engine's own sibling-folder default.
-    fun extractDest(): File? = if (dualPane) otherPaneDir() else null
+    // In dual-pane mode, extraction defaults into the OTHER pane's directory when it's a File dir (the
+    // native extractors need a real path); single-pane keeps the engine's own sibling-folder default.
+    fun extractDest(): File? = if (dualPane) (otherPaneDir() as? Loc.FileLoc)?.file else null
 
-    fun launchFastExtract(file: File) {
+    // Archive extraction is File-only (the native engines need a real path); guard SAF entries.
+    fun launchFastExtract(loc: Loc) {
         showMenuFor = null
+        val file = (loc as? Loc.FileLoc)?.file ?: run {
+            Toast.makeText(context, "Extraction from app storage isn't supported yet", Toast.LENGTH_SHORT).show(); return
+        }
         val dest = extractDest()
         scope.launch {
             when (val o = com.the412banner.bfe.unpack.FastExtract.start(context, file, dest)) {
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.Started -> {
                     Toast.makeText(context, "Unpacking ${o.name}…", Toast.LENGTH_SHORT).show()
-                    // Show the extracted files in the target pane as soon as the job finishes.
                     if (dualPane) onRequestOtherReload()
                 }
                 com.the412banner.bfe.unpack.FastExtract.Outcome.Busy ->
@@ -943,110 +1135,94 @@ fun BrowserPane(
         }
     }
 
-    fun launchUnpack(file: File) {
+    fun launchUnpack(loc: Loc) {
         showMenuFor = null
+        val file = (loc as? Loc.FileLoc)?.file ?: return
         context.startActivity(
             com.the412banner.bfe.UnpackArchiveActivity.intent(context, file.absolutePath, extractDest()?.absolutePath)
         )
     }
 
-    // Resolve a non-colliding destination in [dir] for [name] (foo.txt -> "foo (1).txt").
-    fun uniqueDestination(dir: File, name: String): File {
-        var candidate = File(dir, name)
-        if (!candidate.exists()) return candidate
-        val dot = name.lastIndexOf('.')
-        val base = if (dot > 0) name.substring(0, dot) else name
-        val ext = if (dot > 0) name.substring(dot) else ""
-        var i = 1
-        do {
-            candidate = File(dir, "$base ($i)$ext")
-            i++
-        } while (candidate.exists())
-        return candidate
-    }
-
-    fun performDelete(file: File) {
+    fun performDelete(loc: Loc) {
         scope.launch {
             isOperationRunning = true
             operationLabel = "Deleting..."
-            val ok = withContext(Dispatchers.IO) { FileUtils.delete(file) }
+            val ok = withContext(Dispatchers.IO) { Storage.backend(loc).delete(context, loc) }
             isOperationRunning = false
-            loadDirectory(currentDir, resetScroll = false)
+            paneState.requestReload()
             if (!ok) Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
         }
     }
 
-    /** Waits for the user to answer the conflict dialog for [file]; null if they cancelled it. */
-    suspend fun askConflict(file: File): ConflictChoice? {
-        pendingConflict = file
+    /** Waits for the user to answer the conflict dialog for [loc]; null if they cancelled it. */
+    suspend fun askConflict(loc: Loc): ConflictChoice? {
+        pendingConflict = loc
         conflictChoice = null
-        // Poll rather than plumb a CompletableDeferred through Compose state — the dialog answers
-        // by setting conflictChoice, and this coroutine is already off the critical path.
         while (pendingConflict != null && conflictChoice == null) kotlinx.coroutines.delay(50)
         return conflictChoice
     }
 
-    // Copy or move [sources] into [dstDir]. Used by within-pane paste (dst = currentDir) and by the
-    // cross-pane "Copy →"/"Move →" actions (dst = the other pane's dir). [onDone] refreshes the OTHER
-    // pane after a cross-pane op; the source pane is always refreshed (a move removes items from it).
-    fun performCopyMove(sources: List<File>, dstDir: File, cut: Boolean, onDone: () -> Unit = {}) {
+    // Copy/move [sources] into [dstDir]. File→File keeps the fast FileUtils path (unchanged); anything
+    // touching a SAF side goes through StorageTransfer (recursive stream copy). [onDone] refreshes the
+    // OTHER pane after a cross-pane op; the source pane always refreshes (a move removes items from it).
+    fun performCopyMove(sources: List<Loc>, dstDir: Loc, cut: Boolean, onDone: () -> Unit = {}) {
         if (sources.isEmpty()) return
+        val dstBackend = Storage.backend(dstDir)
         operationJob = scope.launch {
             operationProgress = 0f
-            operationDeterminate = true
+            operationDeterminate = false
             operationLabel = if (cut) "Moving..." else "Copying..."
             isOperationRunning = true
 
             var applyToAll: ConflictChoice? = null
-            var failed = 0
-            var skipped = 0
-            var done = 0
+            var failed = 0; var skipped = 0; var done = 0
 
             for (src in sources) {
-                // Pasting a folder into itself or its own subtree would recurse forever.
-                if (src.isDirectory && isWithin(dstDir, src)) {
-                    failed++
-                    continue
-                }
-                // Moving into the folder it already sits in is a no-op.
-                if (cut && src.parentFile?.absolutePath == dstDir.absolutePath) {
-                    skipped++
-                    continue
-                }
+                val srcFile = (src as? Loc.FileLoc)?.file
+                val dstFile = (dstDir as? Loc.FileLoc)?.file
+                // Pasting a File folder into itself/its subtree would recurse forever.
+                if (srcFile != null && dstFile != null && src.isDir && isWithin(dstFile, srcFile)) { failed++; continue }
+                // Moving a File into the folder it already sits in is a no-op.
+                if (cut && srcFile != null && dstFile != null && srcFile.parentFile?.absolutePath == dstFile.absolutePath) { skipped++; continue }
 
-                var dst = File(dstDir, src.name)
-                if (dst.exists()) {
-                    val choice = applyToAll ?: askConflict(src)?.also {
-                        if (conflictApplyToAll) applyToAll = it
-                    } ?: run { skipped++; null } ?: continue
+                var targetName = src.name
+                val exists = withContext(Dispatchers.IO) { dstBackend.childNamed(context, dstDir, targetName) != null }
+                if (exists) {
+                    val choice = applyToAll ?: askConflict(src)?.also { if (conflictApplyToAll) applyToAll = it }
+                        ?: run { skipped++; null } ?: continue
                     when (choice) {
-                        // Overwrite and Merge both paste onto the real destination: copyWithProgress
-                        // recurses into an existing directory and truncates existing files, so the
-                        // two differ only in what the user expects, not in what we call.
                         ConflictChoice.OVERWRITE, ConflictChoice.MERGE -> Unit
-                        ConflictChoice.KEEP_BOTH -> dst = uniqueDestination(dstDir, src.name)
+                        ConflictChoice.KEEP_BOTH -> targetName = withContext(Dispatchers.IO) { uniqueName(dstDir, src.name) }
                         ConflictChoice.SKIP -> { skipped++; continue }
                     }
                 }
 
-                // Progress is per item; with a batch the label carries the overall position.
                 operationLabel = buildString {
                     append(if (cut) "Moving" else "Copying")
                     if (sources.size > 1) append(" ${done + 1}/${sources.size}")
                     append(" — ").append(src.name)
                 }
-                var lastPct = -1
-                val onProgress = FileUtils.ProgressCallback { copied, total ->
-                    val pct = if (total > 0) ((copied * 100) / total).toInt() else 100
-                    if (pct != lastPct) {
-                        lastPct = pct
-                        operationProgress = pct / 100f
+                val name = targetName
+                val ok = if (srcFile != null && dstFile != null) {
+                    // Fast File→File path (unchanged behaviour), with the per-item progress bar.
+                    operationDeterminate = true
+                    var lastPct = -1
+                    val onProgress = FileUtils.ProgressCallback { copied, total ->
+                        val pct = if (total > 0) ((copied * 100) / total).toInt() else 100
+                        if (pct != lastPct) { lastPct = pct; operationProgress = pct / 100f }
                     }
-                }
-                val target = dst
-                val ok = withContext(Dispatchers.IO) {
-                    if (cut) FileUtils.moveWithProgress(src, target, onProgress)
-                    else FileUtils.copyWithProgress(src, target, onProgress)
+                    val target = File(dstFile, name)
+                    withContext(Dispatchers.IO) {
+                        if (cut) FileUtils.moveWithProgress(srcFile, target, onProgress)
+                        else FileUtils.copyWithProgress(srcFile, target, onProgress)
+                    }
+                } else {
+                    // Cross-backend / SAF: recursive stream copy (indeterminate progress).
+                    operationDeterminate = false
+                    withContext(Dispatchers.IO) {
+                        if (cut) StorageTransfer.moveInto(context, src, dstDir, name)
+                        else StorageTransfer.copyInto(context, src, dstDir, name)
+                    }
                 }
                 if (ok) done++ else failed++
             }
@@ -1055,8 +1231,8 @@ fun BrowserPane(
             operationDeterminate = false
             operationJob = null
             selectionMode = false
-            selectedPaths = emptySet()
-            loadDirectory(currentDir, resetScroll = false)
+            selectedIds = emptySet()
+            paneState.requestReload()
             onDone()
 
             val message = when {
@@ -1071,49 +1247,47 @@ fun BrowserPane(
 
     // Within-pane clipboard paste: copy/move the clipboard into the current directory.
     fun performPaste() {
-        val sources = clipboardFiles
+        val sources = clipboard
         val cut = isCutOperation
-        clipboardFiles = emptyList()
+        clipboard = emptyList()
         isCutOperation = false
-        performCopyMove(sources, currentDir, cut)
+        performCopyMove(sources, currentLoc, cut)
     }
 
     // Cross-pane: copy or move the current selection into the OTHER pane's directory, then refresh it.
     fun crossPaneTransfer(cut: Boolean) {
         val target = otherPaneDir() ?: return
-        val sources = entries.filter { it.absolutePath in selectedPaths }
+        val sources = entries.filter { it.id in selectedIds }
         performCopyMove(sources, target, cut) { onRequestOtherReload() }
     }
 
-    fun performRename(file: File, newName: String) {
-        val target = File(file.parentFile, newName)
-        if (target.exists()) {
-            Toast.makeText(context, "\"$newName\" already exists", Toast.LENGTH_SHORT).show()
-            return
-        }
+    fun performRename(loc: Loc, newName: String) {
         scope.launch {
             isOperationRunning = true
             operationLabel = "Renaming..."
-            val ok = withContext(Dispatchers.IO) { file.renameTo(target) }
+            val backend = Storage.backend(loc)
+            val ok = withContext(Dispatchers.IO) {
+                if (backend.childNamed(context, currentLoc, newName) != null) false
+                else backend.rename(context, loc, newName) != null
+            }
             isOperationRunning = false
-            loadDirectory(currentDir, resetScroll = false)
-            if (!ok) Toast.makeText(context, "Rename failed", Toast.LENGTH_SHORT).show()
+            paneState.requestReload()
+            if (!ok) Toast.makeText(context, "Couldn't rename to \"$newName\"", Toast.LENGTH_SHORT).show()
         }
     }
 
-    fun createFolder(parent: File, name: String) {
-        val target = File(parent, name)
-        if (target.exists()) {
-            Toast.makeText(context, "\"$name\" already exists", Toast.LENGTH_SHORT).show()
-            return
-        }
+    fun createFolder(parent: Loc, name: String) {
         scope.launch {
             isOperationRunning = true
             operationLabel = "Creating folder..."
-            val ok = withContext(Dispatchers.IO) { target.mkdirs() }
+            val backend = Storage.backend(parent)
+            val ok = withContext(Dispatchers.IO) {
+                if (backend.childNamed(context, parent, name) != null) false
+                else backend.createFolder(context, parent, name) != null
+            }
             isOperationRunning = false
-            loadDirectory(currentDir, resetScroll = false)
-            if (!ok) Toast.makeText(context, "Could not create folder", Toast.LENGTH_SHORT).show()
+            paneState.requestReload()
+            if (!ok) Toast.makeText(context, "Could not create \"$name\"", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1135,7 +1309,7 @@ fun BrowserPane(
             confirmButton = {
                 TextButton(onClick = {
                     paneState.showNewFolderDialog = false
-                    if (folderName.isNotBlank()) createFolder(currentDir, folderName)
+                    if (folderName.isNotBlank()) createFolder(currentLoc, folderName)
                 }) { Text("Create") }
             },
             dismissButton = { TextButton(onClick = { paneState.showNewFolderDialog = false }) { Text("Cancel") } },
@@ -1166,13 +1340,12 @@ fun BrowserPane(
         )
     }
 
-    propertiesTarget?.let { file ->
+    // Properties (File only — the Read-only toggle is a chmod; SAF documents have no such attribute).
+    (propertiesTarget as? Loc.FileLoc)?.let { fileLoc ->
         FilePropertiesDialog(
-            file = file,
+            file = fileLoc.file,
             onDismiss = { propertiesTarget = null },
-            // Attribute changes affect Hidden/read-only which the listing filters/sorts on, so refresh
-            // in place (keeping scroll) after any toggle applies.
-            onChanged = { loadDirectory(currentDir, resetScroll = false) },
+            onChanged = { paneState.requestReload() },
         )
     }
 
@@ -1218,17 +1391,17 @@ fun BrowserPane(
                 TextButton(onClick = {
                     pendingBulkDelete = emptyList()
                     selectionMode = false
-                    selectedPaths = emptySet()
+                    selectedIds = emptySet()
                     operationJob = scope.launch {
                         isOperationRunning = true
                         var failed = 0
                         victims.forEachIndexed { i, f ->
                             operationLabel = "Deleting ${i + 1}/${victims.size} — ${f.name}"
-                            if (!withContext(Dispatchers.IO) { FileUtils.delete(f) }) failed++
+                            if (!withContext(Dispatchers.IO) { Storage.backend(f).delete(context, f) }) failed++
                         }
                         isOperationRunning = false
                         operationJob = null
-                        loadDirectory(currentDir, resetScroll = false)
+                        paneState.requestReload()
                         if (failed > 0) {
                             Toast.makeText(context, "$failed couldn't be deleted", Toast.LENGTH_SHORT).show()
                         }
@@ -1241,7 +1414,7 @@ fun BrowserPane(
 
     // Paste conflict — one per colliding item, with "apply to all" for a long batch.
     pendingConflict?.let { conflict ->
-        val isDir = conflict.isDirectory
+        val isDir = conflict.isDir
         OutlinedAlertDialog(
             onDismissRequest = { pendingConflict = null },
             title = { Text("\"${conflict.name}\" already exists") },
@@ -1253,7 +1426,7 @@ fun BrowserPane(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                     )
-                    if (clipboardFiles.size > 1) {
+                    if (clipboard.size > 1) {
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             androidx.compose.material3.Checkbox(
@@ -1300,10 +1473,10 @@ fun BrowserPane(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             )
         }
-        // ── Dir-pick action bar: confirm the currently-browsed folder ──
-        if (pickDirMode) {
+        // ── Dir-pick action bar: confirm the currently-browsed folder (File locations only) ──
+        if (pickDirMode && currentFile != null) {
             Button(
-                onClick = { onPick?.invoke(currentDir) },
+                onClick = { onPick?.invoke(currentFile) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1324,10 +1497,12 @@ fun BrowserPane(
             )
         }
 
-        // Free space on the volume being browsed — worth knowing before starting a 60 GB copy.
-        val freeSpace = remember(currentDir.absolutePath, entries) {
-            runCatching { currentDir.usableSpace }.getOrDefault(0L)
+        // Free space (File volumes only — SAF providers don't report it) + the current path/breadcrumb.
+        val freeSpace = remember(currentLoc.id, entries) {
+            currentFile?.let { runCatching { it.usableSpace }.getOrDefault(0L) } ?: 0L
         }
+        val locDisplayPath = currentFile?.absolutePath
+            ?: (paneState.safLabel + paneState.safStack.drop(1).joinToString("") { " / ${it.name}" })
         if (!paneState.showFavorites) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1336,7 +1511,7 @@ fun BrowserPane(
                 Text(
                     // Elided from the LEFT: the deepest part of a path is the informative part, so
                     // when it doesn't fit we drop the /storage/emulated/0 prefix, not the tail.
-                    text = elidePathStart(currentDir.absolutePath, 52),
+                    text = elidePathStart(locDisplayPath, 52),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     maxLines = 1,
@@ -1367,7 +1542,7 @@ fun BrowserPane(
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
                 Text(
-                    "${selectedPaths.size} selected",
+                    "${selectedIds.size} selected",
                     color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(end = 8.dp),
@@ -1382,30 +1557,30 @@ fun BrowserPane(
                 ) {
                     OutlinedButton(
                         onClick = {
-                            selectedPaths = if (selectedPaths.size == entries.size) emptySet()
-                            else entries.map { it.absolutePath }.toSet()
+                            selectedIds = if (selectedIds.size == entries.size) emptySet()
+                            else entries.map { it.id }.toSet()
                         },
                         contentPadding = selBarPadding,
-                    ) { Text(if (selectedPaths.size == entries.size) "None" else "All", fontSize = 12.sp) }
+                    ) { Text(if (selectedIds.size == entries.size) "None" else "All", fontSize = 12.sp) }
                     Spacer(Modifier.width(4.dp))
                     OutlinedButton(
-                        enabled = selectedPaths.isNotEmpty(),
+                        enabled = selectedIds.isNotEmpty(),
                         onClick = {
-                            clipboardFiles = entries.filter { it.absolutePath in selectedPaths }
+                            clipboard = entries.filter { it.id in selectedIds }
                             isCutOperation = false
                             selectionMode = false
-                            selectedPaths = emptySet()
+                            selectedIds = emptySet()
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Copy", fontSize = 12.sp) }
                     Spacer(Modifier.width(4.dp))
                     OutlinedButton(
-                        enabled = selectedPaths.isNotEmpty(),
+                        enabled = selectedIds.isNotEmpty(),
                         onClick = {
-                            clipboardFiles = entries.filter { it.absolutePath in selectedPaths }
+                            clipboard = entries.filter { it.id in selectedIds }
                             isCutOperation = true
                             selectionMode = false
-                            selectedPaths = emptySet()
+                            selectedIds = emptySet()
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Cut", fontSize = 12.sp) }
@@ -1413,14 +1588,14 @@ fun BrowserPane(
                     if (dualPane && otherPaneDir() != null) {
                         Spacer(Modifier.width(4.dp))
                         OutlinedButton(
-                            enabled = selectedPaths.isNotEmpty(),
+                            enabled = selectedIds.isNotEmpty(),
                             onClick = { crossPaneTransfer(cut = false) },
                             contentPadding = selBarPadding,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                         ) { Text("Copy →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
                         Spacer(Modifier.width(4.dp))
                         OutlinedButton(
-                            enabled = selectedPaths.isNotEmpty(),
+                            enabled = selectedIds.isNotEmpty(),
                             onClick = { crossPaneTransfer(cut = true) },
                             contentPadding = selBarPadding,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
@@ -1428,22 +1603,22 @@ fun BrowserPane(
                     }
                     Spacer(Modifier.width(4.dp))
                     OutlinedButton(
-                        enabled = selectedPaths.any { p -> entries.any { it.absolutePath == p && it.isFile } },
+                        enabled = selectedIds.any { p -> entries.any { it.id == p && !it.isDir } },
                         onClick = {
-                            shareFiles(entries.filter { it.absolutePath in selectedPaths })
+                            shareFiles(entries.filter { it.id in selectedIds })
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Share", fontSize = 12.sp) }
                     Spacer(Modifier.width(4.dp))
                     OutlinedButton(
-                        enabled = selectedPaths.isNotEmpty(),
-                        onClick = { pendingBulkDelete = entries.filter { it.absolutePath in selectedPaths } },
+                        enabled = selectedIds.isNotEmpty(),
+                        onClick = { pendingBulkDelete = entries.filter { it.id in selectedIds } },
                         contentPadding = selBarPadding,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
                     ) { Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
                     Spacer(Modifier.width(4.dp))
                     OutlinedButton(
-                        onClick = { selectionMode = false; selectedPaths = emptySet() },
+                        onClick = { selectionMode = false; selectedIds = emptySet() },
                         contentPadding = selBarPadding,
                     ) { Text("Done", fontSize = 12.sp) }
                 }
@@ -1451,7 +1626,7 @@ fun BrowserPane(
         }
 
         // ── Paste banner ──
-        if (clipboardFiles.isNotEmpty()) {
+        if (clipboard.isNotEmpty()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
@@ -1462,13 +1637,13 @@ fun BrowserPane(
             ) {
                 Icon(Icons.Filled.ContentPaste, "Paste", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                val what = if (clipboardFiles.size == 1) clipboardFiles.first().name
-                else "${clipboardFiles.size} items"
+                val what = if (clipboard.size == 1) clipboard.first().name
+                else "${clipboard.size} items"
                 Text(
                     "Paste $what${if (isCutOperation) " (move)" else ""} here",
                     color = MaterialTheme.colorScheme.onBackground, fontSize = 13.sp, modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { clipboardFiles = emptyList(); isCutOperation = false }) {
+                TextButton(onClick = { clipboard = emptyList(); isCutOperation = false }) {
                     Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }
             }
@@ -1500,7 +1675,7 @@ fun BrowserPane(
                             operationJob = null
                             isOperationRunning = false
                             operationDeterminate = false
-                            loadDirectory(currentDir, resetScroll = false)
+                            paneState.requestReload()
                         }) { Text("Cancel", fontSize = 12.sp) }
                     }
                 }
@@ -1527,12 +1702,14 @@ fun BrowserPane(
         // ── Favorites list OR file list ──
         if (paneState.showFavorites) {
             FavoritesList(
-                currentDir = currentDir,
+                currentDir = currentFile,
                 favTick = favTick,
                 onPinCurrent = {
-                    FavoritesStore.add(context, currentDir.absolutePath)
-                    favTick++
-                    Toast.makeText(context, "Added \"${currentDir.name}\" to Favorites", Toast.LENGTH_SHORT).show()
+                    currentFile?.let {
+                        FavoritesStore.add(context, it.absolutePath)
+                        favTick++
+                        Toast.makeText(context, "Added \"${it.name}\" to Favorites", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onJump = { dir ->
                     paneState.showFavorites = false
@@ -1574,37 +1751,35 @@ fun BrowserPane(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(8.dp),
                 ) {
-                    items(shownEntries, key = { it.absolutePath }) { file ->
-                        val isFav = remember(file.absolutePath, favTick) {
-                            FavoritesStore.isFavorite(context, file.absolutePath)
-                        }
+                    items(shownEntries, key = { it.id }) { file ->
+                        val isFav = remember(file.id, favTick) { isLocFav(file) }
                         FileGridTile(
                             file = file,
                             selectionMode = selectionMode,
-                            selected = file.absolutePath in selectedPaths,
+                            selected = file.id in selectedIds,
                             onLongPress = {
                                 if (!pickMode) {
                                     // In selection mode a long-press toggles; otherwise it opens the
                                     // same context menu the list rows show (the tile has no ⋮ button).
                                     if (selectionMode) {
-                                        selectedPaths = if (file.absolutePath in selectedPaths)
-                                            selectedPaths - file.absolutePath
-                                        else selectedPaths + file.absolutePath
+                                        selectedIds = if (file.id in selectedIds)
+                                            selectedIds - file.id
+                                        else selectedIds + file.id
                                     } else {
                                         showMenuFor = file
                                     }
                                 }
                             },
                             onToggleSelect = {
-                                selectedPaths = if (file.absolutePath in selectedPaths)
-                                    selectedPaths - file.absolutePath
-                                else selectedPaths + file.absolutePath
+                                selectedIds = if (file.id in selectedIds)
+                                    selectedIds - file.id
+                                else selectedIds + file.id
                             },
                             onTap = {
-                                if (file.isDirectory) loadDirectory(file)
+                                if (file.isDir) openLoc(file)
                                 else if (pickMode) {
                                     if (matchesPickExt(file)) {
-                                        pickPrefs.edit().putString("lastFilePickerDir", currentDir.absolutePath).apply()
+                                        currentFile?.let { pickPrefs.edit().putString("lastFilePickerDir", it.absolutePath).apply() }
                                         onPick?.invoke(file)
                                     }
                                 } else openWith(file)
@@ -1615,7 +1790,7 @@ fun BrowserPane(
                             isFavorite = isFav,
                             onSelect = {
                                 selectionMode = true
-                                selectedPaths = selectedPaths + file.absolutePath
+                                selectedIds = selectedIds + file.id
                                 showMenuFor = null
                             },
                             onOpenWith = { openWith(file) },
@@ -1624,11 +1799,11 @@ fun BrowserPane(
                             onUnpack = { launchUnpack(file) },
                             onFastExtract = { launchFastExtract(file) },
                             onRename = { renameTarget = file; showMenuFor = null },
-                            onCopy = { clipboardFiles = listOf(file); isCutOperation = false; showMenuFor = null },
-                            onCut = { clipboardFiles = listOf(file); isCutOperation = true; showMenuFor = null },
+                            onCopy = { clipboard = listOf(file); isCutOperation = false; showMenuFor = null },
+                            onCut = { clipboard = listOf(file); isCutOperation = true; showMenuFor = null },
                             onDelete = { selectedEntry = file; showMenuFor = null },
                             onToggleFavorite = {
-                                val nowFav = FavoritesStore.toggle(context, file.absolutePath)
+                                val nowFav = toggleFav(file)
                                 favTick++
                                 showMenuFor = null
                                 Toast.makeText(
@@ -1655,10 +1830,8 @@ fun BrowserPane(
                     }
                 } else {
                     val shown = shownEntries
-                    items(shown, key = { it.absolutePath }) { file ->
-                        val isFav = remember(file.absolutePath, favTick) {
-                            FavoritesStore.isFavorite(context, file.absolutePath)
-                        }
+                    items(shown, key = { it.id }) { file ->
+                        val isFav = remember(file.id, favTick) { isLocFav(file) }
                         FileItemRow(
                             file = file,
                             showActions = !pickMode,
@@ -1666,30 +1839,30 @@ fun BrowserPane(
                             // COMPACT view mode → dense single-line rows (~4× more per screen).
                             dense = paneState.viewMode == FmViewMode.COMPACT,
                             selectionMode = selectionMode,
-                            selected = file.absolutePath in selectedPaths,
+                            selected = file.id in selectedIds,
                             onLongPress = {
                                 // In selection mode a long-press toggles; otherwise it opens the
                                 // per-item context menu (matching the grid tiles).
                                 if (!pickMode) {
                                     if (selectionMode) {
-                                        selectedPaths = if (file.absolutePath in selectedPaths)
-                                            selectedPaths - file.absolutePath
-                                        else selectedPaths + file.absolutePath
+                                        selectedIds = if (file.id in selectedIds)
+                                            selectedIds - file.id
+                                        else selectedIds + file.id
                                     } else {
                                         showMenuFor = file
                                     }
                                 }
                             },
                             onToggleSelect = {
-                                selectedPaths = if (file.absolutePath in selectedPaths)
-                                    selectedPaths - file.absolutePath
-                                else selectedPaths + file.absolutePath
+                                selectedIds = if (file.id in selectedIds)
+                                    selectedIds - file.id
+                                else selectedIds + file.id
                             },
                             onTap = {
-                                if (file.isDirectory) loadDirectory(file)
+                                if (file.isDir) openLoc(file)
                                 else if (pickMode) {
                                     if (matchesPickExt(file)) {
-                                        pickPrefs.edit().putString("lastFilePickerDir", currentDir.absolutePath).apply()
+                                        currentFile?.let { pickPrefs.edit().putString("lastFilePickerDir", it.absolutePath).apply() }
                                         onPick?.invoke(file)
                                     }
                                 }
@@ -1700,21 +1873,21 @@ fun BrowserPane(
                             onDismissMenu = { showMenuFor = null },
                             onSelect = {
                                 selectionMode = true
-                                selectedPaths = selectedPaths + file.absolutePath
+                                selectedIds = selectedIds + file.id
                                 showMenuFor = null
                             },
                             onOpenWith = { openWith(file) },
                             onInstallApk = { installApk(file) },
                             onShare = { shareFile(file) },
-                            onCopy = { clipboardFiles = listOf(file); isCutOperation = false; showMenuFor = null },
-                            onCut = { clipboardFiles = listOf(file); isCutOperation = true; showMenuFor = null },
+                            onCopy = { clipboard = listOf(file); isCutOperation = false; showMenuFor = null },
+                            onCut = { clipboard = listOf(file); isCutOperation = true; showMenuFor = null },
                             onDelete = { selectedEntry = file; showMenuFor = null },
                             onRename = { renameTarget = file; showMenuFor = null },
                             onFastExtract = { launchFastExtract(file) },
                             onUnpack = { launchUnpack(file) },
                             isFavorite = isFav,
                             onToggleFavorite = {
-                                val nowFav = FavoritesStore.toggle(context, file.absolutePath)
+                                val nowFav = toggleFav(file)
                                 favTick++
                                 showMenuFor = null
                                 Toast.makeText(
@@ -1749,7 +1922,7 @@ fun BrowserPane(
 // the menu first, then runs its action.
 @Composable
 private fun FileContextMenuItems(
-    file: File,
+    file: Loc,
     isFavorite: Boolean,
     onSelect: () -> Unit,
     onOpenWith: () -> Unit,
@@ -1765,7 +1938,10 @@ private fun FileContextMenuItems(
     onProperties: () -> Unit,
     onDismissMenu: () -> Unit,
 ) {
-    val isDir = file.isDirectory
+    val isDir = file.isDir
+    // File-specific extras (properties, favourites, archive extraction) are for direct-File entries;
+    // SAF ("app storage") entries only get the backend-agnostic actions.
+    val fileLoc = (file as? Loc.FileLoc)?.file
     // Enter multi-select on this item (replaces the old long-press-only entry point).
     DropdownMenuItem(
         text = { Text("Select") },
@@ -1773,16 +1949,17 @@ private fun FileContextMenuItems(
         onClick = { onDismissMenu(); onSelect() },
     )
     MenuItemDivider()
-    // Properties: basic info + Read-only / Hidden toggles, for ANY file or folder (handy for config
-    // files like .txt/.cfg/.ini). Kept near the top since it's a common reason to open this menu.
-    DropdownMenuItem(
-        text = { Text("Properties") },
-        leadingIcon = { Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = { onDismissMenu(); onProperties() },
-    )
-    MenuItemDivider()
-    // Favorites are directories — only folders get the pin toggle.
-    if (isDir) {
+    // Properties (File only — the Read-only toggle is a chmod).
+    if (fileLoc != null) {
+        DropdownMenuItem(
+            text = { Text("Properties") },
+            leadingIcon = { Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.primary) },
+            onClick = { onDismissMenu(); onProperties() },
+        )
+        MenuItemDivider()
+    }
+    // Favorites are File directories — only folders on real storage get the pin toggle.
+    if (isDir && fileLoc != null) {
         DropdownMenuItem(
             text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
             leadingIcon = {
@@ -1826,11 +2003,12 @@ private fun FileContextMenuItems(
     // where the screen decides between 7-Zip payload extraction and running Setup.exe in
     // a container (FreeArc repacks). The screen also content-sniffs (`7zz l`) so a file
     // is judged by content, not extension.
-    val isInno = com.the412banner.bfe.unpack.SevenZip.isInnoSetup(file)
+    val isInno = fileLoc != null && com.the412banner.bfe.unpack.SevenZip.isInnoSetup(fileLoc)
     // Content-aware: extension OR a cheap magic-byte sniff, so a .wcp/.bin/renamed
     // archive with an unlisted extension still gets the option (menu opens per row,
     // so this reads only a few header bytes on demand — never `7zz l` per entry).
-    if (isInno || com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(file)) {
+    // Archive extraction is File-only (the native engines need a real path).
+    if (fileLoc != null && (isInno || com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(fileLoc))) {
         DropdownMenuItem(
             text = { Text(if (isInno) "Unpack / Install…" else "Unpack Archive…") },
             leadingIcon = { Icon(Icons.Filled.Unarchive, null, tint = MaterialTheme.colorScheme.primary) },
@@ -1874,7 +2052,7 @@ private fun FileContextMenuItems(
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun FileItemRow(
-    file: File,
+    file: Loc,
     showActions: Boolean = true,
     compact: Boolean = false,
     // COMPACT view mode: render a dense single-line row (no card, ~22dp icon, thin divider) instead of
@@ -1903,20 +2081,23 @@ private fun FileItemRow(
     onProperties: () -> Unit = {},
 ) {
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-    val isDir = file.isDirectory
+    val isDir = file.isDir
     val isExe = !isDir && file.name.lowercase().let { it.endsWith(".exe") || it.endsWith(".bat") || it.endsWith(".msi") || it.endsWith(".sh") }
     // Image files show a real thumbnail instead of the generic file icon (handy when picking a
     // wallpaper/icon). Coil sizes the decode to the 36dp slot and caches it, so scrolling stays smooth.
-    val isImage = !isDir && file.extension.lowercase() in IMAGE_THUMB_EXTS
+    val isImage = !isDir && File(file.name).extension.lowercase() in IMAGE_THUMB_EXTS
 
     // For real PE executables, try to pull out the embedded application icon (async, off the main thread).
-    var exeIcon by remember(file.absolutePath) { mutableStateOf<ImageBitmap?>(null) }
-    if (!isDir && file.name.lowercase().endsWith(".exe")) {
-        LaunchedEffect(file.absolutePath) {
-            val bmp = withContext(Dispatchers.IO) { PeIconExtractor.extract(file) }
+    var exeIcon by remember(file.id) { mutableStateOf<ImageBitmap?>(null) }
+    val exeFile = (file as? Loc.FileLoc)?.file
+    if (exeFile != null && exeFile.name.lowercase().endsWith(".exe")) {
+        LaunchedEffect(file.id) {
+            val bmp = withContext(Dispatchers.IO) { PeIconExtractor.extract(exeFile) }
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
     }
+    // Thumbnail source: the File for direct storage, the SAF doc Uri otherwise (Coil handles both).
+    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as Loc.SafLoc).docUri
 
     // ── Compact (dense) row ── minimal single-line row, ~28dp tall, with a thin divider.
     if (dense) {
@@ -1948,7 +2129,7 @@ private fun FileItemRow(
                     isExe -> Icon(Icons.Filled.Terminal, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
                     isDir -> Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                     isImage -> AsyncImage(
-                        model = file,
+                        model = thumbModel,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
@@ -1969,7 +2150,7 @@ private fun FileItemRow(
                 if (!isDir) {
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = StringUtils.formatBytes(file.length()),
+                        text = StringUtils.formatBytes(file.size),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 10.sp,
                         maxLines = 1,
@@ -2066,7 +2247,7 @@ private fun FileItemRow(
                 )
                 // Real image preview. Falls back to the generic file icon while loading or on decode failure.
                 isImage -> AsyncImage(
-                    model = file,
+                    model = thumbModel,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
@@ -2094,8 +2275,8 @@ private fun FileItemRow(
                 )
                 Text(
                     text = buildString {
-                        if (!isDir) append(StringUtils.formatBytes(file.length())).append("  \u2022  ")
-                        append(dateFormat.format(Date(file.lastModified())))
+                        if (!isDir) append(StringUtils.formatBytes(file.size)).append("  \u2022  ")
+                        append(dateFormat.format(Date(file.lastModified)))
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
@@ -2137,7 +2318,7 @@ private fun FileItemRow(
 // Reads the store keyed on [favTick] so it recomposes after any pin/unpin.
 @Composable
 private fun FavoritesList(
-    currentDir: File,
+    currentDir: File?,
     favTick: Int,
     onPinCurrent: () -> Unit,
     onJump: (File) -> Unit,
@@ -2148,8 +2329,9 @@ private fun FavoritesList(
     val favorites = remember(favTick) {
         FavoritesStore.list(context).map(::File).filter { it.exists() }
     }
-    val currentAlreadyPinned = remember(favTick, currentDir.absolutePath) {
-        FavoritesStore.isFavorite(context, currentDir.absolutePath)
+    // Pin-current is available only on a real File location (SAF trees are pinned via "Add app storage").
+    val currentAlreadyPinned = remember(favTick, currentDir?.absolutePath) {
+        currentDir != null && FavoritesStore.isFavorite(context, currentDir.absolutePath)
     }
 
     LazyColumn(modifier = modifier) {
@@ -2308,7 +2490,7 @@ private fun FavoriteCard(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileGridTile(
-    file: File,
+    file: Loc,
     selectionMode: Boolean,
     selected: Boolean,
     onLongPress: () -> Unit,
@@ -2331,15 +2513,18 @@ private fun FileGridTile(
     onToggleFavorite: () -> Unit = {},
     onProperties: () -> Unit = {},
 ) {
-    val isDir = file.isDirectory
-    val isImage = !isDir && file.extension.lowercase() in IMAGE_THUMB_EXTS
-    var exeIcon by remember(file.absolutePath) { mutableStateOf<ImageBitmap?>(null) }
-    if (!isDir && file.name.lowercase().endsWith(".exe")) {
-        LaunchedEffect(file.absolutePath) {
-            val bmp = withContext(Dispatchers.IO) { PeIconExtractor.extract(file) }
+    val isDir = file.isDir
+    val isImage = !isDir && File(file.name).extension.lowercase() in IMAGE_THUMB_EXTS
+    var exeIcon by remember(file.id) { mutableStateOf<ImageBitmap?>(null) }
+    val exeFile = (file as? Loc.FileLoc)?.file
+    if (exeFile != null && exeFile.name.lowercase().endsWith(".exe")) {
+        LaunchedEffect(file.id) {
+            val bmp = withContext(Dispatchers.IO) { PeIconExtractor.extract(exeFile) }
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
     }
+    // Thumbnail source: the File for direct storage, the SAF doc Uri otherwise (Coil handles both).
+    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as Loc.SafLoc).docUri
     // The tile has no ⋮ button — long-press opens this menu, anchored to the Box around the Card.
     Box {
         Card(
@@ -2372,7 +2557,7 @@ private fun FileGridTile(
                             modifier = Modifier.size(48.dp),
                         )
                         isImage -> AsyncImage(
-                            model = file,
+                            model = thumbModel,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
