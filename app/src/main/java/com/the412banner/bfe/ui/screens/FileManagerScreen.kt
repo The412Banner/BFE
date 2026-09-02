@@ -15,13 +15,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -125,6 +126,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -774,10 +777,20 @@ private fun AddAppStorageDialog(
 /**
  * The single shared toolbar (classic commander chrome). Full width, above the pane(s), it reflects
  * and controls ONLY the [active] pane: up/back, drive dropdown, New Folder, view-mode cycle, search,
- * sort, favourites, and the dual-pane split toggle. View-mode and sort mutate the active pane's
- * [PaneState] (per-pane; toggling never syncs the other pane) and also rewrite the persisted global
- * default for the next fresh pane. Navigation goes through the active pane's wired hooks.
+ * sort, favourites, the dual-pane split toggle and the tools overflow. View-mode and sort mutate the
+ * active pane's [PaneState] (per-pane; toggling never syncs the other pane) and also rewrite the
+ * persisted global default for the next fresh pane. Navigation goes through the active pane's hooks.
+ *
+ * NEVER CLIPS. The toolbar measures its own width (BoxWithConstraints, not orientation):
+ *  - when every control fits, it renders the classic single row (wide screens: unchanged);
+ *  - otherwise the ESSENTIALS stay on row one (back, drive chip, folder name, search, view-mode,
+ *    split) and the rest (New Folder, sort, favourites, overflow) wrap onto a FlowRow below;
+ *  - below [NARROW_TOOLBAR_DP] the two text pills collapse to icons (drive icon + caret, and an
+ *    icon-only New Folder), each still a 48dp target with a content description.
  */
+private val NARROW_TOOLBAR_DP = 400.dp
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SharedToolbar(
     active: PaneState,
@@ -794,18 +807,21 @@ private fun SharedToolbar(
     val context = LocalContext.current
     var showDriveMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showTools by remember { mutableStateOf(false) }
     val driveLabel = if (active.isAlt) active.altLabel else describeLocation(File(active.path)).driveLabel
     val folderName = if (active.isAlt) active.currentLoc.name else File(active.path).name.ifBlank { active.path }
     val driveChipAlpha = if (active.showFavorites) 0.45f else 1f
+    val driveIcon = when {
+        active.isAlt && pinned.any { it.label == active.altLabel && it.isRoot } -> Icons.Filled.Security
+        active.isAlt -> Icons.Filled.Cloud
+        describeLocation(File(active.path)).storage == FavStorage.SD -> Icons.Filled.SdStorage
+        else -> Icons.Filled.Storage
+    }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-    ) {
-        // Up / back (operates on the active pane).
+    // ── The individual controls, shared by the one-row and wrapped layouts ──
+
+    @Composable
+    fun BackButton() {
         IconButton(
             onClick = {
                 if (active.isAlt) active.altUp()
@@ -818,22 +834,44 @@ private fun SharedToolbar(
         ) {
             Icon(Icons.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary)
         }
+    }
 
-        // Drive selector.
+    @Composable
+    fun DriveChip(iconOnly: Boolean) {
         Box {
             val driveChipShape = RoundedCornerShape(8.dp)
-            Text(
-                text = "  $driveLabel  ▾",
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = driveChipAlpha),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .clip(driveChipShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainer)
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
-                    .clickable { showDriveMenu = true }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-            )
+            if (iconOnly) {
+                // Narrow: icon + caret in a full 48dp touch target, same outline as the label chip.
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .padding(4.dp)
+                        .clip(driveChipShape)
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
+                        .clickable { showDriveMenu = true }
+                        .semantics { contentDescription = "Drive: $driveLabel" },
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(driveIcon, null, tint = MaterialTheme.colorScheme.primary.copy(alpha = driveChipAlpha), modifier = Modifier.size(18.dp))
+                        Text("▾", color = MaterialTheme.colorScheme.onBackground.copy(alpha = driveChipAlpha), fontSize = 11.sp)
+                    }
+                }
+            } else {
+                Text(
+                    text = "  $driveLabel  ▾",
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = driveChipAlpha),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(driveChipShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), driveChipShape)
+                        .clickable { showDriveMenu = true }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                )
+            }
             DropdownMenu(
                 expanded = showDriveMenu,
                 onDismissRequest = { showDriveMenu = false },
@@ -883,9 +921,11 @@ private fun SharedToolbar(
                 )
             }
         }
-        Spacer(Modifier.width(4.dp))
+    }
 
-        // Current folder name (or the Favorites label), full-width — the toolbar spans the whole screen.
+    @Composable
+    fun FolderName(modifier: Modifier) {
+        // Current folder name (or the Favorites label) — takes whatever width the row has left.
         if (active.showFavorites) {
             Text(
                 "★ Favorites",
@@ -894,7 +934,7 @@ private fun SharedToolbar(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = modifier,
             )
         } else {
             Text(
@@ -904,85 +944,105 @@ private fun SharedToolbar(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
+                modifier = modifier,
             )
         }
+    }
 
-        if (!active.showFavorites) {
-            if (!pickMode) {
-                OutlinedButton(
-                    onClick = { active.showNewFolderDialog = true },
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                    modifier = Modifier.height(32.dp),
-                ) {
-                    Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("New Folder", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
-                }
+    @Composable
+    fun NewFolderButton(iconOnly: Boolean) {
+        if (iconOnly) {
+            IconButton(onClick = { active.showNewFolderDialog = true }) {
+                Icon(Icons.Filled.CreateNewFolder, "New Folder", tint = MaterialTheme.colorScheme.primary)
             }
-            // View-mode cycle: Grid → List → Compact → Grid. Per-pane; also persists the global default.
-            IconButton(onClick = {
-                active.viewMode = when (active.viewMode) {
-                    FmViewMode.GRID -> FmViewMode.LIST
-                    FmViewMode.LIST -> FmViewMode.COMPACT
-                    FmViewMode.COMPACT -> FmViewMode.GRID
-                }
-                prefs.edit().putString("fmViewMode", active.viewMode.name.lowercase()).apply()
-            }) {
-                Icon(
-                    when (active.viewMode) {
-                        FmViewMode.GRID -> Icons.Filled.GridView
-                        FmViewMode.LIST -> Icons.Filled.ViewList
-                        FmViewMode.COMPACT -> Icons.Filled.DensitySmall
-                    },
-                    "View mode",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = { active.showSearch = !active.showSearch; if (!active.showSearch) active.searchQuery = "" }) {
-                Icon(Icons.Filled.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Box {
-                IconButton(onClick = { showSortMenu = true }) {
-                    Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                    listOf("name" to "Name", "date" to "Date modified", "size" to "Size", "type" to "Type")
-                        .forEach { (key, label) ->
-                            DropdownMenuItem(
-                                text = { Text(if (active.sortBy == key) "$label  ${if (active.sortDesc) "↓" else "↑"}" else label) },
-                                onClick = {
-                                    if (active.sortBy == key) active.sortDesc = !active.sortDesc
-                                    else { active.sortBy = key; active.sortDesc = false }
-                                    prefs.edit().putString("fmSortBy", active.sortBy).putBoolean("fmSortDesc", active.sortDesc).apply()
-                                    showSortMenu = false
-                                    active.requestReload()
-                                },
-                            )
-                        }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                    DropdownMenuItem(
-                        text = { Text(if (active.compactRows) "Comfortable rows" else "Compact rows") },
-                        onClick = {
-                            active.compactRows = !active.compactRows
-                            prefs.edit().putBoolean("fmCompactRows", active.compactRows).apply()
-                            showSortMenu = false
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (active.showHidden) "Hide hidden files" else "Show hidden files") },
-                        onClick = {
-                            active.showHidden = !active.showHidden
-                            prefs.edit().putBoolean("fmShowHidden", active.showHidden).apply()
-                            showSortMenu = false
-                            active.requestReload()
-                        },
-                    )
-                }
+        } else {
+            OutlinedButton(
+                onClick = { active.showNewFolderDialog = true },
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.height(32.dp),
+            ) {
+                Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("New Folder", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
             }
         }
-        // Favorites toggle (always visible).
+    }
+
+    @Composable
+    fun ViewModeButton() {
+        // View-mode cycle: Grid → List → Compact → Grid. Per-pane; also persists the global default.
+        IconButton(onClick = {
+            active.viewMode = when (active.viewMode) {
+                FmViewMode.GRID -> FmViewMode.LIST
+                FmViewMode.LIST -> FmViewMode.COMPACT
+                FmViewMode.COMPACT -> FmViewMode.GRID
+            }
+            prefs.edit().putString("fmViewMode", active.viewMode.name.lowercase()).apply()
+        }) {
+            Icon(
+                when (active.viewMode) {
+                    FmViewMode.GRID -> Icons.Filled.GridView
+                    FmViewMode.LIST -> Icons.Filled.ViewList
+                    FmViewMode.COMPACT -> Icons.Filled.DensitySmall
+                },
+                "View mode",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    @Composable
+    fun SearchButton() {
+        IconButton(onClick = { active.showSearch = !active.showSearch; if (!active.showSearch) active.searchQuery = "" }) {
+            Icon(Icons.Filled.Search, "Search", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    @Composable
+    fun SortButton() {
+        Box {
+            IconButton(onClick = { showSortMenu = true }) {
+                Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                listOf("name" to "Name", "date" to "Date modified", "size" to "Size", "type" to "Type")
+                    .forEach { (key, label) ->
+                        DropdownMenuItem(
+                            text = { Text(if (active.sortBy == key) "$label  ${if (active.sortDesc) "↓" else "↑"}" else label) },
+                            onClick = {
+                                if (active.sortBy == key) active.sortDesc = !active.sortDesc
+                                else { active.sortBy = key; active.sortDesc = false }
+                                prefs.edit().putString("fmSortBy", active.sortBy).putBoolean("fmSortDesc", active.sortDesc).apply()
+                                showSortMenu = false
+                                active.requestReload()
+                            },
+                        )
+                    }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                DropdownMenuItem(
+                    text = { Text(if (active.compactRows) "Comfortable rows" else "Compact rows") },
+                    onClick = {
+                        active.compactRows = !active.compactRows
+                        prefs.edit().putBoolean("fmCompactRows", active.compactRows).apply()
+                        showSortMenu = false
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (active.showHidden) "Hide hidden files" else "Show hidden files") },
+                    onClick = {
+                        active.showHidden = !active.showHidden
+                        prefs.edit().putBoolean("fmShowHidden", active.showHidden).apply()
+                        showSortMenu = false
+                        active.requestReload()
+                    },
+                )
+            }
+        }
+    }
+
+    @Composable
+    fun FavoritesButton() {
         IconButton(onClick = { active.showFavorites = !active.showFavorites }) {
             if (active.showFavorites) {
                 Icon(Icons.Filled.Star, "Hide favorites", tint = MaterialTheme.colorScheme.primary)
@@ -990,33 +1050,104 @@ private fun SharedToolbar(
                 Icon(Icons.Filled.StarBorder, "Show favorites", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        // Dual-pane (split) toggle.
-        if (!pickMode) {
-            IconButton(onClick = onToggleDualPane) {
-                Icon(
-                    Icons.Filled.ViewColumn,
-                    if (dualPane) "Single pane" else "Dual pane",
-                    tint = if (dualPane) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+    }
+
+    @Composable
+    fun SplitButton() {
+        IconButton(onClick = onToggleDualPane) {
+            Icon(
+                Icons.Filled.ViewColumn,
+                if (dualPane) "Single pane" else "Dual pane",
+                tint = if (dualPane) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    @Composable
+    fun ToolsOverflow() {
+        // Overflow: APK tools that aren't tied to a file in the list.
+        Box {
+            IconButton(onClick = { showTools = true }) {
+                Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
+                DropdownMenuItem(
+                    text = { Text("Clone installed app…") },
+                    leadingIcon = { Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { showTools = false; active.onCloneInstalledApp() },
+                )
+                MenuItemDivider()
+                DropdownMenuItem(
+                    text = { Text("Signing keys…") },
+                    leadingIcon = { Icon(Icons.Filled.Security, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { showTools = false; active.onSigningKeys() },
                 )
             }
-            // Overflow: APK tools that aren't tied to a file in the list.
-            var showTools by remember { mutableStateOf(false) }
-            Box {
-                IconButton(onClick = { showTools = true }) {
-                    Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
+    // Which controls are present, in the order they appear (browse controls hide in Favorites).
+    val browsing = !active.showFavorites
+    val showNewFolder = browsing && !pickMode
+    val showSplitAndTools = !pickMode
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        val width = maxWidth
+        val narrow = width < NARROW_TOOLBAR_DP
+        // Estimate the fixed widths (48dp icon buttons; text pills from their label length) and keep
+        // the classic single row whenever it all fits with room for a readable folder name.
+        val chipDp = if (narrow) 48 else (driveLabel.length * 8 + 36).coerceAtLeast(60)
+        val newFolderDp = if (!showNewFolder) 0 else if (narrow) 48 else 108
+        val iconButtons = 1 /* back */ + (if (browsing) 3 else 0) /* view, search, sort */ + 1 /* favourites */ + (if (showSplitAndTools) 2 else 0)
+        val fixedDp = 48 * iconButtons + chipDp + 4 + newFolderDp
+        val fitsOneRow = fixedDp + 72 <= width.value
+
+        if (fitsOneRow) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                BackButton()
+                DriveChip(iconOnly = narrow)
+                Spacer(Modifier.width(4.dp))
+                FolderName(Modifier.weight(1f))
+                if (browsing) {
+                    if (showNewFolder) NewFolderButton(iconOnly = narrow)
+                    ViewModeButton()
+                    SearchButton()
+                    SortButton()
                 }
-                DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
-                    DropdownMenuItem(
-                        text = { Text("Clone installed app…") },
-                        leadingIcon = { Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary) },
-                        onClick = { showTools = false; active.onCloneInstalledApp() },
-                    )
-                    MenuItemDivider()
-                    DropdownMenuItem(
-                        text = { Text("Signing keys…") },
-                        leadingIcon = { Icon(Icons.Filled.Security, null, tint = MaterialTheme.colorScheme.primary) },
-                        onClick = { showTools = false; active.onSigningKeys() },
-                    )
+                FavoritesButton()
+                if (showSplitAndTools) {
+                    SplitButton()
+                    ToolsOverflow()
+                }
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Row one: the essentials (never wrapped): back, drive, name, search, view-mode, split.
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    BackButton()
+                    DriveChip(iconOnly = narrow)
+                    Spacer(Modifier.width(4.dp))
+                    FolderName(Modifier.weight(1f))
+                    if (browsing) {
+                        SearchButton()
+                        ViewModeButton()
+                    }
+                    if (showSplitAndTools) SplitButton()
+                }
+                // The rest wraps onto as many rows as it needs — nothing is ever cut off.
+                FlowRow(
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (showNewFolder) Box(modifier = Modifier.align(Alignment.CenterVertically)) { NewFolderButton(iconOnly = narrow) }
+                    if (browsing) Box(modifier = Modifier.align(Alignment.CenterVertically)) { SortButton() }
+                    Box(modifier = Modifier.align(Alignment.CenterVertically)) { FavoritesButton() }
+                    if (showSplitAndTools) Box(modifier = Modifier.align(Alignment.CenterVertically)) { ToolsOverflow() }
                 }
             }
         }
@@ -1028,7 +1159,7 @@ private fun SharedToolbar(
  * shared toolbar above controls it). Its current directory + a reload signal + its per-pane browse
  * state live in [paneState] so the shared toolbar (bound to the active pane) can read and drive it.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BrowserPane(
     paneState: PaneState,
@@ -2061,13 +2192,14 @@ fun BrowserPane(
                     fontSize = 13.sp,
                     modifier = Modifier.padding(end = 8.dp),
                 )
-                // Compact outlined buttons; the strip scrolls horizontally so every action stays
-                // reachable even in narrow portrait (six buttons + the count won't all fit at once).
+                // Compact outlined buttons on a FlowRow: when the strip is too narrow for all of them
+                // (seven buttons + the count in a half-width dual pane) they WRAP onto another line
+                // instead of scrolling off-screen — every primary action stays visible.
                 val selBarPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End,
-                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.weight(1f),
                 ) {
                     OutlinedButton(
                         onClick = {
@@ -2076,7 +2208,6 @@ fun BrowserPane(
                         },
                         contentPadding = selBarPadding,
                     ) { Text(if (selectedIds.size == entries.size) "None" else "All", fontSize = 12.sp) }
-                    Spacer(Modifier.width(4.dp))
                     OutlinedButton(
                         enabled = selectedIds.isNotEmpty(),
                         onClick = {
@@ -2087,7 +2218,6 @@ fun BrowserPane(
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Copy", fontSize = 12.sp) }
-                    Spacer(Modifier.width(4.dp))
                     OutlinedButton(
                         enabled = selectedIds.isNotEmpty(),
                         onClick = {
@@ -2100,22 +2230,19 @@ fun BrowserPane(
                     ) { Text("Cut", fontSize = 12.sp) }
                     // Cross-pane: copy / move the selection straight into the OTHER pane's directory.
                     if (dualPane && otherPaneDir() != null) {
-                        Spacer(Modifier.width(4.dp))
-                        OutlinedButton(
+                            OutlinedButton(
                             enabled = selectedIds.isNotEmpty(),
                             onClick = { crossPaneTransfer(cut = false) },
                             contentPadding = selBarPadding,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                         ) { Text("Copy →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
-                        Spacer(Modifier.width(4.dp))
-                        OutlinedButton(
+                            OutlinedButton(
                             enabled = selectedIds.isNotEmpty(),
                             onClick = { crossPaneTransfer(cut = true) },
                             contentPadding = selBarPadding,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                         ) { Text("Move →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
                     }
-                    Spacer(Modifier.width(4.dp))
                     OutlinedButton(
                         enabled = selectedIds.any { p -> entries.any { it.id == p && !it.isDir } },
                         onClick = {
@@ -2125,21 +2252,18 @@ fun BrowserPane(
                     ) { Text("Share", fontSize = 12.sp) }
                     // Compress the selection into a new archive (zip/7z/tar/…/wcp) here or in the other pane.
                     if (!pickMode) {
-                        Spacer(Modifier.width(4.dp))
-                        OutlinedButton(
+                            OutlinedButton(
                             enabled = selectedIds.isNotEmpty(),
                             onClick = { compressTargets = entries.filter { it.id in selectedIds } },
                             contentPadding = selBarPadding,
                         ) { Text("Compress", fontSize = 12.sp) }
                     }
-                    Spacer(Modifier.width(4.dp))
                     OutlinedButton(
                         enabled = selectedIds.isNotEmpty(),
                         onClick = { pendingBulkDelete = entries.filter { it.id in selectedIds } },
                         contentPadding = selBarPadding,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
                     ) { Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-                    Spacer(Modifier.width(4.dp))
                     OutlinedButton(
                         onClick = { selectionMode = false; selectedIds = emptySet() },
                         contentPadding = selBarPadding,

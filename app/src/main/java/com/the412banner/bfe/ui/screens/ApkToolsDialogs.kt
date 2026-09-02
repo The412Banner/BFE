@@ -1,5 +1,5 @@
 // SegmentedButton / FilterChip are still experimental in Material3 — file-level opt-in.
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.the412banner.bfe.ui.screens
 
@@ -10,6 +10,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -127,7 +129,8 @@ private fun KeyAndSchemesRows(
             DropdownMenuItem(text = { Text("Manage keys…") }, onClick = { keyMenu = false; onManageKeys() })
         }
     }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    // Chips wrap on a narrow dialog rather than clipping.
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         listOf("v1" to schemes.v1, "v2" to schemes.v2, "v3" to schemes.v3).forEach { (name, on) ->
             FilterChip(
                 selected = on,
@@ -142,9 +145,8 @@ private fun KeyAndSchemesRows(
                 },
                 label = { Text(name, fontSize = 12.sp) },
             )
-            Spacer(Modifier.width(6.dp))
         }
-        Text("signature schemes", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("signature schemes", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterVertically))
     }
 }
 
@@ -473,10 +475,9 @@ internal fun KeyManagerDialog(onDismiss: () -> Unit) {
             text = {
                 Column {
                     Text(importName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         SigningKeys.STORE_TYPES.forEach { t ->
                             FilterChip(selected = storeType == t, onClick = { storeType = t; aliases = emptyList() }, label = { Text(t, fontSize = 12.sp) })
-                            Spacer(Modifier.width(6.dp))
                         }
                     }
                     OutlinedTextField(value = storePass, onValueChange = { storePass = it }, label = { Text("Store password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
@@ -489,10 +490,9 @@ internal fun KeyManagerDialog(onDismiss: () -> Unit) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("Open & list aliases", fontSize = 12.sp) }
                     if (aliases.isNotEmpty()) {
                         Text("Alias", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(modifier = Modifier.fillMaxWidth()) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                             aliases.forEach { a ->
                                 FilterChip(selected = alias == a, onClick = { alias = a }, label = { Text(a, fontSize = 12.sp) })
-                                Spacer(Modifier.width(6.dp))
                             }
                         }
                         OutlinedTextField(value = keyPass, onValueChange = { keyPass = it }, label = { Text("Key password (blank = same as store)") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
