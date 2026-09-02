@@ -61,7 +61,8 @@ object ApkSigning {
     /**
      * Independent alignment audit of a finished APK (not apksig's own code): walks the central
      * directory and checks every STORED entry's data offset — 4-byte, and [libPageAlignment] for
-     * `lib/**\/*.so`. Returns the offending entry names (empty = aligned).
+     * every native .so under lib/ (no slash-star glob in this comment: it would nest a block comment).
+     * Returns the offending entry names (empty = aligned).
      */
     fun misalignedEntries(apk: File, libPageAlignment: Int): List<String> {
         val bad = ArrayList<String>()

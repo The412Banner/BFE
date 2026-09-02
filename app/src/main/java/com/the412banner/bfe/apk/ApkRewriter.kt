@@ -240,7 +240,7 @@ object ApkRewriter {
         }
     }
 
-    /** ARSCLib's writer-side aligner: 4-byte default, page alignment for `lib/**\/*.so`. */
+    /** ARSCLib's writer-side aligner: 4-byte default, page alignment for every native .so under lib/. */
     fun apkAligner(pageAlignLibs16k: Boolean): ZipAligner = ZipAligner().apply {
         setDefaultAlignment(4)
         setFileAlignment(Predicate<String> { n -> n.startsWith("lib/") && n.endsWith(".so") }, if (pageAlignLibs16k) 16384 else 4096)
