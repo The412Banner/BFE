@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -67,6 +68,7 @@ data class CompressRequest(
  * (the item's name, or the folder's when several are selected); the extension follows the format.
  * [otherPaneName] is non-null when dual-pane is on, enabling the "into other pane" destination.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CompressDialog(
     defaultBase: String,

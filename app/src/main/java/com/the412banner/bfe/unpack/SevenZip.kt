@@ -122,6 +122,17 @@ object SevenZip {
         }
     }
 
+    /** "ustar" at offset 257 — a POSIX/GNU tar, whatever the file is called. */
+    fun isTar(file: File): Boolean {
+        if (!file.isFile || file.length() <= 262L) return false
+        return runCatching {
+            java.io.RandomAccessFile(file, "r").use { raf ->
+                raf.seek(257); val t = ByteArray(5)
+                raf.read(t) == 5 && String(t, Charsets.US_ASCII) == "ustar"
+            }
+        }.getOrDefault(false)
+    }
+
     // A Setup-1.bin / game-2.bin style InnoSetup data volume.
     private val INNO_BIN = Regex("""(?i)-\d+\.bin$""")
 
@@ -455,8 +466,10 @@ object SevenZip {
         onProcess: (Process) -> Unit,
     ): Boolean {
         val files = destDir.listFiles()?.toList() ?: return false
-        val tar = files.singleOrNull { it.isFile && it.extension.equals("tar", ignoreCase = true) } ?: return false
         if (files.size != 1) return false   // only unwrap when the tar is the sole product
+        // 7zz names the inner member by stripping ONE extension, so "game.tar.zst" → "game.tar" but a
+        // ".wcp"/".tzst" → a bare "game" with no extension; judge by the ustar magic, not the name.
+        val tar = files.single().takeIf { it.isFile && (it.extension.equals("tar", ignoreCase = true) || isTar(it)) } ?: return false
         val r = extract(context, tar, destDir, mmt, bufferBytes, listener, onProcess)
         return if (r.exitCode <= 1) { tar.delete(); true } else false
     }
