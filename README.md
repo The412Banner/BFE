@@ -88,13 +88,26 @@ build in BFE installs straight into Bannerlator.
   no root-owned leftovers that make an app crash with permission errors.
 - Pinned locations appear in the side rail / storage dropdown with a × to unpin.
 
-### Coming next — 0.8 (in progress): APK Cloner + Signer
-- **Clone** any `.apk` file or **any installed app** with a new package name, label, versionCode/Name
-  and icon — with a *proper* rename (component names, ContentProvider authorities, package-scoped
-  permissions, `sharedUserId`, resources table) so clones actually install and run alongside the
-  original. **Clone & Install** in one tap.
-- **Sign APK** with your own keystore (PKCS12 / BKS) or a built-in test key — APK signature schemes
-  **v1 + v2 + v3** by default.
+### APK Cloner + Signer
+- **Clone** any `.apk` file (⋮ → *Clone APK…*) or **any installed app** (*Clone installed app…* — split/
+  bundle installs are merged into a single APK first) with a new **package name, label, versionCode,
+  versionName and icon**, plus an Advanced section (minSdk/targetSdk, debuggable, allowBackup,
+  extractNativeLibs).
+- The rename is done *properly* so clones actually install and run beside the original: relative
+  component class names are made absolute (code keeps resolving), every **ContentProvider authority**
+  moves to the new package (no provider conflict), package-scoped **permissions** are renamed,
+  `sharedUserId` is dropped, `taskAffinity` is rewritten, and the manifest + `resources.arsc` package
+  are renamed together. The result lists every fixup applied. **Clone & Install** in one tap.
+- **Sign APK…** on any `.apk` — re-signs with APK signature schemes **v1 + v2 + v3** (per-sign
+  toggles), zipaligned (16 KB page-aligned native libs when `extractNativeLibs=false`), then verified.
+- **Keys:** a built-in **BFE Test Key** (generated once, private to the app) is the default so all your
+  clones share one signature and update in place; or import your own **PKCS12 / BKS** keystore, or
+  generate a new key in-app. (JKS isn't supported by Android's crypto stack — convert to PKCS12.)
+- Verified on a real APK: the pipeline cloned BFE's own release to a new package with v1/v2/v3 all
+  verifying and both provider authorities renamed.
+- *Inherent limits, shown in-app:* apps that verify their own signature, Play-licensed apps,
+  Google-services/Firebase-bound apps, and some split/bundle apps may not run as clones; code that
+  builds a FileProvider authority from `BuildConfig.APPLICATION_ID` will mismatch after a rename.
 
 ---
 
