@@ -1,3 +1,7 @@
+// The format/level pickers use SegmentedButton + ExposedDropdownMenu, which Material3 still marks
+// experimental — a file-level opt-in keeps every usage in this dialog covered.
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.the412banner.bfe.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
