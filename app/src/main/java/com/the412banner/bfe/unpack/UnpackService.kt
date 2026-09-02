@@ -119,6 +119,25 @@ class UnpackService : Service() {
         wakeLock = null
     }
 
+    /** (file count, total bytes) of everything under [dir]; (0, 0) if it can't be walked. */
+    private fun measureDir(dir: File): Pair<Int, Long> = runCatching {
+        var c = 0; var b = 0L
+        dir.walkTopDown().forEach { if (it.isFile) { c++; b += it.length() } }
+        c to b
+    }.getOrDefault(0 to 0L)
+
+    /**
+     * A running destination-size poller plus the baseline it subtracts. [baseCount]/[baseBytes] are
+     * what was ALREADY in the destination when the job started, so progress reflects only what this
+     * job adds — see [startDestPoller].
+     */
+    private class DestPoll(
+        val polling: java.util.concurrent.atomic.AtomicBoolean,
+        val thread: Thread,
+        val baseCount: Int,
+        val baseBytes: Long,
+    )
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // START_STICKY restart re-delivers a null intent. The worker thread and the 7zz process died
         // with the old process (7-Zip extraction isn't resumable), and our process-static state reset
@@ -237,48 +256,61 @@ class UnpackService : Service() {
                 refresh()
             }
 
+            // Destination-size polling shared by the FreeArc and innoextract paths (their engines don't
+            // report a usable overall percent). It measures what THIS job adds to destDir: a baseline of
+            // whatever was already there is subtracted — a previous or partial extract of the same game,
+            // or the installer itself sitting inside the target folder. Without the baseline the very
+            // first tick already sees gigabytes, so the bar reads 100% / ETA 0s from the start and never
+            // moves while the file count keeps climbing (user-reported on a Fallout NV re-extract).
+            fun startDestPoller(total: Long, threadName: String): DestPoll {
+                val (baseCount, baseBytes) = measureDir(destDir)
+                val polling = java.util.concurrent.atomic.AtomicBoolean(true)
+                val tot = total.coerceAtLeast(1L)
+                val t = Thread {
+                    var pLastB = 0L; var pLastT = SystemClock.elapsedRealtime(); var pEma = 0L
+                    while (polling.get()) {
+                        runCatching { Thread.sleep(2500) }
+                        val (count, bytes) = measureDir(destDir)
+                        val written = (bytes - baseBytes).coerceAtLeast(0L)
+                        val added = (count - baseCount).coerceAtLeast(0)
+                        val now = SystemClock.elapsedRealtime()
+                        val dt = (now - pLastT).coerceAtLeast(1)
+                        val inst = ((written - pLastB) * 1000 / dt).coerceAtLeast(0)
+                        pEma = if (pEma == 0L) inst else (pEma * 2 + inst) / 3
+                        pLastB = written; pLastT = now
+                        val pct = (written * 100 / tot).toInt().coerceIn(0, 100)
+                        val eta = if (pEma > 0) (tot - written).coerceAtLeast(0) / pEma else -1L
+                        files = added
+                        UnpackManager.update {
+                            it.copy(
+                                phase = UnpackPhase.EXTRACTING, percent = pct,
+                                bytesProcessed = written, speedBps = pEma, etaSeconds = eta,
+                                elapsedMs = now - startMs, filesExtracted = added,
+                            )
+                        }
+                        refresh()
+                    }
+                }.also { it.name = threadName; it.start() }
+                return DestPoll(polling, t, baseCount, baseBytes)
+            }
+            /** Files this job added to destDir (final tally after the engine exits). */
+            fun addedFiles(poll: DestPoll): Int = (measureDir(destDir).first - poll.baseCount).coerceAtLeast(0)
+
             val result = runCatching {
                 if (engine == "unarc") {
                     // FreeArc: unarc block-buffers stdout, so drive progress by POLLING the destination
                     // size against the total from `unarc l` (140 GB-class). Speed/ETA from the byte delta.
                     val unarcTotal = Unarc.list(ctx, archive)?.totalBytes?.takeIf { it > 0 } ?: dataSize
                     UnpackManager.update { it.copy(archiveSize = unarcTotal) }
-                    val polling = java.util.concurrent.atomic.AtomicBoolean(true)
-                    val poller = Thread {
-                        var pLastB = 0L; var pLastT = SystemClock.elapsedRealtime(); var pEma = 0L
-                        while (polling.get()) {
-                            runCatching { Thread.sleep(2500) }
-                            val (count, bytes) = runCatching {
-                                var c = 0; var b = 0L
-                                destDir.walkTopDown().forEach { if (it.isFile) { c++; b += it.length() } }
-                                c to b
-                            }.getOrDefault(0 to 0L)
-                            val now = SystemClock.elapsedRealtime()
-                            val dt = (now - pLastT).coerceAtLeast(1)
-                            val inst = ((bytes - pLastB) * 1000 / dt).coerceAtLeast(0)
-                            pEma = if (pEma == 0L) inst else (pEma * 2 + inst) / 3
-                            pLastB = bytes; pLastT = now
-                            val pct = (bytes * 100 / unarcTotal.coerceAtLeast(1)).toInt().coerceIn(0, 100)
-                            val eta = if (pEma > 0) (unarcTotal - bytes) / pEma else -1L
-                            files = count
-                            UnpackManager.update {
-                                it.copy(
-                                    phase = UnpackPhase.EXTRACTING, percent = pct,
-                                    bytesProcessed = bytes, speedBps = pEma, etaSeconds = eta,
-                                    elapsedMs = now - startMs, filesExtracted = count,
-                                )
-                            }
-                            refresh()
-                        }
-                    }.also { it.name = "unarc-poller"; it.start() }
+                    val poll = startDestPoller(unarcTotal, "unarc-poller")
                     val r = Unarc.extract(
                         ctx, archive, destDir,
                         listener = { name -> UnpackManager.update { it.copy(currentFile = name) } },
                         onProcess = { proc = it },
                     )
-                    polling.set(false)
-                    runCatching { poller.join(3000) }
-                    if (r.exitCode == 0) files = runCatching { destDir.walkTopDown().count { it.isFile } }.getOrDefault(files)
+                    poll.polling.set(false)
+                    runCatching { poll.thread.join(3000) }
+                    if (r.exitCode == 0) files = addedFiles(poll)
                     SevenZip.Result(if (r.exitCode == 0) 0 else 2, r.stderrTail)
                 } else if (isInno) {
                     // innoextract's --progress percent is unreliable for GOG multi-part installers: it
@@ -286,35 +318,7 @@ class UnpackService : Service() {
                     // bar look deceiving. Drive progress the same way as the FreeArc path — POLL the
                     // destination size against the payload total. innoextract still does the extraction;
                     // we just ignore its percent for the bar.
-                    val innoTotal = dataSize.coerceAtLeast(1L)
-                    val polling = java.util.concurrent.atomic.AtomicBoolean(true)
-                    val poller = Thread {
-                        var pLastB = 0L; var pLastT = SystemClock.elapsedRealtime(); var pEma = 0L
-                        while (polling.get()) {
-                            runCatching { Thread.sleep(2500) }
-                            val (count, bytes) = runCatching {
-                                var c = 0; var b = 0L
-                                destDir.walkTopDown().forEach { if (it.isFile) { c++; b += it.length() } }
-                                c to b
-                            }.getOrDefault(0 to 0L)
-                            val now = SystemClock.elapsedRealtime()
-                            val dt = (now - pLastT).coerceAtLeast(1)
-                            val inst = ((bytes - pLastB) * 1000 / dt).coerceAtLeast(0)
-                            pEma = if (pEma == 0L) inst else (pEma * 2 + inst) / 3
-                            pLastB = bytes; pLastT = now
-                            val pct = (bytes * 100 / innoTotal).toInt().coerceIn(0, 100)
-                            val eta = if (pEma > 0) (innoTotal - bytes) / pEma else -1L
-                            files = count
-                            UnpackManager.update {
-                                it.copy(
-                                    phase = UnpackPhase.EXTRACTING, percent = pct,
-                                    bytesProcessed = bytes, speedBps = pEma, etaSeconds = eta,
-                                    elapsedMs = now - startMs, filesExtracted = count,
-                                )
-                            }
-                            refresh()
-                        }
-                    }.also { it.name = "inno-poller"; it.start() }
+                    val poll = startDestPoller(dataSize, "inno-poller")
                     // Run each installer — base game first, then any auto-detected DLC setups — into the
                     // SAME destDir so the DLC files overlay the base install. The single poller above
                     // spans the whole batch because it measures cumulative dest size, not per-installer.
@@ -345,10 +349,10 @@ class UnpackService : Service() {
                             refresh()
                         }
                     }
-                    polling.set(false)
-                    runCatching { poller.join(3000) }
-                    // innoextract has no per-file callback; count the extracted files for the summary.
-                    if (primaryExit == 0) files = runCatching { destDir.walk().count { it.isFile } }.getOrDefault(files)
+                    poll.polling.set(false)
+                    runCatching { poll.thread.join(3000) }
+                    // innoextract has no per-file callback; count the files this job added for the summary.
+                    if (primaryExit == 0) files = addedFiles(poll)
                     // innoextract uses 0=ok; map a non-zero BASE exit to an error code (2) for the terminal
                     // logic. Failed DLC siblings don't fail the job — they surface as batchFailed instead.
                     SevenZip.Result(if (primaryExit == 0) 0 else 2, stderrTail)
