@@ -129,7 +129,8 @@ jobs:
       run: |
         set -euo pipefail
         # NOTE: the bink video decoder is named `bink` (not `binkvideo`); `lavfi` is an input
-        # device (indev) living in libavdevice, not a demuxer.
+        # device (indev) living in libavdevice, not a demuxer, and its packets are `wrapped_avframe`
+        # which needs that decoder enabled (otherwise `-f lavfi -i testsrc` fails at runtime).
         CONFIGURE=(./configure "--prefix=$GITHUB_WORKSPACE/build/out" --target-os=android --arch=aarch64 --cpu=armv8-a --enable-cross-compile
           "--cc=$CC" "--cxx=$CXX" "--ar=$AR" "--nm=$NM" "--ranlib=$RANLIB" "--strip=$STRIP" "--sysroot=$SYSROOT"
           --pkg-config=pkg-config --pkg-config-flags=--static
@@ -139,17 +140,18 @@ jobs:
           --disable-everything
           --enable-demuxer=bink,smacker,avi,asf,matroska,mov,mpegps,mpegts,ogg,flv,mpegvideo,rawvideo,image2,wav,mp3,aac,ac3
           --enable-indev=lavfi
-          --enable-decoder=bink,smacker,h264,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,msmpeg4v1,msmpeg4v2,msmpeg4v3,wmv1,wmv2,wmv3,vc1,theora,mjpeg,cinepak,indeo3,indeo4,indeo5,rawvideo,aac,mp3,mp3float,vorbis,opus,wmav1,wmav2,wmapro,ac3,binkaudio_dct,binkaudio_rdft,smackaud,pcm_s16le,pcm_s16be,pcm_u8,pcm_f32le,pcm_s24le,adpcm_ima_wav,adpcm_ms,adpcm_ima_smjpeg,adpcm_ima_qt,adpcm_yamaha
+          --enable-decoder=bink,smacker,h264,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,msmpeg4v1,msmpeg4v2,msmpeg4v3,wmv1,wmv2,wmv3,vc1,theora,mjpeg,cinepak,indeo3,indeo4,indeo5,rawvideo,aac,mp3,mp3float,vorbis,opus,wmav1,wmav2,wmapro,ac3,binkaudio_dct,binkaudio_rdft,smackaud,pcm_s16le,pcm_s16be,pcm_u8,pcm_f32le,pcm_s24le,adpcm_ima_wav,adpcm_ms,adpcm_ima_smjpeg,adpcm_ima_qt,adpcm_yamaha,wrapped_avframe
           --enable-encoder=libx264,aac --enable-muxer=mp4
           --enable-parser=h264,hevc,aac,mpegaudio,vp8,vp9,mpegvideo,mpeg4video,vc1,vorbis,opus
           --enable-protocol=file,pipe
+          --enable-bsf=aac_adtstoasc,extract_extradata
           --enable-filter=scale,aresample,format,aformat,fps,setsar,testsrc,anullsrc,sine,anull,null
           --enable-swscale --enable-swresample --enable-avfilter --enable-avdevice)
         printf '%q ' "${CONFIGURE[@]}" > "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"; echo >> "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"
         echo "==== configure line ===="; cat "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"
         "${CONFIGURE[@]}"
         echo "==== enabled components ===="
-        grep -E '^(CONFIG_.*(DECODER|ENCODER|DEMUXER|MUXER|PARSER|FILTER|PROTOCOL|INDEV)=yes)' ffbuild/config.mak | sed 's/^CONFIG_//;s/=yes$//' | tr '\n' ' '; echo
+        grep -E '^(CONFIG_.*(DECODER|ENCODER|DEMUXER|MUXER|PARSER|FILTER|PROTOCOL|INDEV|BSF)=yes)' ffbuild/config.mak | sed 's/^CONFIG_//;s/=yes$//' | tr '\n' ' '; echo
         { echo; echo "# ffmpeg $FFMPEG_VERSION, NDK: $(grep Pkg.Revision "$NDK/source.properties")"; echo "# x264: $(git -C ../x264 log -1 --format=%H)"; } >> "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"
 
     - name: Build ffmpeg
