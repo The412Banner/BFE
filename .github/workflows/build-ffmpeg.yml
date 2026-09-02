@@ -6,6 +6,11 @@ name: Build ffmpeg (static, arm64 Android)
 
 on:
   workflow_dispatch:
+  # A dispatch-only workflow is not registered by GitHub until it exists on the default branch;
+  # pushes to the ffmpeg-build branch run it directly so it can be iterated before merging.
+  push:
+    branches: [ ffmpeg-build ]
+    paths: [ '.github/workflows/build-ffmpeg.yml' ]
 
 permissions:
   contents: read
