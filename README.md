@@ -1,55 +1,175 @@
 # BFE
 
-**BFE** is a standalone, **sideload-only** Android file manager and archive extractor. It browses your
-storage and unpacks archives, disc images and Windows game installers on-device using a bundled native
-engine — 7-Zip (`7zz`), `innoextract` (GOG / InnoSetup) and FreeArc `unarc` (FitGirl/DODI-style repacks).
+**BFE** is a standalone, **sideload-only** Android file manager and explorer with a full native
+archive-extraction and compression engine, a dual-pane "commander" layout, and the ability to browse
+storage that normal file managers can't reach — other apps' SAF document providers and, on a rooted
+device, **any installed app's private data**.
 
-It is lifted from the in-app File Manager + archive-extraction subsystem of the Bannerlator app, itself
-built on the Winlator lineage. BFE strips out all of the emulator machinery (Wine containers, the X
-server, Steam/GOG store plumbing) and keeps only the browse-and-extract core.
+It is lifted from the in-app File Manager + archive subsystem of the
+[Bannerlator](https://github.com/The412Banner/Bannerlator) emulator (Winlator lineage), with all of
+the emulator machinery (Wine containers, X server, Steam/GOG store plumbing) stripped out and the
+browse / extract / manage core turned into its own app. GPL-3.0.
 
-## What it does
+> **Status:** early, fast-moving 0.x builds. Every release is CI-built and signature-verified, but the
+> project is not yet broadly device-tested. Grab the latest APK from
+> [**Releases**](https://github.com/The412Banner/BFE/releases).
 
-- Browse internal storage and SD cards; sort, copy, move, delete, rename, multi-select, favorites.
-- **Dual-pane ("commander") split view** (toggle in the toolbar): two independent browsers side by
-  side (wide screens) or stacked (portrait), with one-tap **Copy →/Move →** and extract-into-the-
-  other-pane between them.
-- Grid + compact views, search, Coil thumbnails and PE (`.exe`) icon extraction.
-- Extract `.iso`/`.udf`/`.img`, `.7z`/`.zip`/`.rar` (incl. multi-part), split volumes, `.tar.*`, and more.
-- One-tap **Fast Extract**, or a full **Unpack Archive** screen with a background foreground-service job,
-  progress notification and an app-wide progress pill.
-- Unpack **GOG / InnoSetup** installers with `innoextract`, including auto-batching sibling DLC setups.
-- Decode **FreeArc / ISDone** game repacks natively with `unarc`.
-- **Compress…** any selection into `.zip` / `.7z` (optional AES password) / `.tar` / `.tar.gz` /
-  `.tar.xz` with the bundled 7-Zip, or `.tzst` and a **Winlator `.wcp`** content pack (tar.zst with a
-  Bannerlator/Winlator-compatible `profile.json`) via streamed Java tar + zstd. Runs as a background
-  service job with progress, cancel and a pill; targets this pane or the other one, including SAF/root.
-- **APK cloner / editor / signer**: clone any `.apk` or installed app under a new package name with a
-  proper rename (ARSCLib rewrites the binary manifest + `resources.arsc`; relative component names are
-  made absolute, provider authorities and package-scoped permissions re-prefixed, `sharedUserId`
-  dropped, `taskAffinity` followed), edit label / versions / icon / manifest scalars, zip-align and
-  sign with apksig (v1+v2+v3) using a built-in persistent test key or your own PKCS12/BKS keystore, and
-  optionally install the result. Split/bundle installs are merged first when ARSCLib can.
-- Open an archive or a GOG `setup.exe` straight from any app's **Share / "Open with"** sheet.
+---
+
+## Features
+
+### Browsing & file management
+- Browse internal storage, SD cards and USB drives. **Landscape** shows a collapsible **side rail** of
+  locations; **portrait** uses a storage dropdown in the toolbar. Both list your pinned app storages.
+- Path / free-space bar, up/back navigation, sort by **name / size / date / type** (asc/desc), in-folder
+  **search**, show/hide hidden files.
+- **Three view modes**, cycled from the toolbar and remembered: **Grid**, **List**, and a dense
+  **Compact** list (~2× more rows on screen).
+- **Multi-select** with an action bar: copy, cut, delete, share. Copy/move/delete/rename with real
+  progress, cancel, and conflict handling (**overwrite / merge / keep both / skip**). New folder.
+- **Favorites**, file **properties** + read-only toggle, image thumbnails (Coil) and **`.exe` icon
+  extraction** (PE resources).
+- **Open with** any file in another app, **Share** one or many files, and **Install** `.apk` files
+  directly.
+
+### Dual-pane "commander" mode
+- Toolbar toggle → **two fully independent panes side by side** — in landscape *and* portrait
+  (fixed 50/50 split).
+- **One shared toolbar** controls the **active** pane (tap a pane to focus it); each pane keeps its own
+  folder, selection, scroll, **view mode and sort**, so the two sides can differ (e.g. left Compact,
+  right Grid).
+- One-tap **Copy → / Move →** from the active pane into the other pane's folder.
+- **Extract into the other pane:** extracting an archive defaults its destination to the other pane's
+  folder — "extract here → into there" in one tap.
+
+### Extraction (bundled native engines, all on-device)
+| Engine | Handles |
+|---|---|
+| **7-Zip** (`7zz`) | `.7z`, `.zip`, `.rar` (incl. multi-part), split volumes (`.001`, `.bin`), `.tar` / `.tar.gz` / `.tar.xz`, disc images `.iso` / `.udf` / `.img`, `.wcp` / `.tzst`, and more |
+| **innoextract** | **InnoSetup / GOG offline installers** — unpacks the game files directly, including **automatic DLC batch**: sibling `setup_*.exe` DLC installers in the same folder are detected and extracted into one merged game folder |
+| **unarc** (FreeArc) | **FreeArc / ISDone game repacks** (FitGirl / DODI-style `Setup-N.bin` volumes) decoded natively |
+
+- One-tap **Fast Extract**, or the full **Unpack Archive** screen (destination picker, options).
+- Runs as a **background foreground-service job** with a progress notification, cancel, and an
+  **app-wide minimizable progress pill** — survives the app going to the background.
+- Extraction targets can be normal storage **or a pinned SAF / root location** (extracted to a temp
+  folder, then copied into the target with the ownership fix described below).
+- BFE registers as an **"Open with" / Share target** for archives and `setup.exe` files, so other apps
+  can hand them straight to the extractor.
+
+### Compression — create archives
+Select files/folders → **Compress…** → format, name, level, optional password, destination (this pane
+or the other). Same background job / pill / cancel as extraction.
+| Format | Engine |
+|---|---|
+| **zip** (optional AES-256 password) · **7z** (optional password, encrypted headers) · **tar** | bundled 7-Zip |
+| **tar.gz** · **tar.xz** | two piped 7-Zip processes — no on-disk `.tar` staging, so a large folder never doubles its footprint |
+| **tzst** (`tar.zst`) | streamed Java tar + Zstandard (`commons-compress` + `zstd-jni`) |
+| **Winlator `.wcp`** | a `tar.zst` content pack with a `profile.json` manifest |
+
+The **Create Winlator pack** form collects the pack **type** (Wine / Proton / DXVK / D7VK / VKD3D /
+Box64 / WOWBox64 / FEXCore / VEGAS), versionName, versionCode, description (and the `wine` paths for
+Wine/Proton packs) and writes the exact `profile.json` schema Bannerlator/Winlator parse — a pack you
+build in BFE installs straight into Bannerlator.
+
+### App storage — pin other apps' storage as locations
+- **Storage apps (SAF):** the *Add app storage* picker lists installed apps that expose a
+  **DocumentsProvider** (SD/USB, Downloads, cloud apps like Drive/Dropbox, and opt-in apps) by app
+  label + package name. Pick one, confirm the folder in Android's picker (it opens at the app's root —
+  a single "Use this folder" tap), and it's **pinned** as a location you can browse and manage: new
+  folder, rename, delete, copy/move in and out (including cross-pane), share, open-with, multi-select.
+- **All apps (root):** on a rooted device, the same picker lists **every installed app**. Pick one and
+  BFE **drops you straight into its private `/data/data/<pkg>`** (and its `Android/data/<pkg>` if
+  present) — **no folder-picker step**. Full management there: browse, copy/move in and out, rename,
+  delete, new folder, share/open-with/install (staged through BFE's cache, since other apps can't read
+  `/data/data`).
+- **Ownership safety:** anything BFE writes into an app's sandbox as root is automatically **chowned
+  back to that app's uid** (with `chmod 770/660` and `restorecon`), so the target app keeps working —
+  no root-owned leftovers that make an app crash with permission errors.
+- Pinned locations appear in the side rail / storage dropdown with a × to unpin.
+
+### Coming next — 0.8 (in progress): APK Cloner + Signer
+- **Clone** any `.apk` file or **any installed app** with a new package name, label, versionCode/Name
+  and icon — with a *proper* rename (component names, ContentProvider authorities, package-scoped
+  permissions, `sharedUserId`, resources table) so clones actually install and run alongside the
+  original. **Clone & Install** in one tap.
+- **Sign APK** with your own keystore (PKCS12 / BKS) or a built-in test key — APK signature schemes
+  **v1 + v2 + v3** by default.
+
+---
+
+## How storage access works
+BFE has a pluggable storage layer with three backends behind one file-manager UI:
+- **File** — direct filesystem access via All-Files-Access (the default; what makes native extraction
+  possible).
+- **SAF** — `DocumentsContract` on a persisted tree URI for pinned document providers.
+- **Root** — `libsu` (Magisk) for `/data/data` and anything else, with the chown-back safety above.
+
+Copy/move between any two backends streams through, so you can e.g. copy from a cloud provider into an
+app's private folder in one operation.
+
+---
 
 ## Requirements
+- **Android 8.0+** (minSdk 26, targetSdk 28).
+- **arm64-v8a only** — the native extractors are prebuilt for arm64; there is no other ABI.
+- **All-Files-Access** (`MANAGE_EXTERNAL_STORAGE`) — requested on first run. The native engines write
+  real files and can't go through the scoped-storage picker, so this is required for extraction and
+  compression.
+- **Root (Magisk) — optional**, only for the "All apps (root)" features. The first root action triggers
+  a Magisk prompt; grant BFE root there. Without root everything else works — the root section simply
+  stays unavailable (a one-line notice, no crash).
 
-- **arm64-v8a only.** The native extractors are prebuilt for `arm64-v8a`; there is no other ABI.
-- **All-Files-Access (`MANAGE_EXTERNAL_STORAGE`).** The native processes write directly to the
-  filesystem and cannot use the Storage Access Framework, so this permission is required for extraction.
-  BFE asks for it on first run.
-- minSdk 26 (Android 8.0), targetSdk 28.
+## Install
+1. Download the latest `BFE-x.y.apk` from [Releases](https://github.com/The412Banner/BFE/releases).
+2. Sideload it (allow "install unknown apps" for your browser/file manager if prompted).
+3. On first launch, grant **All-files access**. Grant **root** in Magisk when the root features ask.
 
-## Builds & signing
+BFE is a separate app (`com.the412banner.bfe`) — it never touches Bannerlator or any other install.
 
-CI (`.github/workflows/build.yml`) produces a single signed release APK artifact. Builds are signed
-with a **bundled, publicly-known TEST key** (`keystore/bfe-test.jks`), using APK signature schemes
-**v1 + v2 + v3**, so any BFE build installs over-the-top of a previous one without an uninstall. This is
-a sideload test app — the test key is intentionally committed to the repo, as are the prebuilt native
-libraries under `app/src/main/jniLibs/arm64-v8a/`. **Do not treat the signing key as private.**
+## Signing & integrity
+Releases are built by CI (`.github/workflows/build.yml`) and signed with a **bundled, publicly-known
+TEST key** (`keystore/bfe-test.jks`) using APK signature schemes **v1 + v2 + v3**, so any BFE build
+installs over the previous one without uninstalling.
+
+**This repository is public, so that signing key is public too — do not treat it as private.** Anyone
+can produce an APK carrying BFE's signature; only install BFE builds you obtained from this repo's
+Releases (each release lists its APK SHA-256). This is the normal trade-off for a sideload dev tool;
+a private release key can be added via a CI secret if tamper-resistance is ever needed.
+
+## Building from source
+```bash
+./gradlew assembleRelease     # signed with the committed test key
+```
+Toolchain: AGP 8.8, Kotlin 2.0.21, Compose BOM 2024.02, Java 17, NDK 29, compileSdk 34. No Hilt, no
+local `.so` build step — the prebuilt native binaries live in `app/src/main/jniLibs/arm64-v8a/` and
+are **exec'd** (not `System.loadLibrary`'d) from the app's native-lib dir, which is why the manifest
+keeps `android:extractNativeLibs="true"` — without it the executables never land on disk and every
+extraction fails. CI uses Gradle build/configuration caching so warm builds are fast.
+
+### Repo map
+```
+app/src/main/java/com/the412banner/bfe/
+├─ unpack/     7-Zip / innoextract / unarc wrappers, UnpackService (extraction job), FastExtract
+├─ pack/       archive creation (7zz, tar+zstd, Winlator .wcp), PackService (compression job)
+├─ storage/    StorageBackend abstraction: File / SAF / Root backends, cross-backend transfer, pins
+├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), Unpack screen, Compress dialog
+└─ ui/         progress pills, theme, components
+app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc + their dependency closure
+keystore/bfe-test.jks             public test signing key
+```
+
+## Known limitations
+- Dual-pane split is a fixed 50/50 (no drag-to-resize yet). Path bar isn't a clickable breadcrumb yet.
+- SAF only reaches apps that **expose a DocumentsProvider** — most ordinary apps don't, and Android
+  blocks SAF from `Android/data`. Use the root mode for those.
+- Extracting *from* an archive that lives on a SAF/root location isn't supported yet (archives must be
+  on normal storage; extracting *into* SAF/root works).
+- Piped `tar.gz` / `tar.xz` compression reports percent but not per-file names.
+- Compact rows are ~2× denser than the standard list, not a literal quarter-height (readability floor).
+- Errors surface as toasts; no predictive-back animation (targetSdk 28).
 
 ## License
-
-BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)), inherited from
-its Winlator/Bannerlator lineage. Bundled third-party native components retain their own notices — see
+BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)), inherited
+from its Winlator/Bannerlator lineage. Bundled third-party components keep their own notices — see
 `NOTICE_7ZIP.txt`, `NOTICE_INNOEXTRACT.txt`, `NOTICE_UNARC.txt` and `License_7zip.txt`.
