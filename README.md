@@ -1,9 +1,11 @@
 # BFE
 
-**BFE** is a standalone, **sideload-only** Android file manager and explorer with a full native
-archive-extraction and compression engine, a dual-pane "commander" layout, and the ability to browse
-storage that normal file managers can't reach — other apps' SAF document providers and, on a rooted
-device, **any installed app's private data**.
+**BFE** is a standalone, **sideload-only** Android file manager and explorer built around a set of
+bundled native engines. In one app: a dual-pane "commander" layout; **extraction** of archives, disc
+images, GOG/InnoSetup installers and FreeArc repacks; **compression** to zip/7z/tar/tzst and Winlator
+`.wcp` packs; **browsing storage normal file managers can't reach** — other apps' SAF document
+providers and, on a rooted device, **any installed app's private data**; an **APK cloner + signer**;
+and a **video converter** (game FMVs → MP4) powered by a bundled ffmpeg.
 
 It is lifted from the in-app File Manager + archive subsystem of the
 [Bannerlator](https://github.com/The412Banner/Bannerlator) emulator (Winlator lineage), with all of
@@ -123,8 +125,14 @@ build in BFE installs straight into Bannerlator.
   pane or the other one (SAF/root via temp + copy). Batch conversions run one after another as one
   background job with live percent / speed / ETA in the pill and notification; Cancel kills ffmpeg
   and removes the partial file.
+- **Engine:** a single static **ffmpeg 7.1.5 + x264** binary (~6.8 MB, arm64, built reproducibly by
+  the `build-ffmpeg.yml` workflow and shipped as `libffmpeg.so`). Codec coverage — **video:** H.264,
+  HEVC, VP8, VP9, MPEG-1/2/4, MS-MPEG4 v1–3, WMV1/2/3, VC-1, Theora, VP3, MJPEG, Cinepak, Indeo 3/4/5,
+  H.263, Bink video, Smacker video; **audio:** AAC, MP3, Vorbis, Opus, WMA v1/v2/Pro, AC-3, Bink audio,
+  Smacker audio, PCM, ADPCM (IMA/MS/QT/Yamaha). **Output:** MP4 (`+faststart`, yuv420p) with H.264 +
+  AAC, so it plays on anything.
 - **Bink 2 (`.bk2`) is proprietary** — there's no open decoder, so BFE says so up front instead of
-  failing.
+  failing. Encoding is software x264 (no hardware encoder): quick for 480p/720p cutscenes, slow for 4K.
 
 ---
 
@@ -199,6 +207,10 @@ keystore/bfe-test.jks             public test signing key
   on normal storage; extracting *into* SAF/root works).
 - Piped `tar.gz` / `tar.xz` compression reports percent but not per-file names.
 - Compact rows are ~2× denser than the standard list, not a literal quarter-height (readability floor).
+- Video conversion: **Bink 2 (`.bk2`) can't be decoded** (proprietary); encoding is software-only
+  (x264), so large/4K sources are slow; output is always H.264 + AAC MP4 (no other output formats yet).
+- APK clones of apps that verify their own signature, are Play-licensed, or are bound to
+  Google-services/Firebase may not run; that's inherent to cloning.
 - Errors surface as toasts; no predictive-back animation (targetSdk 28).
 
 ## License
