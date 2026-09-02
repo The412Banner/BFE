@@ -1,0 +1,50 @@
+ffmpeg bundled as libffmpeg.so
+==============================
+
+File in this APK (app/src/main/jniLibs/arm64-v8a/):
+  libffmpeg.so   the `ffmpeg` command-line tool, FFmpeg 7.1.5 + x264, built for ANDROID/bionic
+                 as a fully STATIC aarch64 executable (no dynamic loader, no NEEDED libraries),
+                 renamed to lib*.so so Android extracts it to nativeLibraryDir where it can be
+                 exec'd (extractNativeLibs=true). 6,768,632 bytes, stripped.
+                 sha256 2ffd321cc31bc843f22846a672a03202d104c0e6cb67a05ec8abe0232ea5c69e
+
+Reproducible build: .github/workflows/build-ffmpeg.yml (workflow_dispatch) — GitHub Actions,
+ubuntu-22.04, Android NDK r29 (29.0.14206865, clang 21), target aarch64-linux-android26.
+
+Products and licences
+---------------------
+FFmpeg 7.1.5           https://ffmpeg.org  —  source: https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz
+  Copyright (c) 2000-2026 the FFmpeg developers.
+  FFmpeg is licensed under the GNU Lesser General Public License v2.1 or later; because this build
+  is configured with --enable-gpl and links x264, the resulting binary is licensed under the
+  GNU General Public License version 2 or later (GPL-2.0-or-later). https://ffmpeg.org/legal.html
+x264                   https://www.videolan.org/developers/x264.html
+  git commit 0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee (code.videolan.org/videolan/x264)
+  Copyright (c) 2003-2026 x264 project. Licensed under the GNU General Public License version 2
+  or later (GPL-2.0-or-later). Built static (--enable-static --disable-shared --disable-cli
+  --enable-pic, aarch64 NEON/SVE assembly enabled).
+
+BFE itself is GPL-3.0 (see LICENSE); GPL-2.0-or-later components are compatible with it. The
+complete corresponding source for this binary is the two upstream sources above plus the build
+recipe in build-ffmpeg.yml; the exact configuration used is recorded below.
+
+Component set (deliberately minimal — game FMV in, MP4 out)
+------------------------------------------------------------
+demuxers : aac ac3 asf avi bink flv image2 lavfi matroska/webm mov/mp4/m4a/3gp mp3 mpeg(ps)
+           mpegts mpegvideo ogg rawvideo smacker wav
+decoders : video — binkvideo smackvid h264 hevc vp8 vp9 mpeg1video mpeg2video mpeg4 msmpeg4v1/v2/v3
+           wmv1 wmv2 wmv3 vc1 theora mjpeg cinepak indeo3 indeo4 indeo5 rawvideo (+h263, vp3 as
+           dependencies) wrapped_avframe (lavfi self-test)
+           audio — aac mp3 mp3float vorbis opus wmav1 wmav2 wmapro ac3 binkaudio_dct
+           binkaudio_rdft smackaud pcm_s16le pcm_s16be pcm_u8 pcm_f32le pcm_s24le adpcm_ima_wav
+           adpcm_ms adpcm_ima_smjpeg adpcm_ima_qt adpcm_yamaha
+encoders : libx264 aac          muxers : mp4 (mov)        protocols : file pipe
+filters  : scale aresample format aformat fps setsar testsrc anullsrc sine anull null (+deps)
+bsfs     : aac_adtstoasc extract_extradata
+
+NOT included, on purpose: Bink 2 (.bk2 — proprietary RAD codec, no open decoder exists), ffprobe,
+ffplay, network protocols, hardware/MediaCodec paths.
+
+Exact configure line (as run on the CI runner)
+----------------------------------------------
+./configure --prefix=/home/runner/work/BFE/BFE/build/out --target-os=android --arch=aarch64 --cpu=armv8-a --enable-cross-compile --cc=/home/runner/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang --cxx=/home/runner/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang++ --ar=/home/runner/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar --nm=/home/runner/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm --ranlib=/home/runner/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib --strip=/home/runner/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --sysroot=/home/runner/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64/sysroot --pkg-config=pkg-config --pkg-config-flags=--static --extra-cflags=-I/home/runner/work/BFE/BFE/build/prefix/include -Os -fPIE --extra-ldflags=-L/home/runner/work/BFE/BFE/build/prefix/lib --extra-ldexeflags=-static --enable-static --disable-shared --enable-pic --enable-gpl --enable-libx264 --enable-small --disable-doc --disable-ffplay --disable-ffprobe --disable-debug --disable-autodetect --disable-programs --enable-ffmpeg --disable-everything --enable-demuxer=bink,smacker,avi,asf,matroska,mov,mpegps,mpegts,ogg,flv,mpegvideo,rawvideo,image2,wav,mp3,aac,ac3 --enable-indev=lavfi --enable-decoder=bink,smacker,h264,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,msmpeg4v1,msmpeg4v2,msmpeg4v3,wmv1,wmv2,wmv3,vc1,theora,mjpeg,cinepak,indeo3,indeo4,indeo5,rawvideo,aac,mp3,mp3float,vorbis,opus,wmav1,wmav2,wmapro,ac3,binkaudio_dct,binkaudio_rdft,smackaud,pcm_s16le,pcm_s16be,pcm_u8,pcm_f32le,pcm_s24le,adpcm_ima_wav,adpcm_ms,adpcm_ima_smjpeg,adpcm_ima_qt,adpcm_yamaha,wrapped_avframe --enable-encoder=libx264,aac --enable-muxer=mp4 --enable-parser=h264,hevc,aac,mpegaudio,vp8,vp9,mpegvideo,mpeg4video,vc1,vorbis,opus --enable-protocol=file,pipe --enable-bsf=aac_adtstoasc,extract_extradata --enable-filter=scale,aresample,format,aformat,fps,setsar,testsrc,anullsrc,sine,anull,null --enable-swscale --enable-swresample --enable-avfilter --enable-avdevice 

@@ -39,6 +39,10 @@ import com.the412banner.bfe.pack.PackManager
 import com.the412banner.bfe.pack.PackPhase
 import com.the412banner.bfe.pack.PackService
 import com.the412banner.bfe.apk.ApkJobManager
+import com.the412banner.bfe.video.ConvertManager
+import com.the412banner.bfe.video.ConvertPhase
+import com.the412banner.bfe.video.ConvertService
+import androidx.compose.material.icons.filled.Movie
 import com.the412banner.bfe.apk.ApkJobService
 import com.the412banner.bfe.apk.ApkJobKind
 import androidx.compose.material.icons.filled.Android
@@ -221,6 +225,51 @@ fun ApkJobPill(modifier: Modifier = Modifier) {
             }
             Spacer(Modifier.height(6.dp))
             LinearProgressIndicator(progress = { state.fraction }, modifier = Modifier.fillMaxWidth().height(4.dp))
+        }
+    }
+}
+
+/** Pill for a running "Convert to MP4" job ([ConvertManager]); ✕ kills ffmpeg. */
+@Composable
+fun ConvertProgressPill(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val state by ConvertManager.state.collectAsState()
+    if (!state.isRunning) return
+    val probing = state.phase == ConvertPhase.PROBING
+    Card(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Movie, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        (if (state.batchTotal > 1) "Video ${state.batchIndex}/${state.batchTotal} — " else "Converting ") + state.currentName,
+                        color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (probing) "Reading…"
+                        else buildString {
+                            append("${state.percent}%")
+                            if (state.speed > 0f) append("  •  ${"%.1f".format(state.speed)}×")
+                            if (state.outputBytes > 0) append("  •  ${StringUtils.formatBytes(state.outputBytes)}")
+                            if (state.etaSeconds >= 0) append("  •  ETA ${StringUtils.humanDuration(state.etaSeconds * 1000)}")
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { ConvertService.cancel(context) }) {
+                    Icon(Icons.Filled.Close, "Cancel conversion", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            if (probing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
+            else LinearProgressIndicator(progress = { state.overallPercent / 100f }, modifier = Modifier.fillMaxWidth().height(4.dp))
         }
     }
 }

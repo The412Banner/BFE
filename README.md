@@ -113,6 +113,19 @@ build in BFE installs straight into Bannerlator.
   Google-services/Firebase-bound apps, and some split/bundle apps may not run as clones; code that
   builds a FileProvider authority from `BuildConfig.APPLICATION_ID` will mismatch after a rename.
 
+### Video converter — "Convert to MP4…"
+- ⋮ on any video (or multi-select → *Convert*) transcodes to **H.264 + AAC MP4** with the bundled
+  **ffmpeg** (a static aarch64/bionic GPL build with x264, exec'd like the other native engines).
+  Made for game FMV: **Bink 1 (`.bik`)**, **Smacker (`.smk`)**, WMV/ASF, AVI, MKV/WebM, MOV/MP4/M4V,
+  MPEG-PS/TS, OGV, FLV, 3GP, VOB.
+- **Quality** Fast / Balanced / High (x264 veryfast / medium / slow, CRF 26 / 23 / 20), **resolution**
+  Keep / 1080p / 720p / 480p (aspect kept, even dims), **audio** keep (AAC 160k) or none, output to this
+  pane or the other one (SAF/root via temp + copy). Batch conversions run one after another as one
+  background job with live percent / speed / ETA in the pill and notification; Cancel kills ffmpeg
+  and removes the partial file.
+- **Bink 2 (`.bk2`) is proprietary** — there's no open decoder, so BFE says so up front instead of
+  failing.
+
 ---
 
 ## How storage access works
@@ -169,10 +182,12 @@ extraction fails. CI uses Gradle build/configuration caching so warm builds are 
 app/src/main/java/com/the412banner/bfe/
 ├─ unpack/     7-Zip / innoextract / unarc wrappers, UnpackService (extraction job), FastExtract
 ├─ pack/       archive creation (7zz, tar+zstd, Winlator .wcp), PackService (compression job)
+├─ apk/        APK cloner/editor/signer (ARSCLib rewrite, apksig, keys), ApkJobService
+├─ video/      ffmpeg wrapper + ConvertService (video → MP4 job)
 ├─ storage/    StorageBackend abstraction: File / SAF / Root backends, cross-backend transfer, pins
 ├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), Unpack screen, Compress dialog
 └─ ui/         progress pills, theme, components
-app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc + their dependency closure
+app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure
 keystore/bfe-test.jks             public test signing key
 ```
 
@@ -189,4 +204,5 @@ keystore/bfe-test.jks             public test signing key
 ## License
 BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)), inherited
 from its Winlator/Bannerlator lineage. Bundled third-party components keep their own notices — see
-`NOTICE_7ZIP.txt`, `NOTICE_INNOEXTRACT.txt`, `NOTICE_UNARC.txt` and `License_7zip.txt`.
+`NOTICE_7ZIP.txt`, `NOTICE_INNOEXTRACT.txt`, `NOTICE_UNARC.txt`, `NOTICE_FFMPEG.txt` (FFmpeg + x264,
+GPL v2+, built with `--enable-gpl --enable-libx264`) and `License_7zip.txt`.

@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
@@ -262,6 +263,9 @@ private class PendingPack(val jobId: Long, val tmpArchive: File?, val dest: Loc,
  * is SAF/root (null = written in place), [stagedSource] a temp copy of a SAF/root source APK.
  */
 private class PendingApk(val jobId: Long, val tmpOut: File?, val dest: Loc, val stagedSource: File?)
+
+/** A running video conversion this pane started: [tmpDir] = cache temp holding the outputs when [dest] is SAF/root. */
+private class PendingConvert(val jobId: Long, val tmpDir: File?, val dest: Loc, val stagedInputs: File?, val toOther: Boolean)
 
 /** What the APK editor is open for: the parsed [meta], clone-vs-edit, split APKs to merge, base file, destination dir. */
 private class ApkEditorTarget(val meta: com.the412banner.bfe.apk.ApkMeta, val kind: com.the412banner.bfe.apk.ApkJobKind, val base: File, val splits: List<File>, val dest: Loc, val staged: File?)
@@ -1795,6 +1799,94 @@ fun BrowserPane(
     }
 
 
+    // ── Convert to MP4 (bundled ffmpeg) ──
+    var convertTargets by remember { mutableStateOf<List<Loc>>(emptyList()) }
+    var pendingConvert by remember { mutableStateOf<PendingConvert?>(null) }
+
+    fun startConvert(choice: ConvertChoice, sources: List<Loc>) {
+        convertTargets = emptyList()
+        if (sources.isEmpty()) return
+        com.the412banner.bfe.video.ConvertService.busyReason()?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); return }
+        val dest: Loc = if (choice.toOtherPane) (otherPaneDir() ?: currentLoc) else currentLoc
+        scope.launch {
+            var staged: File? = null
+            isOperationRunning = true; operationDeterminate = false
+            operationLabel = "Preparing ${sources.size} video${if (sources.size == 1) "" else "s"}…"
+            // ffmpeg needs real paths: File inputs go straight in; SAF/root inputs are staged first.
+            val inputs: List<File>? = withContext(Dispatchers.IO) {
+                runCatching {
+                    sources.map { src ->
+                        (src as? Loc.FileLoc)?.file ?: run {
+                            val dir = staged ?: File(context.cacheDir, "convert-src-${System.currentTimeMillis()}").apply { mkdirs() }.also { staged = it }
+                            if (!StorageTransfer.copyInto(context, src, Loc.FileLoc(dir), src.name)) throw java.io.IOException("Couldn't read ${src.name}")
+                            File(dir, src.name)
+                        }
+                    }
+                }.onFailure { staged?.deleteRecursively() }.getOrNull()
+            }
+            if (inputs == null) { isOperationRunning = false; Toast.makeText(context, "Couldn't prepare the selection", Toast.LENGTH_LONG).show(); return@launch }
+            val (outDir, tmpDir) = withContext(Dispatchers.IO) {
+                when (dest) {
+                    is Loc.FileLoc -> dest.file to null
+                    else -> File(context.cacheDir, "convert-out-${System.currentTimeMillis()}").apply { mkdirs() }.let { it to it }
+                }
+            }
+            // Never clobber: uniquify each output name against the real destination.
+            val names = withContext(Dispatchers.IO) {
+                val used = HashSet<String>()
+                choice.outputNames.map { n ->
+                    var u = if (dest is Loc.FileLoc) uniqueName(dest, n) else n
+                    var i = 1
+                    while (!used.add(u)) { u = n.substringBeforeLast('.') + " (${i++}).mp4" }
+                    u
+                }
+            }
+            isOperationRunning = false
+            val jobId = com.the412banner.bfe.video.ConvertService.start(
+                context,
+                com.the412banner.bfe.video.ConvertRequest(inputs.map { it.absolutePath }, names, outDir.absolutePath, choice.quality, choice.resolution, choice.keepAudio),
+            )
+            pendingConvert = PendingConvert(jobId, tmpDir, dest, staged, choice.toOtherPane)
+            selectionMode = false; selectedIds = emptySet()
+            Toast.makeText(context, "Converting ${inputs.size} video${if (inputs.size == 1) "" else "s"} — see the pill for progress", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val convertState by com.the412banner.bfe.video.ConvertManager.state.collectAsState()
+    LaunchedEffect(convertState.phase, convertState.jobId, pendingConvert) {
+        val p = pendingConvert ?: return@LaunchedEffect
+        if (convertState.jobId != p.jobId) return@LaunchedEffect
+        when (convertState.phase) {
+            com.the412banner.bfe.video.ConvertPhase.DONE, com.the412banner.bfe.video.ConvertPhase.ERROR, com.the412banner.bfe.video.ConvertPhase.CANCELLED -> {
+                pendingConvert = null
+                var copyFailed = 0
+                if (p.tmpDir != null && convertState.outputs.isNotEmpty()) {
+                    isOperationRunning = true; operationDeterminate = false
+                    operationLabel = "Copying converted videos into ${p.dest.name}…"
+                    copyFailed = withContext(Dispatchers.IO) {
+                        var f = 0
+                        for (o in convertState.outputs) {
+                            val file = File(o)
+                            if (!StorageTransfer.copyInto(context, Loc.FileLoc(file), p.dest, uniqueName(p.dest, file.name))) f++
+                        }
+                        f
+                    }
+                    isOperationRunning = false
+                }
+                withContext(Dispatchers.IO) { p.tmpDir?.deleteRecursively(); p.stagedInputs?.deleteRecursively() }
+                if (p.toOther) onRequestOtherReload() else paneState.requestReload()
+                val msg = when (convertState.phase) {
+                    com.the412banner.bfe.video.ConvertPhase.DONE -> "Converted ${convertState.done} video${if (convertState.done == 1) "" else "s"}" +
+                        (if (convertState.failed > 0) ", ${convertState.failed} failed" else "") + (if (copyFailed > 0) ", $copyFailed couldn't be copied" else "")
+                    com.the412banner.bfe.video.ConvertPhase.CANCELLED -> "Conversion cancelled"
+                    else -> "Conversion failed: ${convertState.errorTail ?: "ffmpeg error"}"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+            else -> Unit
+        }
+    }
+
     // ── APK tools: clone / edit / sign ──
     var apkEditor by remember { mutableStateOf<ApkEditorTarget?>(null) }
     var apkSignTarget by remember { mutableStateOf<Pair<File, Loc>?>(null) }   // (apk, destination dir)
@@ -2049,6 +2141,26 @@ fun BrowserPane(
                 }) { Text("Rename") }
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+        )
+    }
+
+    // ── Convert to MP4 dialog ──
+    if (convertTargets.isNotEmpty()) {
+        val targets = convertTargets
+        val (bink2, convertible) = remember(targets) {
+            targets.partition { t ->
+                com.the412banner.bfe.video.VideoFormats.isBink2Name(t.name) ||
+                    ((t as? Loc.FileLoc)?.file?.let { com.the412banner.bfe.video.VideoFormats.isBink2Magic(it) } ?: false)
+            }
+        }
+        val other = if (dualPane) otherPaneDir() else null
+        ConvertDialog(
+            inputNames = convertible.map { it.name },
+            skippedBink2 = bink2.map { it.name },
+            otherPaneName = other?.name?.ifBlank { "/" },
+            ffmpegMissing = !com.the412banner.bfe.video.Ffmpeg.isAvailable(context),
+            onDismiss = { convertTargets = emptyList() },
+            onConfirm = { choice -> startConvert(choice, convertible) },
         )
     }
 
@@ -2378,6 +2490,14 @@ fun BrowserPane(
                             onClick = { compressTargets = entries.filter { it.id in selectedIds } },
                             contentPadding = selBarPadding,
                         ) { Text("Compress", fontSize = 12.sp) }
+                        // Batch video → MP4 (only the video files among the selection are offered).
+                        val videoSel = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
+                        if (videoSel.isNotEmpty()) {
+                            OutlinedButton(
+                                onClick = { convertTargets = videoSel },
+                                contentPadding = selBarPadding,
+                            ) { Text("Convert", fontSize = 12.sp) }
+                        }
                     }
                     OutlinedButton(
                         enabled = selectedIds.isNotEmpty(),
@@ -2570,6 +2690,7 @@ fun BrowserPane(
                             onCloneApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.CLONE) },
                             onEditApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.EDIT) },
                             onSignApk = { openSign(file) },
+                            onConvert = { showMenuFor = null; convertTargets = listOf(file) },
                             onRename = { renameTarget = file; showMenuFor = null },
                             onCopy = { clipboard = listOf(file); isCutOperation = false; showMenuFor = null },
                             onCut = { clipboard = listOf(file); isCutOperation = true; showMenuFor = null },
@@ -2660,6 +2781,7 @@ fun BrowserPane(
                             onCloneApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.CLONE) },
                             onEditApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.EDIT) },
                             onSignApk = { openSign(file) },
+                            onConvert = { showMenuFor = null; convertTargets = listOf(file) },
                             onUnpack = { launchUnpack(file) },
                             isFavorite = isFav,
                             onToggleFavorite = {
@@ -2710,6 +2832,7 @@ private fun FileContextMenuItems(
     onCloneApk: () -> Unit,
     onEditApk: () -> Unit,
     onSignApk: () -> Unit,
+    onConvert: () -> Unit,
     onRename: () -> Unit,
     onCopy: () -> Unit,
     onCut: () -> Unit,
@@ -2823,6 +2946,15 @@ private fun FileContextMenuItems(
         )
         MenuItemDivider()
     }
+    // Video → MP4 via the bundled ffmpeg (Bink 1 / Smacker / WMV / AVI / MKV / …; .bk2 explained, not failed).
+    if (!isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(file.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(file.name))) {
+        DropdownMenuItem(
+            text = { Text("Convert to MP4…") },
+            leadingIcon = { Icon(Icons.Filled.Movie, null, tint = MaterialTheme.colorScheme.primary) },
+            onClick = { onDismissMenu(); onConvert() },
+        )
+        MenuItemDivider()
+    }
     // Create an archive from this item (zip/7z/tar/tar.gz/tar.xz/tzst/Winlator .wcp). Works for any
     // backend: SAF/root items are staged to a temp dir first (the engines need real paths).
     DropdownMenuItem(
@@ -2887,6 +3019,7 @@ private fun FileItemRow(
     onCloneApk: () -> Unit = {},
     onEditApk: () -> Unit = {},
     onSignApk: () -> Unit = {},
+    onConvert: () -> Unit = {},
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     onProperties: () -> Unit = {},
@@ -3004,6 +3137,7 @@ private fun FileItemRow(
                                 onCloneApk = onCloneApk,
                                 onEditApk = onEditApk,
                                 onSignApk = onSignApk,
+                                onConvert = onConvert,
                                 onRename = onRename,
                                 onCopy = onCopy,
                                 onCut = onCut,
@@ -3127,6 +3261,7 @@ private fun FileItemRow(
                         onCloneApk = onCloneApk,
                         onEditApk = onEditApk,
                         onSignApk = onSignApk,
+                        onConvert = onConvert,
                         onRename = onRename,
                         onCopy = onCopy,
                         onCut = onCut,
@@ -3337,6 +3472,7 @@ private fun FileGridTile(
     onCloneApk: () -> Unit = {},
     onEditApk: () -> Unit = {},
     onSignApk: () -> Unit = {},
+    onConvert: () -> Unit = {},
     onRename: () -> Unit = {},
     onCopy: () -> Unit = {},
     onCut: () -> Unit = {},
@@ -3445,6 +3581,7 @@ private fun FileGridTile(
                 onCloneApk = onCloneApk,
                 onEditApk = onEditApk,
                 onSignApk = onSignApk,
+                onConvert = onConvert,
                 onRename = onRename,
                 onCopy = onCopy,
                 onCut = onCut,

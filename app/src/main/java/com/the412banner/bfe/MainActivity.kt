@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.the412banner.bfe.ui.ApkJobPill
+import com.the412banner.bfe.ui.ConvertProgressPill
 import com.the412banner.bfe.ui.PackProgressPill
 import com.the412banner.bfe.ui.UnpackProgressPill
 import com.the412banner.bfe.ui.screens.FileManagerScreen
@@ -74,6 +75,7 @@ private fun AppRoot() {
         UnpackProgressPill()
         PackProgressPill()
         ApkJobPill()
+        ConvertProgressPill()
     }
 }
 

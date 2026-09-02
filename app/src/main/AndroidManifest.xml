@@ -84,6 +84,12 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- Video conversion (bundled ffmpeg), same lifecycle. -->
+        <service
+            android:name="com.the412banner.bfe.video.ConvertService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
         <!-- FileProvider for "Open with" content:// hand-off of files inside the file manager. -->
         <provider
             android:name="androidx.core.content.FileProvider"
