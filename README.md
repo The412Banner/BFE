@@ -21,6 +21,10 @@ browse / extract / manage core turned into its own app. GPL-3.0.
 ### Browsing & file management
 - Browse internal storage, SD cards and USB drives. **Landscape** shows a collapsible **side rail** of
   locations; **portrait** uses a storage dropdown in the toolbar. Both list your pinned app storages.
+- **`.apk` files show their real launcher icon** in list, grid and compact views (parsed off the
+  main thread from File, SAF and root locations, like the `.exe` PE icons).
+- **New ▾ → Folder / File…**: create an empty file on File, SAF and root locations (root creations
+  are chown'd back to the owning app); text-like files offer "Open with…" right away.
 - Path / free-space bar, up/back navigation, sort by **name / size / date / type** (asc/desc), in-folder
   **search**, show/hide hidden files.
 - **Three view modes**, cycled from the toolbar and remembered: **Grid**, **List**, and a dense

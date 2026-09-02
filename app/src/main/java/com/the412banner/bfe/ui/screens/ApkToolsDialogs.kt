@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.the412banner.bfe.apk.ApkEdits
+import com.the412banner.bfe.core.ApkIconLoader
 import com.the412banner.bfe.apk.ApkJobKind
 import com.the412banner.bfe.apk.ApkJobReport
 import com.the412banner.bfe.apk.ApkMeta
@@ -192,13 +193,9 @@ internal fun ApkEditorDialog(
     val iconPreview = remember(iconPath) {
         iconPath?.let { runCatching { android.graphics.BitmapFactory.decodeFile(it)?.asImageBitmap() }.getOrNull() }
     }
-    val sourceIcon = remember(meta.sourcePath) {
-        runCatching {
-            val pm = context.packageManager
-            val info = pm.getPackageArchiveInfo(meta.sourcePath, 0)?.applicationInfo ?: return@runCatching null
-            info.sourceDir = meta.sourcePath; info.publicSourceDir = meta.sourcePath
-            info.loadIcon(pm).toBitmap(96, 96).asImageBitmap()
-        }.getOrNull()
+    var sourceIcon by remember(meta.sourcePath) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(meta.sourcePath) {
+        sourceIcon = withContext(Dispatchers.IO) { ApkIconLoader.load(context, File(meta.sourcePath), 96)?.asImageBitmap() }
     }
 
     val pkgProblem = PackageNames.problem(pkg.trim())

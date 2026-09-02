@@ -148,6 +148,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.core.FileUtils
+import com.the412banner.bfe.core.ApkIconLoader
 import com.the412banner.bfe.core.PeIconExtractor
 import com.the412banner.bfe.core.StorageRoot
 import com.the412banner.bfe.core.StorageRoots
@@ -234,6 +235,9 @@ private val FileTypeIcon: Map<String, ImageVector> = mapOf(
 
 // Image extensions that get a real thumbnail (via Coil) instead of the generic file icon.
 private val IMAGE_THUMB_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif")
+
+// After "New file…", these get an immediate "Open with…" offer (a text editor is the obvious next step).
+private val TEXT_LIKE_EXTS = setOf("txt", "md", "ini", "cfg", "conf", "json", "xml", "yml", "yaml", "log", "csv", "bat", "sh", "reg", "properties", "toml", "html", "htm", "kt", "java", "py", "js", "css", "gradle", "lua")
 
 // Color-only sweep: the former card-fill / card-stroke / divider / icon-blue / icon-white
 // constants were rerouted onto MaterialTheme.colorScheme tokens (surface / outline / primary /
@@ -367,6 +371,7 @@ class PaneState(
     var searchQuery by mutableStateOf("")
     var showFavorites by mutableStateOf(false)
     var showNewFolderDialog by mutableStateOf(false)
+    var showNewFileDialog by mutableStateOf(false)
     // File-mode navigation hooks (wired by BrowserPane; navigation needs its scope + pick filtering).
     var onOpenDir: (File) -> Unit = {}
     var onOpenDrive: (File) -> Unit = {}
@@ -818,6 +823,11 @@ private fun SharedToolbar(
         else -> Icons.Filled.Storage
     }
 
+    // Which controls are present, in the order they appear (browse controls hide in Favorites).
+    val browsing = !active.showFavorites
+    val showNewFolder = browsing && !pickMode
+    val showSplitAndTools = !pickMode
+
     // ── The individual controls, shared by the one-row and wrapped layouts ──
 
     @Composable
@@ -950,21 +960,38 @@ private fun SharedToolbar(
     }
 
     @Composable
-    fun NewFolderButton(iconOnly: Boolean) {
-        if (iconOnly) {
-            IconButton(onClick = { active.showNewFolderDialog = true }) {
-                Icon(Icons.Filled.CreateNewFolder, "New Folder", tint = MaterialTheme.colorScheme.primary)
+    fun NewButton(iconOnly: Boolean) {
+        // "New ▾" — Folder or File. The narrow icon-only form opens the same two-item menu.
+        var showNewMenu by remember { mutableStateOf(false) }
+        Box {
+            if (iconOnly) {
+                IconButton(onClick = { showNewMenu = true }) {
+                    Icon(Icons.Filled.CreateNewFolder, "New folder or file", tint = MaterialTheme.colorScheme.primary)
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { showNewMenu = true },
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp),
+                ) {
+                    Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("New ▾", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
+                }
             }
-        } else {
-            OutlinedButton(
-                onClick = { active.showNewFolderDialog = true },
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                modifier = Modifier.height(32.dp),
-            ) {
-                Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("New Folder", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
+            DropdownMenu(expanded = showNewMenu, onDismissRequest = { showNewMenu = false }, modifier = Modifier.outlinedMenuCard()) {
+                DropdownMenuItem(
+                    text = { Text("Folder") },
+                    leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { showNewMenu = false; active.showNewFolderDialog = true },
+                )
+                MenuItemDivider()
+                DropdownMenuItem(
+                    text = { Text("File…") },
+                    leadingIcon = { Icon(Icons.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { showNewMenu = false; active.showNewFileDialog = true },
+                )
             }
         }
     }
@@ -1071,6 +1098,20 @@ private fun SharedToolbar(
                 Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
+                if (browsing) {
+                    DropdownMenuItem(
+                        text = { Text("New folder…") },
+                        leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = { showTools = false; active.showNewFolderDialog = true },
+                    )
+                    MenuItemDivider()
+                    DropdownMenuItem(
+                        text = { Text("New file…") },
+                        leadingIcon = { Icon(Icons.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = { showTools = false; active.showNewFileDialog = true },
+                    )
+                    MenuItemDivider()
+                }
                 DropdownMenuItem(
                     text = { Text("Clone installed app…") },
                     leadingIcon = { Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary) },
@@ -1086,11 +1127,6 @@ private fun SharedToolbar(
         }
     }
 
-    // Which controls are present, in the order they appear (browse controls hide in Favorites).
-    val browsing = !active.showFavorites
-    val showNewFolder = browsing && !pickMode
-    val showSplitAndTools = !pickMode
-
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -1102,7 +1138,7 @@ private fun SharedToolbar(
         // Estimate the fixed widths (48dp icon buttons; text pills from their label length) and keep
         // the classic single row whenever it all fits with room for a readable folder name.
         val chipDp = if (narrow) 48 else (driveLabel.length * 8 + 36).coerceAtLeast(60)
-        val newFolderDp = if (!showNewFolder) 0 else if (narrow) 48 else 108
+        val newFolderDp = if (!showNewFolder) 0 else if (narrow) 48 else 84
         val iconButtons = 1 /* back */ + (if (browsing) 3 else 0) /* view, search, sort */ + 1 /* favourites */ + (if (showSplitAndTools) 2 else 0)
         val fixedDp = 48 * iconButtons + chipDp + 4 + newFolderDp
         val fitsOneRow = fixedDp + 72 <= width.value
@@ -1114,7 +1150,7 @@ private fun SharedToolbar(
                 Spacer(Modifier.width(4.dp))
                 FolderName(Modifier.weight(1f))
                 if (browsing) {
-                    if (showNewFolder) NewFolderButton(iconOnly = narrow)
+                    if (showNewFolder) NewButton(iconOnly = narrow)
                     ViewModeButton()
                     SearchButton()
                     SortButton()
@@ -1144,7 +1180,7 @@ private fun SharedToolbar(
                     horizontalArrangement = Arrangement.End,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    if (showNewFolder) Box(modifier = Modifier.align(Alignment.CenterVertically)) { NewFolderButton(iconOnly = narrow) }
+                    if (showNewFolder) Box(modifier = Modifier.align(Alignment.CenterVertically)) { NewButton(iconOnly = narrow) }
                     if (browsing) Box(modifier = Modifier.align(Alignment.CenterVertically)) { SortButton() }
                     Box(modifier = Modifier.align(Alignment.CenterVertically)) { FavoritesButton() }
                     if (showSplitAndTools) Box(modifier = Modifier.align(Alignment.CenterVertically)) { ToolsOverflow() }
@@ -1235,6 +1271,9 @@ fun BrowserPane(
     // changes. Navigation is pure state mutation (paneState.path / altStack); this effect turns that
     // into a fresh listing. Scroll resets only when the DIRECTORY changes, not on sort/refresh.
     val lastLocId = remember { mutableStateOf<String?>(null) }
+    // A just-created entry to reveal after the next listing: tinted like a selection (without entering
+    // selection mode) and scrolled into view. Cleared on navigation.
+    var highlightId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(currentLoc.id, paneState.sortBy, paneState.sortDesc, paneState.showHidden, paneState.reloadTick) {
         val loc = paneState.currentLoc
         val reset = lastLocId.value != loc.id
@@ -1255,7 +1294,11 @@ fun BrowserPane(
         entries = result.getOrNull() ?: emptyList()
         loadError = if (result.isFailure) "Couldn't read this folder." else null
         loading = false
-        if (reset) runCatching { listState.scrollToItem(0) }
+        if (reset) { highlightId = null; runCatching { listState.scrollToItem(0) } }
+        highlightId?.let { id ->
+            val idx = entries.indexOfFirst { it.id == id }
+            if (idx >= 0) runCatching { listState.animateScrollToItem(idx) }
+        }
     }
 
     // Pull-to-refresh → re-list, keeping scroll.
@@ -1882,7 +1925,85 @@ fun BrowserPane(
         }
     }
 
+    // Create an EMPTY file in [parent] via the backend: File → the path is opened+truncated once so it
+    // exists; SAF → createDocument; root → SuFile stream whose close() chowns it back to the sandbox
+    // app. A name collision is uniquified ("name (1).ext") rather than refused. [onCreated] gets the
+    // new entry after the pane re-lists.
+    var newFileOpenOffer by remember { mutableStateOf<Loc?>(null) }
+    fun createFile(parent: Loc, rawName: String) {
+        scope.launch {
+            isOperationRunning = true
+            operationLabel = "Creating file..."
+            val backend = Storage.backend(parent)
+            val created: Loc? = withContext(Dispatchers.IO) {
+                runCatching {
+                    val name = uniqueName(parent, rawName)
+                    // SAF providers force the extension to match the MIME type they're given, so derive
+                    // it from the name ("new file.txt" + octet-stream would come back as .txt.bin).
+                    val mime = android.webkit.MimeTypeMap.getSingleton()
+                        .getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
+                    val loc = backend.createFile(context, parent, name, mime) ?: return@runCatching null
+                    // Materialise it (FileBackend/RootBackend create on stream open; SAF already exists).
+                    backend.openOutputStream(context, loc)?.close()
+                    backend.childNamed(context, parent, name) ?: loc
+                }.getOrNull()
+            }
+            isOperationRunning = false
+            if (created == null) {
+                Toast.makeText(context, "Could not create \"$rawName\"", Toast.LENGTH_SHORT).show()
+            } else {
+                highlightId = created.id
+                paneState.requestReload()
+                // Text-like files get a one-tap jump into an editor.
+                val ext = created.name.substringAfterLast('.', "").lowercase()
+                if (ext in TEXT_LIKE_EXTS) newFileOpenOffer = created
+                else Toast.makeText(context, "Created ${created.name}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // ── Dialogs ──
+
+    if (paneState.showNewFileDialog) {
+        var fileName by remember { mutableStateOf("new file.txt") }
+        val problem = when {
+            fileName.isBlank() -> "Name is empty"
+            fileName.contains('/') -> "A name can't contain /"
+            fileName.trim() == "." || fileName.trim() == ".." -> "Not a valid name"
+            else -> null
+        }
+        OutlinedAlertDialog(
+            onDismissRequest = { paneState.showNewFileDialog = false },
+            title = { Text("New File") },
+            text = {
+                OutlinedTextField(
+                    value = fileName,
+                    onValueChange = { fileName = it },
+                    label = { Text("File name (with extension)") },
+                    singleLine = true,
+                    isError = problem != null,
+                    supportingText = { if (problem != null) Text(problem, fontSize = 11.sp) },
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = problem == null, onClick = {
+                    paneState.showNewFileDialog = false
+                    createFile(currentLoc, fileName.trim())
+                }) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { paneState.showNewFileDialog = false }) { Text("Cancel") } },
+        )
+    }
+
+    newFileOpenOffer?.let { created ->
+        OutlinedAlertDialog(
+            onDismissRequest = { newFileOpenOffer = null },
+            title = { Text("Created ${created.name}") },
+            text = { Text("Open it in a text editor now?", fontSize = 13.sp) },
+            confirmButton = { TextButton(onClick = { newFileOpenOffer = null; openWith(created) }) { Text("Open with…") } },
+            dismissButton = { TextButton(onClick = { newFileOpenOffer = null }) { Text("Not now") } },
+        )
+    }
 
     if (paneState.showNewFolderDialog) {
         var folderName by remember { mutableStateOf("") }
@@ -2403,7 +2524,7 @@ fun BrowserPane(
                         FileGridTile(
                             file = file,
                             selectionMode = selectionMode,
-                            selected = file.id in selectedIds,
+                            selected = file.id in selectedIds || file.id == highlightId,
                             onLongPress = {
                                 if (!pickMode) {
                                     // In selection mode a long-press toggles; otherwise it opens the
@@ -2490,7 +2611,7 @@ fun BrowserPane(
                             // COMPACT view mode → dense single-line rows (~4× more per screen).
                             dense = paneState.viewMode == FmViewMode.COMPACT,
                             selectionMode = selectionMode,
-                            selected = file.id in selectedIds,
+                            selected = file.id in selectedIds || file.id == highlightId,
                             onLongPress = {
                                 // In selection mode a long-press toggles; otherwise it opens the
                                 // per-item context menu (matching the grid tiles).
@@ -2783,6 +2904,14 @@ private fun FileItemRow(
     if (exeFile != null && exeFile.name.lowercase().endsWith(".exe")) {
         LaunchedEffect(file.id) {
             val bmp = withContext(Dispatchers.IO) { PeIconExtractor.extract(exeFile) }
+            if (bmp != null) exeIcon = bmp.asImageBitmap()
+        }
+    }
+    // And for .apk files the app's launcher icon — same async slot (any backend; see ApkIconLoader).
+    if (!isDir && ApkIconLoader.isApk(file.name)) {
+        val ctx = LocalContext.current
+        LaunchedEffect(file.id, file.lastModified, file.size) {
+            val bmp = withContext(Dispatchers.IO) { ApkIconLoader.load(ctx, file, 96) }
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
     }
@@ -3222,6 +3351,13 @@ private fun FileGridTile(
     if (exeFile != null && exeFile.name.lowercase().endsWith(".exe")) {
         LaunchedEffect(file.id) {
             val bmp = withContext(Dispatchers.IO) { PeIconExtractor.extract(exeFile) }
+            if (bmp != null) exeIcon = bmp.asImageBitmap()
+        }
+    }
+    if (!isDir && ApkIconLoader.isApk(file.name)) {
+        val ctx = LocalContext.current
+        LaunchedEffect(file.id, file.lastModified, file.size) {
+            val bmp = withContext(Dispatchers.IO) { ApkIconLoader.load(ctx, file, 144) }
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
     }
