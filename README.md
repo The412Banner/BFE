@@ -24,6 +24,12 @@ server, Steam/GOG store plumbing) and keeps only the browse-and-extract core.
   `.tar.xz` with the bundled 7-Zip, or `.tzst` and a **Winlator `.wcp`** content pack (tar.zst with a
   Bannerlator/Winlator-compatible `profile.json`) via streamed Java tar + zstd. Runs as a background
   service job with progress, cancel and a pill; targets this pane or the other one, including SAF/root.
+- **APK cloner / editor / signer**: clone any `.apk` or installed app under a new package name with a
+  proper rename (ARSCLib rewrites the binary manifest + `resources.arsc`; relative component names are
+  made absolute, provider authorities and package-scoped permissions re-prefixed, `sharedUserId`
+  dropped, `taskAffinity` followed), edit label / versions / icon / manifest scalars, zip-align and
+  sign with apksig (v1+v2+v3) using a built-in persistent test key or your own PKCS12/BKS keystore, and
+  optionally install the result. Split/bundle installs are merged first when ARSCLib can.
 - Open an archive or a GOG `setup.exe` straight from any app's **Share / "Open with"** sheet.
 
 ## Requirements

@@ -78,6 +78,12 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- APK clone / edit / sign pipeline (ARSCLib rewrite + apksig), same lifecycle. -->
+        <service
+            android:name="com.the412banner.bfe.apk.ApkJobService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
         <!-- FileProvider for "Open with" content:// hand-off of files inside the file manager. -->
         <provider
             android:name="androidx.core.content.FileProvider"

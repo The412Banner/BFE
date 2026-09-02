@@ -250,6 +250,15 @@ private fun isWithin(child: File, ancestor: File): Boolean {
  */
 private class PendingPack(val jobId: Long, val tmpArchive: File?, val dest: Loc, val stagedInputs: File?, val toOther: Boolean)
 
+/**
+ * An APK clone/edit/sign job a pane started: [tmpOut] is the cache temp the job writes when [dest]
+ * is SAF/root (null = written in place), [stagedSource] a temp copy of a SAF/root source APK.
+ */
+private class PendingApk(val jobId: Long, val tmpOut: File?, val dest: Loc, val stagedSource: File?)
+
+/** What the APK editor is open for: the parsed [meta], clone-vs-edit, split APKs to merge, base file, destination dir. */
+private class ApkEditorTarget(val meta: com.the412banner.bfe.apk.ApkMeta, val kind: com.the412banner.bfe.apk.ApkJobKind, val base: File, val splits: List<File>, val dest: Loc, val staged: File?)
+
 // ── File attribute: Read-only ──
 // Mirrors the Read-only toggle in the Properties dialog. No root — we only touch the write
 // permission bits the app already owns.
@@ -358,6 +367,9 @@ class PaneState(
     // File-mode navigation hooks (wired by BrowserPane; navigation needs its scope + pick filtering).
     var onOpenDir: (File) -> Unit = {}
     var onOpenDrive: (File) -> Unit = {}
+    // APK-tools hooks (wired by BrowserPane, invoked from the shared toolbar's overflow menu).
+    var onCloneInstalledApp: () -> Unit = {}
+    var onSigningKeys: () -> Unit = {}
     fun requestReload() { reloadTick++ }
 
     /** Whether this pane is currently browsing a SAF ("app storage") tree rather than a File dir. */
@@ -987,6 +999,26 @@ private fun SharedToolbar(
                     tint = if (dualPane) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            // Overflow: APK tools that aren't tied to a file in the list.
+            var showTools by remember { mutableStateOf(false) }
+            Box {
+                IconButton(onClick = { showTools = true }) {
+                    Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
+                    DropdownMenuItem(
+                        text = { Text("Clone installed app…") },
+                        leadingIcon = { Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = { showTools = false; active.onCloneInstalledApp() },
+                    )
+                    MenuItemDivider()
+                    DropdownMenuItem(
+                        text = { Text("Signing keys…") },
+                        leadingIcon = { Icon(Icons.Filled.Security, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = { showTools = false; active.onSigningKeys() },
+                    )
+                }
+            }
         }
     }
 }
@@ -1588,6 +1620,137 @@ fun BrowserPane(
         }
     }
 
+
+    // ── APK tools: clone / edit / sign ──
+    var apkEditor by remember { mutableStateOf<ApkEditorTarget?>(null) }
+    var apkSignTarget by remember { mutableStateOf<Pair<File, Loc>?>(null) }   // (apk, destination dir)
+    var showKeyManager by remember { mutableStateOf(false) }
+    var showInstalledPicker by remember { mutableStateOf(false) }
+    var pendingApk by remember { mutableStateOf<PendingApk?>(null) }
+    var apkResult by remember { mutableStateOf<Pair<com.the412banner.bfe.apk.ApkJobReport, Loc>?>(null) }
+    paneState.onCloneInstalledApp = { showInstalledPicker = true }
+    paneState.onSigningKeys = {
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching { com.the412banner.bfe.apk.SigningKeys.builtIn(context) } }
+            showKeyManager = true
+        }
+    }
+
+    // A SAF/root .apk source is staged into the cache first (ARSCLib/apksig need a real path).
+    suspend fun realApkFile(loc: Loc): Pair<File, File?>? = withContext(Dispatchers.IO) {
+        when (loc) {
+            is Loc.FileLoc -> loc.file to null
+            else -> {
+                val dir = File(context.cacheDir, "apk-src-${System.currentTimeMillis()}").apply { mkdirs() }
+                if (StorageTransfer.copyInto(context, loc, Loc.FileLoc(dir), loc.name)) File(dir, loc.name) to dir else null
+            }
+        }
+    }
+
+    // Parse an APK (+ optional splits) and open the editor for it; dest = where the output lands.
+    fun openApkEditor(base: File, splits: List<File>, kind: com.the412banner.bfe.apk.ApkJobKind, dest: Loc, staged: File?) {
+        scope.launch {
+            isOperationRunning = true; operationDeterminate = false; operationLabel = "Reading ${base.name}…"
+            val meta = withContext(Dispatchers.IO) {
+                runCatching {
+                    com.the412banner.bfe.apk.SigningKeys.builtIn(context)   // mint the test key off the UI thread
+                    com.the412banner.bfe.apk.ApkRewriter.inspect(base, splits)
+                }
+            }
+            isOperationRunning = false
+            meta.onSuccess { apkEditor = ApkEditorTarget(it, kind, base, splits, dest, staged) }
+                .onFailure { Toast.makeText(context, "Couldn't read ${base.name}: ${it.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    fun openApkEditorFor(loc: Loc, kind: com.the412banner.bfe.apk.ApkJobKind) {
+        showMenuFor = null
+        scope.launch {
+            val (file, staged) = realApkFile(loc) ?: run { Toast.makeText(context, "Couldn't read ${loc.name}", Toast.LENGTH_SHORT).show(); return@launch }
+            openApkEditor(file, emptyList(), kind, currentLoc, staged)
+        }
+    }
+
+    fun openInstalledClone(app: com.the412banner.bfe.storage.InstalledApp) {
+        showInstalledPicker = false
+        val info = runCatching { context.packageManager.getApplicationInfo(app.packageName, 0) }.getOrNull() ?: run {
+            Toast.makeText(context, "Can't read ${app.label}'s APK", Toast.LENGTH_SHORT).show(); return
+        }
+        val base = File(info.sourceDir)
+        val splits = info.splitSourceDirs?.map { File(it) }?.filter { it.isFile } ?: emptyList()
+        openApkEditor(base, splits, com.the412banner.bfe.apk.ApkJobKind.CLONE, currentLoc, null)
+    }
+
+    fun openSign(loc: Loc) {
+        showMenuFor = null
+        scope.launch {
+            val (file, staged) = realApkFile(loc) ?: run { Toast.makeText(context, "Couldn't read ${loc.name}", Toast.LENGTH_SHORT).show(); return@launch }
+            withContext(Dispatchers.IO) { runCatching { com.the412banner.bfe.apk.SigningKeys.builtIn(context) } }
+            apkSignTarget = file to currentLoc
+            if (staged != null) pendingApk = PendingApk(0L, null, currentLoc, staged)   // remembered for cleanup
+        }
+    }
+
+    // Where the job writes: in place for a File destination (name uniquified), else a cache temp
+    // that's copied into the SAF/root folder on DONE.
+    suspend fun apkOutput(dest: Loc, name: String): Pair<File, File?> = withContext(Dispatchers.IO) {
+        when (dest) {
+            is Loc.FileLoc -> File(dest.file, uniqueName(dest, name)) to null
+            else -> File(File(context.cacheDir, "apk-out-${System.currentTimeMillis()}").apply { mkdirs() }, name).let { it to it }
+        }
+    }
+
+    fun startApkJob(kind: com.the412banner.bfe.apk.ApkJobKind, base: File, splits: List<File>, edits: com.the412banner.bfe.apk.ApkEdits?, outName: String, dest: Loc, key: com.the412banner.bfe.apk.KeyRef, schemes: com.the412banner.bfe.apk.SignSchemes, install: Boolean, staged: File?) {
+        com.the412banner.bfe.apk.ApkJobService.busyReason()?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); return }
+        scope.launch {
+            val (out, tmp) = apkOutput(dest, outName)
+            val jobId = com.the412banner.bfe.apk.ApkJobService.start(
+                context,
+                com.the412banner.bfe.apk.ApkJobRequest(kind, base.absolutePath, splits.map { it.absolutePath }, out.absolutePath, edits, key, schemes, install),
+            )
+            pendingApk = PendingApk(jobId, tmp, dest, staged)
+            Toast.makeText(context, "${kind.name.lowercase().replaceFirstChar { it.uppercase() }} job started — see the pill for progress", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val apkState by com.the412banner.bfe.apk.ApkJobManager.state.collectAsState()
+    LaunchedEffect(apkState.stage, apkState.jobId, pendingApk) {
+        val p = pendingApk ?: return@LaunchedEffect
+        if (p.jobId == 0L || apkState.jobId != p.jobId) return@LaunchedEffect
+        when (apkState.stage) {
+            com.the412banner.bfe.apk.ApkJobStage.DONE -> {
+                pendingApk = null
+                val report = apkState.report ?: return@LaunchedEffect
+                var resultLoc: Loc? = null
+                if (p.tmpOut != null) {
+                    isOperationRunning = true; operationDeterminate = false
+                    operationLabel = "Copying ${p.tmpOut.name} into ${p.dest.name}…"
+                    resultLoc = withContext(Dispatchers.IO) {
+                        val name = uniqueName(p.dest, p.tmpOut.name)
+                        val ok = StorageTransfer.copyInto(context, Loc.FileLoc(p.tmpOut), p.dest, name)
+                        val loc = if (ok) Storage.backend(p.dest).childNamed(context, p.dest, name) else null
+                        p.tmpOut.parentFile?.deleteRecursively()
+                        loc
+                    }
+                    isOperationRunning = false
+                    if (resultLoc == null) Toast.makeText(context, "APK was built but couldn't be copied into ${p.dest.name}", Toast.LENGTH_LONG).show()
+                } else resultLoc = Loc.FileLoc(File(report.outputPath))
+                withContext(Dispatchers.IO) { p.stagedSource?.deleteRecursively() }
+                paneState.requestReload()
+                resultLoc?.let { loc ->
+                    apkResult = report to loc
+                    if (apkState.installAfter) installApk(loc)
+                }
+            }
+            com.the412banner.bfe.apk.ApkJobStage.ERROR, com.the412banner.bfe.apk.ApkJobStage.CANCELLED -> {
+                pendingApk = null
+                withContext(Dispatchers.IO) { p.tmpOut?.parentFile?.deleteRecursively(); p.stagedSource?.deleteRecursively() }
+                if (apkState.stage == com.the412banner.bfe.apk.ApkJobStage.ERROR) Toast.makeText(context, "APK job failed: ${apkState.error ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            }
+            else -> Unit
+        }
+    }
+
     // ── Dialogs ──
 
     if (paneState.showNewFolderDialog) {
@@ -1635,6 +1798,39 @@ fun BrowserPane(
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
         )
+    }
+
+    // ── APK tools dialogs ──
+    apkEditor?.let { t ->
+        val defName = (if (t.kind == com.the412banner.bfe.apk.ApkJobKind.CLONE) t.meta.label.ifBlank { t.base.nameWithoutExtension } + "-clone" else t.base.nameWithoutExtension + "-edited")
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_") + ".apk"
+        ApkEditorDialog(
+            meta = t.meta, kind = t.kind, defaultOutputName = defName,
+            onDismiss = { apkEditor = null; t.staged?.let { d -> scope.launch { withContext(Dispatchers.IO) { d.deleteRecursively() } } } },
+            onManageKeys = { showKeyManager = true },
+            onConfirm = { r ->
+                apkEditor = null
+                startApkJob(t.kind, t.base, t.splits, r.edits, r.outputName, t.dest, r.key, r.schemes, r.installAfter, t.staged)
+            },
+        )
+    }
+    apkSignTarget?.let { (file, dest) ->
+        SignApkDialog(
+            fileName = file.name, defaultOutputName = file.nameWithoutExtension + "-signed.apk",
+            onDismiss = { apkSignTarget = null },
+            onManageKeys = { showKeyManager = true },
+            onConfirm = { outName, key, schemes ->
+                apkSignTarget = null
+                val staged = pendingApk?.takeIf { it.jobId == 0L }?.stagedSource
+                pendingApk = null
+                startApkJob(com.the412banner.bfe.apk.ApkJobKind.SIGN, file, emptyList(), null, outName, dest, key, schemes, false, staged)
+            },
+        )
+    }
+    if (showKeyManager) KeyManagerDialog(onDismiss = { showKeyManager = false })
+    if (showInstalledPicker) InstalledAppPickerDialog(onDismiss = { showInstalledPicker = false }, onPick = { openInstalledClone(it) })
+    apkResult?.let { (report, loc) ->
+        ApkResultDialog(report = report, onInstall = { apkResult = null; installApk(loc) }, onDismiss = { apkResult = null })
     }
 
     // Compress… — name prefilled from the single item (minus its extension) or the current folder.
@@ -2126,6 +2322,9 @@ fun BrowserPane(
                             onUnpack = { launchUnpack(file) },
                             onFastExtract = { launchFastExtract(file) },
                             onCompress = { showMenuFor = null; compressTargets = listOf(file) },
+                            onCloneApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.CLONE) },
+                            onEditApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.EDIT) },
+                            onSignApk = { openSign(file) },
                             onRename = { renameTarget = file; showMenuFor = null },
                             onCopy = { clipboard = listOf(file); isCutOperation = false; showMenuFor = null },
                             onCut = { clipboard = listOf(file); isCutOperation = true; showMenuFor = null },
@@ -2213,6 +2412,9 @@ fun BrowserPane(
                             onRename = { renameTarget = file; showMenuFor = null },
                             onFastExtract = { launchFastExtract(file) },
                             onCompress = { showMenuFor = null; compressTargets = listOf(file) },
+                            onCloneApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.CLONE) },
+                            onEditApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.EDIT) },
+                            onSignApk = { openSign(file) },
                             onUnpack = { launchUnpack(file) },
                             isFavorite = isFav,
                             onToggleFavorite = {
@@ -2260,6 +2462,9 @@ private fun FileContextMenuItems(
     onUnpack: () -> Unit,
     onFastExtract: () -> Unit,
     onCompress: () -> Unit,
+    onCloneApk: () -> Unit,
+    onEditApk: () -> Unit,
+    onSignApk: () -> Unit,
     onRename: () -> Unit,
     onCopy: () -> Unit,
     onCut: () -> Unit,
@@ -2310,6 +2515,25 @@ private fun FileContextMenuItems(
                 text = { Text("Install APK") },
                 leadingIcon = { Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary) },
                 onClick = { onDismissMenu(); onInstallApk() },
+            )
+            MenuItemDivider()
+            // APK tools: clone under a new package (ARSCLib rewrite + apksig), edit in place, re-sign.
+            DropdownMenuItem(
+                text = { Text("Clone APK…") },
+                leadingIcon = { Icon(Icons.Filled.FileCopy, null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { onDismissMenu(); onCloneApk() },
+            )
+            MenuItemDivider()
+            DropdownMenuItem(
+                text = { Text("Edit APK…") },
+                leadingIcon = { Icon(Icons.Filled.Edit, null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { onDismissMenu(); onEditApk() },
+            )
+            MenuItemDivider()
+            DropdownMenuItem(
+                text = { Text("Sign APK…") },
+                leadingIcon = { Icon(Icons.Filled.Security, null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { onDismissMenu(); onSignApk() },
             )
             MenuItemDivider()
         }
@@ -2415,6 +2639,9 @@ private fun FileItemRow(
     onUnpack: () -> Unit = {},
     onFastExtract: () -> Unit = {},
     onCompress: () -> Unit = {},
+    onCloneApk: () -> Unit = {},
+    onEditApk: () -> Unit = {},
+    onSignApk: () -> Unit = {},
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     onProperties: () -> Unit = {},
@@ -2521,6 +2748,9 @@ private fun FileItemRow(
                                 onUnpack = onUnpack,
                                 onFastExtract = onFastExtract,
                                 onCompress = onCompress,
+                                onCloneApk = onCloneApk,
+                                onEditApk = onEditApk,
+                                onSignApk = onSignApk,
                                 onRename = onRename,
                                 onCopy = onCopy,
                                 onCut = onCut,
@@ -2641,6 +2871,9 @@ private fun FileItemRow(
                         onUnpack = onUnpack,
                         onFastExtract = onFastExtract,
                         onCompress = onCompress,
+                        onCloneApk = onCloneApk,
+                        onEditApk = onEditApk,
+                        onSignApk = onSignApk,
                         onRename = onRename,
                         onCopy = onCopy,
                         onCut = onCut,
@@ -2848,6 +3081,9 @@ private fun FileGridTile(
     onUnpack: () -> Unit = {},
     onFastExtract: () -> Unit = {},
     onCompress: () -> Unit = {},
+    onCloneApk: () -> Unit = {},
+    onEditApk: () -> Unit = {},
+    onSignApk: () -> Unit = {},
     onRename: () -> Unit = {},
     onCopy: () -> Unit = {},
     onCut: () -> Unit = {},
@@ -2946,6 +3182,9 @@ private fun FileGridTile(
                 onUnpack = onUnpack,
                 onFastExtract = onFastExtract,
                 onCompress = onCompress,
+                onCloneApk = onCloneApk,
+                onEditApk = onEditApk,
+                onSignApk = onSignApk,
                 onRename = onRename,
                 onCopy = onCopy,
                 onCut = onCut,

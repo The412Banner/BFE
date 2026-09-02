@@ -38,6 +38,10 @@ import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.pack.PackManager
 import com.the412banner.bfe.pack.PackPhase
 import com.the412banner.bfe.pack.PackService
+import com.the412banner.bfe.apk.ApkJobManager
+import com.the412banner.bfe.apk.ApkJobService
+import com.the412banner.bfe.apk.ApkJobKind
+import androidx.compose.material.icons.filled.Android
 import com.the412banner.bfe.unpack.UnpackManager
 import com.the412banner.bfe.unpack.UnpackPhase
 import com.the412banner.bfe.unpack.UnpackService
@@ -183,6 +187,40 @@ fun PackProgressPill(modifier: Modifier = Modifier) {
                     )
                 }
             }
+        }
+    }
+}
+
+/** Pill for a running APK clone / edit / sign job ([ApkJobManager]); ✕ cancels between stages. */
+@Composable
+fun ApkJobPill(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val state by ApkJobManager.state.collectAsState()
+    if (!state.isRunning) return
+    Card(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        when (state.kind) { ApkJobKind.CLONE -> "Cloning "; ApkJobKind.EDIT -> "Editing "; ApkJobKind.SIGN -> "Signing " } + state.sourceName,
+                        color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(state.stage.label + "…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
+                }
+                IconButton(onClick = { ApkJobService.cancel(context) }) {
+                    Icon(Icons.Filled.Close, "Cancel", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(progress = { state.fraction }, modifier = Modifier.fillMaxWidth().height(4.dp))
         }
     }
 }
