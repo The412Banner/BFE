@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.the412banner.bfe.ui.PackProgressPill
 import com.the412banner.bfe.ui.UnpackProgressPill
 import com.the412banner.bfe.ui.screens.FileManagerScreen
 import com.the412banner.bfe.ui.theme.BfeTheme
@@ -68,8 +69,9 @@ private fun AppRoot() {
                 FileManagerScreen()
             }
         }
-        // Pinned app-wide extraction pill (renders nothing when idle).
+        // Pinned app-wide extraction + compression pills (each renders nothing when idle).
         UnpackProgressPill()
+        PackProgressPill()
     }
 }
 

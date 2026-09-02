@@ -77,6 +77,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Terminal
@@ -241,6 +242,13 @@ private fun isWithin(child: File, ancestor: File): Boolean {
     val a = runCatching { ancestor.canonicalPath }.getOrDefault(ancestor.absolutePath)
     return c == a || c.startsWith(a + File.separator)
 }
+
+/**
+ * A pack (Compress…) job a pane started and is waiting on: [tmpArchive] is the cache temp the engine
+ * writes when [dest] is SAF/root (null = written in place), [stagedInputs] the temp copy of SAF/root
+ * sources (null = File inputs handed over directly), [toOther] = refresh the other pane on DONE.
+ */
+private class PendingPack(val jobId: Long, val tmpArchive: File?, val dest: Loc, val stagedInputs: File?, val toOther: Boolean)
 
 // ── File attribute: Read-only ──
 // Mirrors the Read-only toggle in the Properties dialog. No root — we only touch the write
@@ -1307,6 +1315,131 @@ fun BrowserPane(
         )
     }
 
+    // ── Compress (create archive) ──
+    // The items the open Compress dialog is for (empty = no dialog).
+    var compressTargets by remember { mutableStateOf<List<Loc>>(emptyList()) }
+    // A running pack job this pane started: (jobId, temp archive or null when written in place,
+    // destination dir, staged-input temp dir or null, refresh-other-pane?). On DONE the temp archive
+    // is stream-copied into a SAF/root destination (root writes get chown'd by RootBackend), then
+    // the temps are deleted and the destination pane re-listed — mirroring extraction-into-SAF/root.
+    var pendingPack by remember { mutableStateOf<PendingPack?>(null) }
+
+    val packState by com.the412banner.bfe.pack.PackManager.state.collectAsState()
+    LaunchedEffect(packState.phase, packState.jobId, pendingPack) {
+        val p = pendingPack ?: return@LaunchedEffect
+        if (packState.jobId != p.jobId) return@LaunchedEffect
+        when (packState.phase) {
+            com.the412banner.bfe.pack.PackPhase.DONE -> {
+                pendingPack = null
+                var ok = true
+                if (p.tmpArchive != null) {
+                    isOperationRunning = true
+                    operationDeterminate = false
+                    operationLabel = "Copying ${p.tmpArchive.name} into ${p.dest.name}…"
+                    ok = withContext(Dispatchers.IO) {
+                        val name = uniqueName(p.dest, p.tmpArchive.name)
+                        val r = StorageTransfer.copyInto(context, Loc.FileLoc(p.tmpArchive), p.dest, name)
+                        p.tmpArchive.parentFile?.deleteRecursively()
+                        r
+                    }
+                    isOperationRunning = false
+                }
+                withContext(Dispatchers.IO) { p.stagedInputs?.deleteRecursively() }
+                if (p.toOther) onRequestOtherReload() else paneState.requestReload()
+                Toast.makeText(
+                    context,
+                    if (ok) "Created ${packState.archiveName}" else "Archive was built but couldn't be copied into ${p.dest.name}",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            com.the412banner.bfe.pack.PackPhase.ERROR, com.the412banner.bfe.pack.PackPhase.CANCELLED -> {
+                pendingPack = null
+                withContext(Dispatchers.IO) {
+                    p.tmpArchive?.parentFile?.deleteRecursively()
+                    p.stagedInputs?.deleteRecursively()
+                }
+                if (packState.phase == com.the412banner.bfe.pack.PackPhase.ERROR) {
+                    Toast.makeText(context, "Compression failed: ${packState.errorTail?.lineSequence()?.lastOrNull { it.isNotBlank() } ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    // Kick off a pack job for [sources] per the dialog's [req]. The engines need real paths: File
+    // inputs are handed over directly; SAF/root inputs are first staged into a cache temp dir (a
+    // stream copy, deleted when the job ends). A SAF/root DESTINATION gets the archive built in a
+    // cache temp file and copied over on DONE (see the effect above).
+    fun startCompress(req: CompressRequest, sources: List<Loc>) {
+        compressTargets = emptyList()
+        if (sources.isEmpty()) return
+        com.the412banner.bfe.pack.PackService.busyReason()?.let {
+            Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); return
+        }
+        val dest: Loc = if (req.toOtherPane) (otherPaneDir() ?: currentLoc) else currentLoc
+        scope.launch {
+            var staged: File? = null
+            isOperationRunning = true
+            operationDeterminate = false
+            operationLabel = "Preparing ${sources.size} item${if (sources.size == 1) "" else "s"}…"
+            val prepared: Result<List<File>> = withContext(Dispatchers.IO) {
+                runCatching {
+                    val direct = sources.mapNotNull { (it as? Loc.FileLoc)?.file }
+                    if (direct.size == sources.size) return@runCatching direct
+                    // Mixed/SAF/root selection → stage everything so the archive layout matches.
+                    val dir = File(context.cacheDir, "pack-src-${System.currentTimeMillis()}").apply { mkdirs() }
+                    staged = dir
+                    val stagedDir = Loc.FileLoc(dir)
+                    for (s in sources) {
+                        if (!StorageTransfer.copyInto(context, s, stagedDir, s.name)) throw java.io.IOException("Couldn't read ${s.name}")
+                    }
+                    dir.listFiles()?.toList() ?: emptyList()
+                }.onFailure { staged?.deleteRecursively() }
+            }
+            val preparedFiles = prepared.getOrNull()
+            if (preparedFiles.isNullOrEmpty()) {
+                isOperationRunning = false
+                Toast.makeText(context, prepared.exceptionOrNull()?.message ?: "Couldn't prepare the selection", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+
+            // Where the engine writes: straight into a File destination (uniquified so an existing
+            // archive is never clobbered/updated), or a cache temp for SAF/root.
+            val (outFile, tmpArchive) = withContext(Dispatchers.IO) {
+                when (dest) {
+                    is Loc.FileLoc -> File(dest.file, uniqueName(dest, req.fileName)) to null
+                    else -> {
+                        val t = File(File(context.cacheDir, "pack-out-${System.currentTimeMillis()}").apply { mkdirs() }, req.fileName)
+                        t to t
+                    }
+                }
+            }
+            // .wcp: build profile.json now (needs the pack's file list → IO).
+            val profileJson: String? = req.wcp?.let { m ->
+                withContext(Dispatchers.IO) {
+                    val planned = com.the412banner.bfe.pack.TarZstPack.planInputs(preparedFiles, wcpContents = true)
+                    val rel = com.the412banner.bfe.pack.TarZstPack.listRelativeFiles(planned)
+                    com.the412banner.bfe.pack.WcpProfile(
+                        type = m.type, versionName = m.versionName, versionCode = m.versionCode,
+                        description = m.description,
+                        files = com.the412banner.bfe.pack.WcpProfile.deriveFiles(m.type, rel),
+                        wineBinPath = m.binPath, wineLibPath = m.libPath, winePrefixPack = m.prefixPack,
+                    ).toJson()
+                }
+            }
+            isOperationRunning = false
+            val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+            val jobId = com.the412banner.bfe.pack.PackService.start(
+                context, req.format, outFile, preparedFiles, req.level, req.password,
+                mmt = (cores / 2).coerceAtLeast(1), profileJson = profileJson,
+            )
+            pendingPack = PendingPack(jobId, tmpArchive, dest, staged, req.toOtherPane)
+            selectionMode = false
+            selectedIds = emptySet()
+            Toast.makeText(context, "Compressing to ${req.fileName}…", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun performDelete(loc: Loc) {
         scope.launch {
             isOperationRunning = true
@@ -1501,6 +1634,27 @@ fun BrowserPane(
                 }) { Text("Rename") }
             },
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } },
+        )
+    }
+
+    // Compress… — name prefilled from the single item (minus its extension) or the current folder.
+    if (compressTargets.isNotEmpty()) {
+        val targets = compressTargets
+        val defaultBase = remember(targets) {
+            val single = targets.singleOrNull()
+            when {
+                single == null -> currentLoc.name.ifBlank { "archive" }
+                single.isDir -> single.name
+                else -> single.name.substringBeforeLast('.', single.name).ifBlank { single.name }
+            }
+        }
+        val other = if (dualPane) otherPaneDir() else null
+        CompressDialog(
+            defaultBase = defaultBase,
+            itemCount = targets.size,
+            otherPaneName = other?.name?.ifBlank { "/" },
+            onDismiss = { compressTargets = emptyList() },
+            onConfirm = { req -> startCompress(req, targets) },
         )
     }
 
@@ -1773,6 +1927,15 @@ fun BrowserPane(
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Share", fontSize = 12.sp) }
+                    // Compress the selection into a new archive (zip/7z/tar/…/wcp) here or in the other pane.
+                    if (!pickMode) {
+                        Spacer(Modifier.width(4.dp))
+                        OutlinedButton(
+                            enabled = selectedIds.isNotEmpty(),
+                            onClick = { compressTargets = entries.filter { it.id in selectedIds } },
+                            contentPadding = selBarPadding,
+                        ) { Text("Compress", fontSize = 12.sp) }
+                    }
                     Spacer(Modifier.width(4.dp))
                     OutlinedButton(
                         enabled = selectedIds.isNotEmpty(),
@@ -1962,6 +2125,7 @@ fun BrowserPane(
                             onShare = { shareFile(file) },
                             onUnpack = { launchUnpack(file) },
                             onFastExtract = { launchFastExtract(file) },
+                            onCompress = { showMenuFor = null; compressTargets = listOf(file) },
                             onRename = { renameTarget = file; showMenuFor = null },
                             onCopy = { clipboard = listOf(file); isCutOperation = false; showMenuFor = null },
                             onCut = { clipboard = listOf(file); isCutOperation = true; showMenuFor = null },
@@ -2048,6 +2212,7 @@ fun BrowserPane(
                             onDelete = { selectedEntry = file; showMenuFor = null },
                             onRename = { renameTarget = file; showMenuFor = null },
                             onFastExtract = { launchFastExtract(file) },
+                            onCompress = { showMenuFor = null; compressTargets = listOf(file) },
                             onUnpack = { launchUnpack(file) },
                             isFavorite = isFav,
                             onToggleFavorite = {
@@ -2094,6 +2259,7 @@ private fun FileContextMenuItems(
     onShare: () -> Unit,
     onUnpack: () -> Unit,
     onFastExtract: () -> Unit,
+    onCompress: () -> Unit,
     onRename: () -> Unit,
     onCopy: () -> Unit,
     onCut: () -> Unit,
@@ -2188,6 +2354,14 @@ private fun FileContextMenuItems(
         )
         MenuItemDivider()
     }
+    // Create an archive from this item (zip/7z/tar/tar.gz/tar.xz/tzst/Winlator .wcp). Works for any
+    // backend: SAF/root items are staged to a temp dir first (the engines need real paths).
+    DropdownMenuItem(
+        text = { Text("Compress…") },
+        leadingIcon = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.primary) },
+        onClick = { onDismissMenu(); onCompress() },
+    )
+    MenuItemDivider()
     DropdownMenuItem(
         text = { Text("Rename") },
         leadingIcon = { Icon(Icons.Filled.Edit, null, tint = MaterialTheme.colorScheme.primary) },
@@ -2240,6 +2414,7 @@ private fun FileItemRow(
     onRename: () -> Unit,
     onUnpack: () -> Unit = {},
     onFastExtract: () -> Unit = {},
+    onCompress: () -> Unit = {},
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     onProperties: () -> Unit = {},
@@ -2345,6 +2520,7 @@ private fun FileItemRow(
                                 onShare = onShare,
                                 onUnpack = onUnpack,
                                 onFastExtract = onFastExtract,
+                                onCompress = onCompress,
                                 onRename = onRename,
                                 onCopy = onCopy,
                                 onCut = onCut,
@@ -2464,6 +2640,7 @@ private fun FileItemRow(
                         onShare = onShare,
                         onUnpack = onUnpack,
                         onFastExtract = onFastExtract,
+                        onCompress = onCompress,
                         onRename = onRename,
                         onCopy = onCopy,
                         onCut = onCut,
@@ -2670,6 +2847,7 @@ private fun FileGridTile(
     onShare: () -> Unit = {},
     onUnpack: () -> Unit = {},
     onFastExtract: () -> Unit = {},
+    onCompress: () -> Unit = {},
     onRename: () -> Unit = {},
     onCopy: () -> Unit = {},
     onCut: () -> Unit = {},
@@ -2767,6 +2945,7 @@ private fun FileGridTile(
                 onShare = onShare,
                 onUnpack = onUnpack,
                 onFastExtract = onFastExtract,
+                onCompress = onCompress,
                 onRename = onRename,
                 onCopy = onCopy,
                 onCut = onCut,

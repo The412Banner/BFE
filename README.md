@@ -20,6 +20,10 @@ server, Steam/GOG store plumbing) and keeps only the browse-and-extract core.
   progress notification and an app-wide progress pill.
 - Unpack **GOG / InnoSetup** installers with `innoextract`, including auto-batching sibling DLC setups.
 - Decode **FreeArc / ISDone** game repacks natively with `unarc`.
+- **Compress…** any selection into `.zip` / `.7z` (optional AES password) / `.tar` / `.tar.gz` /
+  `.tar.xz` with the bundled 7-Zip, or `.tzst` and a **Winlator `.wcp`** content pack (tar.zst with a
+  Bannerlator/Winlator-compatible `profile.json`) via streamed Java tar + zstd. Runs as a background
+  service job with progress, cancel and a pill; targets this pane or the other one, including SAF/root.
 - Open an archive or a GOG `setup.exe` straight from any app's **Share / "Open with"** sheet.
 
 ## Requirements

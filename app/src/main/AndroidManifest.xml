@@ -72,6 +72,12 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- Archive creation (Compress…): the extraction service's sibling, same lifecycle. -->
+        <service
+            android:name="com.the412banner.bfe.pack.PackService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
         <!-- FileProvider for "Open with" content:// hand-off of files inside the file manager. -->
         <provider
             android:name="androidx.core.content.FileProvider"

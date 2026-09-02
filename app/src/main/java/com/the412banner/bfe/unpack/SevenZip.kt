@@ -42,7 +42,7 @@ object SevenZip {
      * the app's seccomp-bpf filter and hit a syscall the filter TRAPs. A bionic build integrates with
      * Android's seccomp — the same reason Termux's p7zip runs under an app.)
      */
-    private fun newProcess(context: Context, vararg args: String): ProcessBuilder {
+    internal fun newProcess(context: Context, vararg args: String): ProcessBuilder {
         val libDir = context.applicationInfo.nativeLibraryDir
         return ProcessBuilder(binary(context).absolutePath, *args).apply {
             environment()["LD_LIBRARY_PATH"] = libDir
@@ -377,27 +377,46 @@ object SevenZip {
 
         // stderr collected on its own thread for the failure tail.
         val stderr = StringBuilder()
-        val errThread = Thread {
-            runCatching {
-                proc.errorStream.bufferedReader().forEachLine { line ->
-                    synchronized(stderr) {
-                        stderr.append(line).append('\n')
-                        // Keep only a tail so a pathological archive can't balloon memory.
-                        if (stderr.length > 8192) stderr.delete(0, stderr.length - 8192)
-                    }
+        val errThread = collectStderr(proc.errorStream, stderr)
+
+        pumpProgress(proc.inputStream, bufferBytes, listener)
+
+        val exit = proc.waitFor()
+        runCatching { errThread.join(500) }
+        // Push a final 100% so a clean finish never leaves the bar short of the end.
+        if (exit <= 1) listener.onProgress(100, null)
+        return Result(exit, synchronized(stderr) { stderr.toString().trim() })
+    }
+
+    /**
+     * Drains a 7zz stderr on its own thread into [sink], keeping only a tail so a pathological run
+     * can't balloon memory. Shared by extraction and archive creation ([com.the412banner.bfe.pack.SevenZipPack]).
+     */
+    internal fun collectStderr(stream: java.io.InputStream, sink: StringBuilder): Thread = Thread {
+        runCatching {
+            stream.bufferedReader().forEachLine { line ->
+                synchronized(sink) {
+                    sink.append(line).append('\n')
+                    if (sink.length > 8192) sink.delete(0, sink.length - 8192)
                 }
             }
-        }.also { it.start() }
+        }
+    }.also { it.start() }
 
-        // Device-verified stream shape (7-Zip 24.08, -bsp1 -bb1): the percentage is redrawn IN PLACE
-        // with BACKSPACES, not carriage returns/newlines — e.g. "  0%\b\b\b\b 50%\b\b\b\b100%…". So a
-        // flush-on-newline parser would erase every intermediate percent before it saw it and jump
-        // 0→100. Instead we parse the percentage inline the instant a '%' byte arrives (its digits are
-        // whatever precedes it in the buffer), and use \n-delimited segments only for the "- path"
-        // processed-file lines (-bb1). Backspaces edit the buffer; \r/\n flush it.
+    /**
+     * Pumps a 7zz progress stream ([input] = whichever of stdout/stderr `-bsp1`/`-bsp2` routed it to)
+     * into [listener] until EOF.
+     *
+     * Device-verified stream shape (7-Zip 24.08, -bsp1 -bb1): the percentage is redrawn IN PLACE
+     * with BACKSPACES, not carriage returns/newlines — e.g. "  0%\b\b\b\b 50%\b\b\b\b100%…". So a
+     * flush-on-newline parser would erase every intermediate percent before it saw it and jump
+     * 0→100. Instead we parse the percentage inline the instant a '%' byte arrives (its digits are
+     * whatever precedes it in the buffer), and use \n-delimited segments only for the "- path" /
+     * "+ path" processed-file lines (-bb1). Backspaces edit the buffer; \r/\n flush it.
+     */
+    internal fun pumpProgress(input: java.io.InputStream, bufferBytes: Int, listener: Listener) {
         val seg = ByteArrayOutputStream(256)
         val buf = ByteArray(bufferBytes.coerceAtLeast(64 * 1024))
-        val input = proc.inputStream
         while (true) {
             val n = input.read(buf)
             if (n < 0) break
@@ -419,12 +438,6 @@ object SevenZip {
             }
         }
         flushSegment(seg, listener)
-
-        val exit = proc.waitFor()
-        runCatching { errThread.join(500) }
-        // Push a final 100% so a clean finish never leaves the bar short of the end.
-        if (exit <= 1) listener.onProgress(100, null)
-        return Result(exit, synchronized(stderr) { stderr.toString().trim() })
     }
 
     /**
@@ -448,7 +461,11 @@ object SevenZip {
         return if (r.exitCode <= 1) { tar.delete(); true } else false
     }
 
-    /** A \n/\r-delimited segment: used for the -bb1 "- path" processed-file lines (not percentages). */
+    /**
+     * A \n/\r-delimited segment: used for the -bb1 processed-file lines (not percentages) — "- path"
+     * when extracting, "+ path" when adding to an archive (the in-place percent prefix, e.g.
+     * " 12% 5", precedes it on the same segment).
+     */
     private fun flushSegment(seg: ByteArrayOutputStream, listener: Listener) {
         if (seg.size() == 0) return
         val text = seg.toByteArray().toString(Charsets.UTF_8)
@@ -458,6 +475,8 @@ object SevenZip {
         val fileName = when {
             text.contains(" - ") -> text.substringAfterLast(" - ").trim().ifBlank { null }
             text.startsWith("- ") -> text.substring(2).trim().ifBlank { null }
+            text.contains(" + ") -> text.substringAfterLast(" + ").trim().ifBlank { null }
+            text.startsWith("+ ") -> text.substring(2).trim().ifBlank { null }
             else -> null
         }
         if (fileName != null) listener.onFile(fileName)

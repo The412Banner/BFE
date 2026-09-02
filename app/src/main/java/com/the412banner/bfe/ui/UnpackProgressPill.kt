@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.Card
@@ -34,6 +35,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.collectAsState
 import com.the412banner.bfe.UnpackArchiveActivity
 import com.the412banner.bfe.core.StringUtils
+import com.the412banner.bfe.pack.PackManager
+import com.the412banner.bfe.pack.PackPhase
+import com.the412banner.bfe.pack.PackService
 import com.the412banner.bfe.unpack.UnpackManager
 import com.the412banner.bfe.unpack.UnpackPhase
 import com.the412banner.bfe.unpack.UnpackService
@@ -100,6 +104,77 @@ fun UnpackProgressPill(modifier: Modifier = Modifier) {
             Spacer(Modifier.height(6.dp))
             Box(modifier = Modifier.fillMaxWidth()) {
                 if (listing) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
+                } else {
+                    LinearProgressIndicator(
+                        progress = { state.percent / 100f },
+                        modifier = Modifier.fillMaxWidth().height(4.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The creation-side twin of [UnpackProgressPill]: the app-wide pill for a running Compress… job,
+ * fed by [PackManager] (which [PackService] and its notification also read). No full screen to
+ * open — the ✕ cancels (kills the 7zz processes / trips the tar's cancel flag). Renders nothing
+ * when idle, so it stacks harmlessly under the unpack pill in the root scaffold.
+ */
+@Composable
+fun PackProgressPill(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val state by PackManager.state.collectAsState()
+    if (!state.isRunning) return
+
+    val scanning = state.phase == PackPhase.SCANNING
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Filled.Archive, null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        state.archiveName.ifBlank { "Compressing" },
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (scanning) "Scanning files…"
+                        else buildString {
+                            append("${state.percent}%")
+                            if (state.speedBps > 0) append("  •  ${StringUtils.formatBytes(state.speedBps)}/s")
+                            if (state.etaSeconds >= 0) append("  •  ETA ${StringUtils.humanDuration(state.etaSeconds * 1000)}")
+                            state.currentFile?.let { append("  •  ").append(it.substringAfterLast('/')) }
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = { PackService.cancel(context) }) {
+                    Icon(Icons.Filled.Close, "Cancel compression", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Box(modifier = Modifier.fillMaxWidth()) {
+                if (scanning) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
                 } else {
                     LinearProgressIndicator(

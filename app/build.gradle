@@ -27,8 +27,8 @@ android {
         minSdkVersion 26
         targetSdkVersion 28
         // Standalone app, versioned independently of the Bannerlator lineage it was lifted from.
-        versionCode 6
-        versionName "0.6"
+        versionCode 7
+        versionName "0.7"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -129,4 +129,10 @@ dependencies {
     implementation 'com.github.topjohnwu.libsu:core:6.0.0'
     implementation 'com.github.topjohnwu.libsu:io:6.0.0'
     implementation 'com.github.topjohnwu.libsu:nio:6.0.0'
+
+    // Archive CREATION for the two zstd formats (.tzst and the Winlator .wcp = tar.zst): the bundled
+    // 7-Zip 24.08 decodes zstd but cannot encode it, so those are streamed through commons-compress
+    // tar + zstd-jni (arm64 native inside the AAR). Same pair Bannerlator uses for its .wcp handling.
+    implementation 'org.apache.commons:commons-compress:1.20'
+    implementation 'com.github.luben:zstd-jni:1.5.2-3@aar'
 }
