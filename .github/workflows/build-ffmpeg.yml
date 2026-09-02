@@ -1,0 +1,199 @@
+name: Build ffmpeg (static, arm64 Android)
+
+# Cross-compiles x264 (static) + ffmpeg 7.x (static, GPL, minimal component set) for
+# aarch64-linux-android26 with the Android NDK and uploads the `ffmpeg` executable as the
+# `ffmpeg-arm64` artifact. Manual-only; its own concurrency group so it never cancels build.yml.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ffmpeg-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FFMPEG_VERSION: 7.1.5
+  NDK_PKG: "ndk;29.0.14206865"
+  NDK_FALLBACK_URL: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+  API: 26
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Set up JDK 17 (needed by sdkmanager)
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install host tools
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y -q --no-install-recommends pkg-config nasm make xz-utils file curl unzip git
+
+    - name: Provision NDK (sdkmanager, fallback to r29 zip)
+      id: ndk
+      run: |
+        set -euo pipefail
+        NDK=""
+        if yes | sdkmanager --install "$NDK_PKG" >/tmp/sdkmanager.log 2>&1; then
+          NDK="$ANDROID_SDK_ROOT/ndk/${NDK_PKG#ndk;}"
+          echo "sdkmanager installed $NDK_PKG"
+        else
+          echo "sdkmanager failed for $NDK_PKG:"; tail -20 /tmp/sdkmanager.log || true
+        fi
+        if [ -z "$NDK" ] || [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" ]; then
+          echo "Downloading fallback NDK from $NDK_FALLBACK_URL"
+          curl -sSL -o /tmp/ndk.zip "$NDK_FALLBACK_URL"
+          unzip -q /tmp/ndk.zip -d "$HOME"
+          NDK="$(ls -d "$HOME"/android-ndk-r29* | head -1)"
+        fi
+        if [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" ] && [ -n "${ANDROID_NDK_LATEST_HOME:-}" ]; then
+          echo "Falling back to ANDROID_NDK_LATEST_HOME=$ANDROID_NDK_LATEST_HOME"
+          NDK="$ANDROID_NDK_LATEST_HOME"
+        fi
+        test -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" || { echo "No usable NDK found"; exit 1; }
+        echo "NDK=$NDK"
+        cat "$NDK/source.properties"
+        echo "NDK=$NDK" >> "$GITHUB_ENV"
+        echo "TOOLCHAIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64" >> "$GITHUB_ENV"
+        echo "SYSROOT=$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot" >> "$GITHUB_ENV"
+        echo "PREFIX=$GITHUB_WORKSPACE/build/prefix" >> "$GITHUB_ENV"
+        "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" --version
+
+    - name: Export cross toolchain env
+      run: |
+        set -euo pipefail
+        BIN="$TOOLCHAIN/bin"
+        echo "$BIN" >> "$GITHUB_PATH"
+        {
+          echo "CC=$BIN/aarch64-linux-android${API}-clang"
+          echo "CXX=$BIN/aarch64-linux-android${API}-clang++"
+          echo "AR=$BIN/llvm-ar"
+          echo "NM=$BIN/llvm-nm"
+          echo "RANLIB=$BIN/llvm-ranlib"
+          echo "STRIP=$BIN/llvm-strip"
+          # Only look at our cross prefix for .pc files; never at host libs.
+          echo "PKG_CONFIG_LIBDIR=$PREFIX/lib/pkgconfig"
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig"
+        } >> "$GITHUB_ENV"
+        mkdir -p "$PREFIX"
+
+    - name: Build x264 (static)
+      working-directory: build
+      run: |
+        set -euo pipefail
+        git clone --depth 1 https://code.videolan.org/videolan/x264.git
+        cd x264
+        git log -1 --format='x264 commit %H (%cd)'
+        COMMON="--host=aarch64-linux-android --cross-prefix=$TOOLCHAIN/bin/llvm- --sysroot=$SYSROOT --prefix=$PREFIX --enable-static --disable-shared --disable-cli --enable-pic --disable-opencl"
+        if ! CC="$CC" AS="$CC" ./configure $COMMON; then
+          echo "::warning::x264 configure with asm failed, retrying with --disable-asm"
+          cat config.log | tail -40 || true
+          CC="$CC" AS="$CC" ./configure $COMMON --disable-asm
+        fi
+        grep -E '^(ASFLAGS|asm|CFLAGS)' config.mak || true
+        make -j"$(nproc)"
+        make install
+        ls -la "$PREFIX/lib" "$PREFIX/include" "$PREFIX/lib/pkgconfig"
+        cat "$PREFIX/lib/pkgconfig/x264.pc"
+
+    - name: Fetch ffmpeg ${{ env.FFMPEG_VERSION }}
+      working-directory: build
+      run: |
+        set -euo pipefail
+        curl -sSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+        tar xf ffmpeg.tar.xz
+        mv "ffmpeg-${FFMPEG_VERSION}" ffmpeg
+
+    - name: Configure ffmpeg
+      working-directory: build/ffmpeg
+      run: |
+        set -euo pipefail
+        # NOTE: the bink video decoder is named `bink` (not `binkvideo`); `lavfi` is an input
+        # device (indev) living in libavdevice, not a demuxer.
+        CONFIGURE=(./configure "--prefix=$GITHUB_WORKSPACE/build/out" --target-os=android --arch=aarch64 --cpu=armv8-a --enable-cross-compile
+          "--cc=$CC" "--cxx=$CXX" "--ar=$AR" "--nm=$NM" "--ranlib=$RANLIB" "--strip=$STRIP" "--sysroot=$SYSROOT"
+          --pkg-config=pkg-config --pkg-config-flags=--static
+          "--extra-cflags=-I$PREFIX/include -Os -fPIE" "--extra-ldflags=-L$PREFIX/lib" --extra-ldexeflags=-static
+          --enable-static --disable-shared --enable-pic --enable-gpl --enable-libx264 --enable-small
+          --disable-doc --disable-ffplay --disable-ffprobe --disable-debug --disable-autodetect --disable-programs --enable-ffmpeg
+          --disable-everything
+          --enable-demuxer=bink,smacker,avi,asf,matroska,mov,mpegps,mpegts,ogg,flv,mpegvideo,rawvideo,image2,wav,mp3,aac,ac3
+          --enable-indev=lavfi
+          --enable-decoder=bink,smacker,h264,hevc,vp8,vp9,mpeg1video,mpeg2video,mpeg4,msmpeg4v1,msmpeg4v2,msmpeg4v3,wmv1,wmv2,wmv3,vc1,theora,mjpeg,cinepak,indeo3,indeo4,indeo5,rawvideo,aac,mp3,mp3float,vorbis,opus,wmav1,wmav2,wmapro,ac3,binkaudio_dct,binkaudio_rdft,smackaud,pcm_s16le,pcm_s16be,pcm_u8,pcm_f32le,pcm_s24le,adpcm_ima_wav,adpcm_ms,adpcm_ima_smjpeg,adpcm_ima_qt,adpcm_yamaha
+          --enable-encoder=libx264,aac --enable-muxer=mp4
+          --enable-parser=h264,hevc,aac,mpegaudio,vp8,vp9,mpegvideo,mpeg4video,vc1,vorbis,opus
+          --enable-protocol=file,pipe
+          --enable-filter=scale,aresample,format,aformat,fps,setsar,testsrc,anullsrc,sine,anull,null
+          --enable-swscale --enable-swresample --enable-avfilter --enable-avdevice)
+        printf '%q ' "${CONFIGURE[@]}" > "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"; echo >> "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"
+        echo "==== configure line ===="; cat "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"
+        "${CONFIGURE[@]}"
+        echo "==== enabled components ===="
+        grep -E '^(CONFIG_.*(DECODER|ENCODER|DEMUXER|MUXER|PARSER|FILTER|PROTOCOL|INDEV)=yes)' ffbuild/config.mak | sed 's/^CONFIG_//;s/=yes$//' | tr '\n' ' '; echo
+        { echo; echo "# ffmpeg $FFMPEG_VERSION, NDK: $(grep Pkg.Revision "$NDK/source.properties")"; echo "# x264: $(git -C ../x264 log -1 --format=%H)"; } >> "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt"
+
+    - name: Build ffmpeg
+      working-directory: build/ffmpeg
+      run: |
+        set -euo pipefail
+        make -j"$(nproc)" V=0
+        "$STRIP" ffmpeg
+        mkdir -p "$GITHUB_WORKSPACE/build/dist"
+        cp ffmpeg "$GITHUB_WORKSPACE/build/dist/ffmpeg"
+        cp "$GITHUB_WORKSPACE/build/BUILD_CONFIG.txt" "$GITHUB_WORKSPACE/build/dist/"
+
+    - name: Inspect binary
+      working-directory: build/dist
+      run: |
+        set -euo pipefail
+        file ffmpeg
+        ls -la ffmpeg
+        echo "---- readelf -h ----"; llvm-readelf -h ffmpeg
+        echo "---- NEEDED ----"; llvm-readelf -d ffmpeg | grep NEEDED || echo "no NEEDED (static)"
+        echo "---- program headers ----"; llvm-readelf -l ffmpeg | grep -E 'INTERP|Type|LOAD' | head -20
+        echo "---- link mode ----"
+        if llvm-readelf -l ffmpeg | grep -q INTERP; then echo "DYNAMIC (PIE, bionic)"; else echo "STATIC"; fi
+        sha256sum ffmpeg
+        echo "---- configure ----"; cat BUILD_CONFIG.txt
+
+    - name: Upload ffmpeg-arm64
+      uses: actions/upload-artifact@v4
+      with:
+        name: ffmpeg-arm64
+        path: |
+          build/dist/ffmpeg
+          build/dist/BUILD_CONFIG.txt
+        if-no-files-found: error
+
+    - name: Upload build logs (always)
+      if: always()
+      run: |
+        mkdir -p build/logs
+        [ -f build/ffmpeg/ffbuild/config.log ] && tail -400 build/ffmpeg/ffbuild/config.log > build/logs/ffmpeg-config.log.tail || true
+        [ -f build/ffmpeg/ffbuild/config.log ] && cp build/ffmpeg/ffbuild/config.log build/logs/ffmpeg-config.log || true
+        [ -f build/x264/config.log ] && cp build/x264/config.log build/logs/x264-config.log || true
+        [ -f build/BUILD_CONFIG.txt ] && cp build/BUILD_CONFIG.txt build/logs/ || true
+        ls -la build/logs
+
+    - name: Upload logs artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ffmpeg-build-logs
+        path: build/logs
+        if-no-files-found: ignore
