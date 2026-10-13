@@ -55,8 +55,31 @@ jobs:
       # setup-gradle keys its cache on the gradle files + wrapper automatically and restores from
       # main's cache for branch/PR builds; it reports cache hit/miss in the job summary.
 
+    # The signing key comes from the BFE_KEYSTORE_B64 secret when it is set (base64 of the keystore),
+    # otherwise from the committed keystore/bfe-test.jks. Both are the SAME key; the check below fails
+    # the build if the APK is ever signed with anything else, because a different key would break
+    # installing over existing versions and the in-app updater.
+    - name: Prepare signing key
+      env:
+        KEYSTORE_B64: ${{ secrets.BFE_KEYSTORE_B64 }}
+      run: |
+        if [ -n "$KEYSTORE_B64" ]; then
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/bfe.jks"
+          echo "BFE_KEYSTORE=$RUNNER_TEMP/bfe.jks" >> "$GITHUB_ENV"
+          echo "signing with the key from the BFE_KEYSTORE_B64 secret"
+        else
+          echo "signing with the committed keystore/bfe-test.jks"
+        fi
+
     - name: Assemble signed release APK
+      env:
+        BFE_KEYSTORE_PASSWORD: ${{ secrets.BFE_KEYSTORE_PASSWORD }}
+        BFE_KEY_ALIAS: ${{ secrets.BFE_KEY_ALIAS }}
+        BFE_KEY_PASSWORD: ${{ secrets.BFE_KEY_PASSWORD }}
       run: ./gradlew --no-daemon --build-cache assembleRelease
+
+    - name: Check the signing certificate
+      run: scripts/check-signing.sh app/build/outputs/apk/release/*.apk
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4

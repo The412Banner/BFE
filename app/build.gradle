@@ -27,8 +27,8 @@ android {
         minSdkVersion 26
         targetSdkVersion 28
         // Standalone app, versioned independently of the Bannerlator lineage it was lifted from.
-        versionCode 11
-        versionName "0.10"
+        versionCode 12
+        versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -52,14 +52,17 @@ android {
     }
 
     signingConfigs {
-        // TEST key (alias bfetest). A fixed, publicly-known key so every sideload build shares one
-        // signature — new builds install over-the-top instead of forcing an uninstall. Signed with
-        // v1 (JAR) + v2 + v3 for the broadest installer/OS compatibility.
+        // The BFE signing key (alias bfetest). Every release MUST be signed with this same key: it is
+        // what lets a new version install over the old one and what the in-app updater relies on.
+        // CI may supply it from a secret (BFE_KEYSTORE = path to the decoded keystore, passwords via
+        // BFE_KEYSTORE_PASSWORD / BFE_KEY_ALIAS / BFE_KEY_PASSWORD); otherwise the committed copy is
+        // used. CI checks the signed APK's certificate digest either way. Signed with v1 (JAR) + v2
+        // + v3 for the broadest installer/OS compatibility.
         release {
-            storeFile file('../keystore/bfe-test.jks')
-            storePassword 'bfetest'
-            keyAlias 'bfetest'
-            keyPassword 'bfetest'
+            storeFile file(System.getenv('BFE_KEYSTORE') ?: '../keystore/bfe-test.jks')
+            storePassword System.getenv('BFE_KEYSTORE_PASSWORD') ?: 'bfetest'
+            keyAlias System.getenv('BFE_KEY_ALIAS') ?: 'bfetest'
+            keyPassword System.getenv('BFE_KEY_PASSWORD') ?: 'bfetest'
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
@@ -75,6 +78,14 @@ android {
         release {
             minifyEnabled false
             signingConfig signingConfigs.release
+        }
+    }
+
+    sourceSets {
+        main {
+            // The license and notice texts in the repo's licenses/ folder ship as assets so
+            // Settings > Open-source licenses can show them (one copy, no duplication).
+            assets.srcDir '../licenses'
         }
     }
 

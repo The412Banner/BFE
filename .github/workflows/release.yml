@@ -1,0 +1,188 @@
+name: Release BFE (stable)
+
+# Cuts a stable BFE release that the in-app updater offers:
+#   1. checks the version (and bumps versionName/versionCode on main when they don't match yet),
+#   2. builds and signs the APK with the BFE key and checks the certificate,
+#   3. publishes GitHub release vX.Y (latest, not a prerelease) with BFE-X.Y.apk + update.json,
+#   4. writes the same update.json to the orphan `manifest` branch, which the app reads raw
+#      (no API rate limit, no download counter); releases/latest/download/update.json is the fallback.
+#
+# Run it with:  gh workflow run release.yml -f version=1.0 -f release_notes="$(cat notes.txt)"
+# release_notes is shown to users inside the app, so it must be real, finished text.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name, e.g. 1.0 or 1.0.1 (tag becomes v<version>)'
+        required: true
+      release_notes:
+        description: 'What changed, in plain words. Shown in the in-app update dialog and on the release page.'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ inputs.version }}
+      TAG: v${{ inputs.version }}
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v4
+      with:
+        ref: main
+        fetch-depth: 0
+
+    - name: Check the inputs
+      env:
+        NOTES: ${{ inputs.release_notes }}
+      run: |
+        set -euo pipefail
+        [[ "$VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::version must look like 1.0 or 1.0.1"; exit 1; }
+        if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then echo "::error::tag $TAG already exists"; exit 1; fi
+        trimmed="$(printf '%s' "$NOTES" | tr -d '[:space:]')"
+        [ ${#trimmed} -ge 20 ] || { echo "::error::release_notes is too short to be real notes"; exit 1; }
+        if printf '%s' "$NOTES" | grep -qiE '\b(todo|tbd|placeholder|lorem ipsum|fill me|xxx)\b'; then
+          echo "::error::release_notes looks like a placeholder"; exit 1
+        fi
+        printf '%s\n' "$NOTES" > "$RUNNER_TEMP/notes.txt"
+
+    - name: Set the version
+      id: ver
+      run: |
+        set -euo pipefail
+        cur_name=$(grep -m1 -E '^\s*versionName ' app/build.gradle | cut -d'"' -f2)
+        cur_code=$(grep -m1 -E '^\s*versionCode ' app/build.gradle | grep -oE '[0-9]+')
+        # The last published release's versionCode, from the manifest branch (if it exists yet).
+        last_code=$(git show origin/manifest:update.json 2>/dev/null | jq -r '.versionCode // 0' || echo 0)
+        if [ "$cur_name" = "$VERSION" ]; then
+          code=$cur_code
+          echo "versionName already $VERSION (versionCode $code)"
+        else
+          code=$(( cur_code > last_code ? cur_code + 1 : last_code + 1 ))
+          sed -i -E "0,/^(\s*)versionCode [0-9]+/s//\1versionCode $code/" app/build.gradle
+          sed -i -E "0,/^(\s*)versionName \"[^\"]*\"/s//\1versionName \"$VERSION\"/" app/build.gradle
+          git config user.name "The412Banner"
+          git config user.email "the412banner@users.noreply.github.com"
+          git commit -am "Release $VERSION (versionCode $code)"
+          git push origin HEAD:main
+          echo "bumped to $VERSION / $code"
+        fi
+        if [ "$code" -le "$last_code" ]; then
+          echo "::error::versionCode $code is not above the last release's $last_code"; exit 1
+        fi
+        echo "code=$code" >> "$GITHUB_OUTPUT"
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Prepare signing key
+      env:
+        KEYSTORE_B64: ${{ secrets.BFE_KEYSTORE_B64 }}
+      run: |
+        if [ -n "$KEYSTORE_B64" ]; then
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/bfe.jks"
+          echo "BFE_KEYSTORE=$RUNNER_TEMP/bfe.jks" >> "$GITHUB_ENV"
+        fi
+
+    - name: Build the signed APK
+      env:
+        BFE_KEYSTORE_PASSWORD: ${{ secrets.BFE_KEYSTORE_PASSWORD }}
+        BFE_KEY_ALIAS: ${{ secrets.BFE_KEY_ALIAS }}
+        BFE_KEY_PASSWORD: ${{ secrets.BFE_KEY_PASSWORD }}
+      run: ./gradlew --no-daemon --build-cache assembleRelease
+
+    - name: Check signature and version
+      run: |
+        set -euo pipefail
+        mkdir dist
+        cp app/build/outputs/apk/release/*.apk "dist/BFE-$VERSION.apk"
+        scripts/check-signing.sh "dist/BFE-$VERSION.apk"
+        AAPT=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/aapt | sort -V | tail -1)
+        badging=$("$AAPT" dump badging "dist/BFE-$VERSION.apk" | head -1)
+        echo "$badging"
+        echo "$badging" | grep -q "versionCode='${{ steps.ver.outputs.code }}'" || { echo "::error::versionCode mismatch"; exit 1; }
+        echo "$badging" | grep -q "versionName='$VERSION'" || { echo "::error::versionName mismatch"; exit 1; }
+
+    - name: Write update.json and the release description
+      run: |
+        set -euo pipefail
+        APK="dist/BFE-$VERSION.apk"
+        SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+        SIZE=$(stat -c %s "$APK")
+        URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/BFE-${VERSION}.apk"
+        jq -n \
+          --argjson vc "${{ steps.ver.outputs.code }}" \
+          --arg vn "$VERSION" \
+          --rawfile notes "$RUNNER_TEMP/notes.txt" \
+          --arg name "BFE-${VERSION}.apk" \
+          --arg url "$URL" \
+          --arg sha "$SHA" \
+          --argjson size "$SIZE" \
+          --arg date "$(date -u +%Y-%m-%d)" \
+          '{versionCode:$vc, versionName:$vn, notes:($notes|rtrimstr("\n")), apkName:$name, apkUrl:$url,
+            sha256:$sha, size:$size, publishedAt:$date, minSupported:1}' > dist/update.json
+        cat dist/update.json
+        {
+          cat "$RUNNER_TEMP/notes.txt"
+          echo
+          echo "## Install"
+          echo
+          echo "Download **BFE-${VERSION}.apk** below and open it. Android 8.0 or newer, 64-bit ARM (arm64-v8a)."
+          echo "It installs over any earlier BFE. From 1.0 on, BFE also finds and installs new versions by itself"
+          echo "(Settings > Check for updates)."
+          echo
+          echo "SHA-256: \`${SHA}\`"
+        } > dist/release-body.md
+
+    - name: Create the GitHub release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "$TAG" "dist/BFE-$VERSION.apk" dist/update.json \
+          --target "${{ steps.ver.outputs.sha }}" \
+          --title "BFE $VERSION" \
+          --notes-file dist/release-body.md \
+          --latest
+
+    - name: Publish the manifest branch
+      # Runs after the release exists, so the apkUrl in the manifest never points at a missing file.
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        mkdir manifest-wt && cd manifest-wt
+        git init -q
+        git config user.name "The412Banner"
+        git config user.email "the412banner@users.noreply.github.com"
+        git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        if git fetch -q --depth 1 origin manifest 2>/dev/null; then
+          git checkout -q -b manifest FETCH_HEAD
+        else
+          git checkout -q --orphan manifest
+          printf '%s\n' "# BFE update manifest" "" \
+            "Written by release.yml on every stable release and read raw by the in-app updater." \
+            "- update.json: the latest stable release" > README.md
+        fi
+        cp ../dist/update.json update.json
+        git add -A
+        git commit -q -m "manifest: ${TAG}" || { echo "manifest unchanged"; exit 0; }
+        git push -q origin manifest
+        echo "manifest branch updated for ${TAG}"

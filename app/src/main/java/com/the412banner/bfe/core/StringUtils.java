@@ -52,11 +52,16 @@ public class StringUtils {
     }
 
     public static String formatBytes(long bytes, boolean withSuffix) {
-        if (bytes <= 0) return "0 bytes";
-        final String[] units = new String[]{"bytes", "KB", "MB", "GB", "TB"};
-        int digitGroups = (int)(Math.log10(bytes) / Math.log10(1024));
+        // Whole bytes never get decimals ("34 B", not "34.00 bytes"); larger units keep three
+        // significant digits ("1.25 MB", "12.5 MB", "125 MB").
+        final String[] units = new String[]{"B", "KB", "MB", "GB", "TB", "PB"};
+        if (bytes <= 0) return withSuffix ? "0 B" : "0";
+        int digitGroups = Math.min(units.length - 1, (int)(Math.log10(bytes) / Math.log10(1024)));
         String suffix = withSuffix ? " "+units[digitGroups] : "";
-        return String.format(Locale.ENGLISH, "%.2f", bytes / Math.pow(1024, digitGroups))+suffix;
+        if (digitGroups == 0) return bytes + suffix;
+        double value = bytes / Math.pow(1024, digitGroups);
+        String fmt = value < 10 ? "%.2f" : value < 100 ? "%.1f" : "%.0f";
+        return String.format(Locale.ENGLISH, fmt, value)+suffix;
     }
 
     /** Compact human duration for progress/ETA readouts: "2h 5m", "1m 58s", "45s". */

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background shown before Compose draws: matches BfeTheme's background so there is no
+         white (or black) flash at launch. -->
+    <color name="window_background">#F7F8FA</color>
+</resources>

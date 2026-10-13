@@ -16,8 +16,20 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Lets the user exempt the app from battery optimisation for long background extractions. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <!-- Lets "Open with" hand off an extracted installer/APK to the package installer. -->
+    <!-- Lets "Open with" hand off an extracted installer/APK to the package installer, and lets the
+         in-app updater install a new BFE release. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- The in-app updater: reads update.json and downloads the release APK from GitHub. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- The Open with sheet lists every app that can VIEW a file. Not needed at targetSdk 28, but
+         declared so the list keeps working if targetSdk is raised past 29 (package visibility). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
 
     <application
         android:label="@string/app_name"

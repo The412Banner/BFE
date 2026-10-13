@@ -2,7 +2,6 @@ package com.the412banner.bfe.ui.screens
 
 import android.app.Activity
 import android.content.Intent
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,7 +14,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +57,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DensitySmall
 import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOff
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -67,6 +71,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Unarchive
@@ -158,6 +163,7 @@ import com.the412banner.bfe.ui.components.RailItem
 import com.the412banner.bfe.ui.components.RailLink
 import com.the412banner.bfe.ui.components.RailSection
 import com.the412banner.bfe.ui.components.rememberRailState
+import com.the412banner.bfe.storage.ChildCount
 import com.the412banner.bfe.storage.DocProviderApp
 import com.the412banner.bfe.storage.InstalledApp
 import com.the412banner.bfe.storage.InstalledApps
@@ -171,6 +177,7 @@ import com.the412banner.bfe.storage.SafBackend
 import com.the412banner.bfe.storage.Storage
 import com.the412banner.bfe.storage.StorageTransfer
 import com.the412banner.bfe.core.StringUtils
+import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.FavoritesStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -187,6 +194,9 @@ import java.util.Locale
  * directory and truncates existing files — but they mean different things to the user, so both are
  * offered and the wording is chosen per item type (files overwrite, folders merge).
  */
+/** A file waiting in the Open with sheet: its share Uri and the detected MIME type. */
+private data class OpenWithRequest(val loc: Loc, val uri: Uri, val mime: String)
+
 enum class ConflictChoice { OVERWRITE, MERGE, KEEP_BOTH, SKIP }
 
 /**
@@ -451,6 +461,7 @@ fun FileManagerScreen(
     initialDir: File? = null,
     pickerTitle: String? = null,
     onPick: ((File) -> Unit)? = null,
+    onOpenSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val prefs = remember { androidx.preference.PreferenceManager.getDefaultSharedPreferences(context) }
@@ -477,6 +488,7 @@ fun FileManagerScreen(
     val rightPane = rememberPaneState("fm_pane_right", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact)
 
     var dualPane by rememberSaveable { mutableStateOf(prefs.getBoolean("fmDualPane", false)) }
+    var splitFraction by remember { mutableFloatStateOf(prefs.getFloat("fmSplitFraction", 0.5f).coerceIn(0.2f, 0.8f)) }
     var activeIndex by rememberSaveable { mutableStateOf(0) }
     // Dual-pane never applies while picking a file/folder — a picker stays single-pane.
     val effectiveDual = dualPane && !pickMode
@@ -515,17 +527,17 @@ fun FileManagerScreen(
             if (p.isRoot) {
                 val ok = withContext(Dispatchers.IO) { RootAccess.ensure() }
                 if (!ok) {
-                    Toast.makeText(context, "Root access unavailable — grant BFE root in Magisk to browse app data", Toast.LENGTH_LONG).show()
+                    AppSnackbar.show(context, "Root access unavailable — grant BFE root in Magisk to browse app data", long = true)
                     return@launch
                 }
                 val root = withContext(Dispatchers.IO) { RootBackend.stat(p.path ?: return@withContext null) }
                 if (root != null && root.isDir) activeState.value.openAltRoot(root, p.label)
-                else Toast.makeText(context, "Can't open ${p.label} — ${p.path} isn't a directory", Toast.LENGTH_LONG).show()
+                else AppSnackbar.show(context, "Can't open ${p.label} — ${p.path} isn't a directory", long = true)
             } else {
                 val uri = p.treeUri ?: return@launch
                 val root = withContext(Dispatchers.IO) { SafBackend.rootLoc(context, uri, p.label) }
                 if (root != null) activeState.value.openAltRoot(root, p.label)
-                else Toast.makeText(context, "Can't open ${p.label} — access may have been revoked", Toast.LENGTH_LONG).show()
+                else AppSnackbar.show(context, "Can't open ${p.label} — access may have been revoked", long = true)
             }
         }
     }
@@ -536,7 +548,7 @@ fun FileManagerScreen(
         scope.launch {
             val ok = withContext(Dispatchers.IO) { RootAccess.ensure() }
             if (!ok) {
-                Toast.makeText(context, "Root access unavailable — grant BFE root in Magisk to browse app data", Toast.LENGTH_LONG).show()
+                AppSnackbar.show(context, "Root access unavailable — grant BFE root in Magisk to browse app data", long = true)
                 return@launch
             }
             val priv = "/data/data/${app.packageName}"
@@ -547,7 +559,7 @@ fun FileManagerScreen(
             pinnedTick++
             val root = withContext(Dispatchers.IO) { RootBackend.stat(priv) }
             if (root != null && root.isDir) activeState.value.openAltRoot(root, app.label)
-            else Toast.makeText(context, "Can't open ${app.label}'s data directory", Toast.LENGTH_LONG).show()
+            else AppSnackbar.show(context, "Can't open ${app.label}'s data directory", long = true)
         }
     }
 
@@ -567,7 +579,7 @@ fun FileManagerScreen(
         pendingPkg = provider?.packageName
         val initial = provider?.let { DocumentsProviderApps.initialTreeUri(context, it.authority) }
         runCatching { treeLauncher.launch(initial) }
-            .onFailure { Toast.makeText(context, "No folder picker available", Toast.LENGTH_SHORT).show() }
+            .onFailure { AppSnackbar.show(context, "No folder picker available") }
     }
 
     val accent = MaterialTheme.colorScheme.primary
@@ -639,6 +651,7 @@ fun FileManagerScreen(
                 onOpenPinned = { openPinned(it) },
                 onAddAppStorage = { showAddStorage = true },
                 onUnpin = { p -> PinnedStorage.remove(context, p); pinnedTick++ },
+                onOpenSettings = onOpenSettings,
             )
 
             if (!effectiveDual) {
@@ -656,9 +669,19 @@ fun FileManagerScreen(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
             } else {
-                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    PaneColumn(0, leftPane, rightPane, Modifier.weight(1f).fillMaxHeight())
-                    PaneColumn(1, rightPane, leftPane, Modifier.weight(1f).fillMaxHeight())
+                // Drag the handle between the panes to resize them (20–80 %); double-tap resets to
+                // 50/50. The split is remembered across launches.
+                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    val totalPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        PaneColumn(0, leftPane, rightPane, Modifier.weight(splitFraction).fillMaxHeight())
+                        PaneDivider(
+                            onDrag = { dx -> splitFraction = (splitFraction + dx / totalPx).coerceIn(0.2f, 0.8f) },
+                            onDragEnd = { prefs.edit().putFloat("fmSplitFraction", splitFraction).apply() },
+                            onReset = { splitFraction = 0.5f; prefs.edit().putFloat("fmSplitFraction", 0.5f).apply() },
+                        )
+                        PaneColumn(1, rightPane, leftPane, Modifier.weight(1f - splitFraction).fillMaxHeight())
+                    }
                 }
             }
         }
@@ -812,6 +835,7 @@ private fun SharedToolbar(
     onOpenPinned: (PinnedLocation) -> Unit,
     onAddAppStorage: () -> Unit,
     onUnpin: (PinnedLocation) -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val context = LocalContext.current
     var showDriveMenu by remember { mutableStateOf(false) }
@@ -907,7 +931,7 @@ private fun SharedToolbar(
                             showDriveMenu = false
                             active.exitAlt()
                             if (drive.readable) active.onOpenDrive(drive.dir)
-                            else Toast.makeText(context, "${drive.label} is mounted but not readable right now", Toast.LENGTH_SHORT).show()
+                            else AppSnackbar.show(context, "${drive.label} is mounted but not readable right now")
                         },
                     )
                 }
@@ -1096,7 +1120,7 @@ private fun SharedToolbar(
 
     @Composable
     fun ToolsOverflow() {
-        // Overflow: APK tools that aren't tied to a file in the list.
+        // Overflow: New, APK tools that aren't tied to a file in the list, and Settings / About.
         Box {
             IconButton(onClick = { showTools = true }) {
                 Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1126,6 +1150,12 @@ private fun SharedToolbar(
                     text = { Text("Signing keys…") },
                     leadingIcon = { Icon(Icons.Filled.Security, null, tint = MaterialTheme.colorScheme.primary) },
                     onClick = { showTools = false; active.onSigningKeys() },
+                )
+                MenuItemDivider()
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    leadingIcon = { Icon(Icons.Filled.Settings, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { showTools = false; onOpenSettings() },
                 )
             }
         }
@@ -1270,6 +1300,7 @@ fun BrowserPane(
     var favTick by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
+    var openWithReq by remember { mutableStateOf<OpenWithRequest?>(null) }
 
     // ── Reactive listing ── re-lists whenever the current dir, sort, hidden filter or a reload signal
     // changes. Navigation is pure state mutation (paneState.path / altStack); this effect turns that
@@ -1296,7 +1327,7 @@ fun BrowserPane(
             }
         }
         entries = result.getOrNull() ?: emptyList()
-        loadError = if (result.isFailure) "Couldn't read this folder." else null
+        loadError = if (result.isFailure) "Couldn't read this folder" else null
         loading = false
         if (reset) { highlightId = null; runCatching { listState.scrollToItem(0) } }
         highlightId?.let { id ->
@@ -1395,17 +1426,16 @@ fun BrowserPane(
     fun withViewUri(loc: Loc, failMsg: String, use: (Uri) -> Unit) {
         scope.launch {
             val uri = withContext(Dispatchers.IO) { viewUri(loc) }
-            if (uri == null) { Toast.makeText(context, failMsg, Toast.LENGTH_SHORT).show(); return@launch }
-            runCatching { use(uri) }.onFailure { Toast.makeText(context, failMsg, Toast.LENGTH_SHORT).show() }
+            if (uri == null) { AppSnackbar.show(context, failMsg); return@launch }
+            runCatching { use(uri) }.onFailure { AppSnackbar.show(context, failMsg) }
         }
     }
 
-    // "Open with": hand the file to another app through a plain ACTION_VIEW chooser (best-effort).
-    fun openWith(loc: Loc) = withViewUri(loc, "No app can open ${loc.name}") { uri ->
-        val mime = context.contentResolver.getType(uri) ?: "*/*"
-        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mime); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }, "Open with"))
+    // "Open with": BFE's own sheet (OpenWithSheet) — built-in actions for this file plus every app
+    // that can VIEW it. A plain tap on a file lands here too. The Uri is resolved first (root files
+    // are staged to cache), then the sheet is shown by the block near the other dialogs below.
+    fun openWith(loc: Loc) = withViewUri(loc, "Couldn't open ${loc.name}") { uri ->
+        openWithReq = OpenWithRequest(loc, uri, guessMime(loc.name, context.contentResolver.getType(uri)))
     }
 
     // Share a file to another app via ACTION_SEND.
@@ -1428,7 +1458,7 @@ fun BrowserPane(
                     type = "*/*"; putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }, "Share ${files.size} files"))
-            }.onFailure { Toast.makeText(context, "Couldn't share the selection", Toast.LENGTH_SHORT).show() }
+            }.onFailure { AppSnackbar.show(context, "Couldn't share the selection") }
         }
     }
 
@@ -1478,7 +1508,7 @@ fun BrowserPane(
                 }
                 isOperationRunning = false
                 onRequestOtherReload()
-                Toast.makeText(context, if (ok) "Extracted into ${target.name}" else "Some extracted files couldn't be copied", Toast.LENGTH_LONG).show()
+                AppSnackbar.show(context, if (ok) "Extracted into ${target.name}" else "Some extracted files couldn't be copied", long = true)
             }
             com.the412banner.bfe.unpack.UnpackPhase.ERROR, com.the412banner.bfe.unpack.UnpackPhase.CANCELLED -> {
                 if (unpackState.destPath.startsWith(tmp.absolutePath)) {
@@ -1494,21 +1524,21 @@ fun BrowserPane(
     fun launchFastExtract(loc: Loc) {
         showMenuFor = null
         val file = (loc as? Loc.FileLoc)?.file ?: run {
-            Toast.makeText(context, "Extraction from app storage isn't supported yet", Toast.LENGTH_SHORT).show(); return
+            AppSnackbar.show(context, "Extraction from app storage isn't supported yet"); return
         }
         val dest = extractDest()
         scope.launch {
             when (val o = com.the412banner.bfe.unpack.FastExtract.start(context, file, dest)) {
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.Started -> {
-                    Toast.makeText(context, "Unpacking ${o.name}…", Toast.LENGTH_SHORT).show()
+                    AppSnackbar.show(context, "Unpacking ${o.name}…")
                     if (dualPane) onRequestOtherReload()
                 }
                 com.the412banner.bfe.unpack.FastExtract.Outcome.Busy ->
-                    Toast.makeText(context, "Another unpack is already in progress", Toast.LENGTH_SHORT).show()
+                    AppSnackbar.show(context, "Another unpack is already in progress")
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.NotArchive ->
-                    Toast.makeText(context, "Not a recognized archive — nothing to unpack", Toast.LENGTH_SHORT).show()
+                    AppSnackbar.show(context, "Not a recognized archive — nothing to unpack")
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.OpenScreen -> {
-                    o.toast?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+                    o.toast?.let { AppSnackbar.show(context, it) }
                     context.startActivity(
                         com.the412banner.bfe.UnpackArchiveActivity.intent(context, o.archivePath, dest?.absolutePath)
                     )
@@ -1556,11 +1586,7 @@ fun BrowserPane(
                 }
                 withContext(Dispatchers.IO) { p.stagedInputs?.deleteRecursively() }
                 if (p.toOther) onRequestOtherReload() else paneState.requestReload()
-                Toast.makeText(
-                    context,
-                    if (ok) "Created ${packState.archiveName}" else "Archive was built but couldn't be copied into ${p.dest.name}",
-                    Toast.LENGTH_LONG,
-                ).show()
+                AppSnackbar.show(context, if (ok) "Created ${packState.archiveName}" else "Archive was built but couldn't be copied into ${p.dest.name}", long = true)
             }
             com.the412banner.bfe.pack.PackPhase.ERROR, com.the412banner.bfe.pack.PackPhase.CANCELLED -> {
                 pendingPack = null
@@ -1569,7 +1595,7 @@ fun BrowserPane(
                     p.stagedInputs?.deleteRecursively()
                 }
                 if (packState.phase == com.the412banner.bfe.pack.PackPhase.ERROR) {
-                    Toast.makeText(context, "Compression failed: ${packState.errorTail?.lineSequence()?.lastOrNull { it.isNotBlank() } ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                    AppSnackbar.show(context, "Compression failed: ${packState.errorTail?.lineSequence()?.lastOrNull { it.isNotBlank() } ?: "unknown error"}", long = true)
                 }
             }
             else -> Unit
@@ -1584,7 +1610,7 @@ fun BrowserPane(
         compressTargets = emptyList()
         if (sources.isEmpty()) return
         com.the412banner.bfe.pack.PackService.busyReason()?.let {
-            Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); return
+            AppSnackbar.show(context, it); return
         }
         val dest: Loc = if (req.toOtherPane) (otherPaneDir() ?: currentLoc) else currentLoc
         scope.launch {
@@ -1609,7 +1635,7 @@ fun BrowserPane(
             val preparedFiles = prepared.getOrNull()
             if (preparedFiles.isNullOrEmpty()) {
                 isOperationRunning = false
-                Toast.makeText(context, prepared.exceptionOrNull()?.message ?: "Couldn't prepare the selection", Toast.LENGTH_LONG).show()
+                AppSnackbar.show(context, prepared.exceptionOrNull()?.message ?: "Couldn't prepare the selection", long = true)
                 return@launch
             }
 
@@ -1646,7 +1672,7 @@ fun BrowserPane(
             pendingPack = PendingPack(jobId, tmpArchive, dest, staged, req.toOtherPane)
             selectionMode = false
             selectedIds = emptySet()
-            Toast.makeText(context, "Compressing to ${req.fileName}…", Toast.LENGTH_SHORT).show()
+            AppSnackbar.show(context, "Compressing to ${req.fileName}…")
         }
     }
 
@@ -1657,7 +1683,7 @@ fun BrowserPane(
             val ok = withContext(Dispatchers.IO) { Storage.backend(loc).delete(context, loc) }
             isOperationRunning = false
             paneState.requestReload()
-            if (!ok) Toast.makeText(context, "Delete failed", Toast.LENGTH_SHORT).show()
+            if (!ok) AppSnackbar.show(context, "Delete failed")
         }
     }
 
@@ -1748,7 +1774,7 @@ fun BrowserPane(
                 sources.size > 1 -> "$done items ${if (cut) "moved" else "copied"}"
                 else -> null
             }
-            if (message != null) Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            if (message != null) AppSnackbar.show(context, message)
         }
     }
 
@@ -1779,7 +1805,7 @@ fun BrowserPane(
             }
             isOperationRunning = false
             paneState.requestReload()
-            if (!ok) Toast.makeText(context, "Couldn't rename to \"$newName\"", Toast.LENGTH_SHORT).show()
+            if (!ok) AppSnackbar.show(context, "Couldn't rename to \"$newName\"")
         }
     }
 
@@ -1794,7 +1820,7 @@ fun BrowserPane(
             }
             isOperationRunning = false
             paneState.requestReload()
-            if (!ok) Toast.makeText(context, "Could not create \"$name\"", Toast.LENGTH_SHORT).show()
+            if (!ok) AppSnackbar.show(context, "Could not create \"$name\"")
         }
     }
 
@@ -1806,7 +1832,7 @@ fun BrowserPane(
     fun startConvert(choice: ConvertChoice, sources: List<Loc>) {
         convertTargets = emptyList()
         if (sources.isEmpty()) return
-        com.the412banner.bfe.video.ConvertService.busyReason()?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); return }
+        com.the412banner.bfe.video.ConvertService.busyReason()?.let { AppSnackbar.show(context, it); return }
         val dest: Loc = if (choice.toOtherPane) (otherPaneDir() ?: currentLoc) else currentLoc
         scope.launch {
             var staged: File? = null
@@ -1824,7 +1850,7 @@ fun BrowserPane(
                     }
                 }.onFailure { staged?.deleteRecursively() }.getOrNull()
             }
-            if (inputs == null) { isOperationRunning = false; Toast.makeText(context, "Couldn't prepare the selection", Toast.LENGTH_LONG).show(); return@launch }
+            if (inputs == null) { isOperationRunning = false; AppSnackbar.show(context, "Couldn't prepare the selection", long = true); return@launch }
             val (outDir, tmpDir) = withContext(Dispatchers.IO) {
                 when (dest) {
                     is Loc.FileLoc -> dest.file to null
@@ -1848,7 +1874,7 @@ fun BrowserPane(
             )
             pendingConvert = PendingConvert(jobId, tmpDir, dest, staged, choice.toOtherPane)
             selectionMode = false; selectedIds = emptySet()
-            Toast.makeText(context, "Converting ${inputs.size} video${if (inputs.size == 1) "" else "s"} — see the pill for progress", Toast.LENGTH_SHORT).show()
+            AppSnackbar.show(context, "Converting ${inputs.size} video${if (inputs.size == 1) "" else "s"} — see the pill for progress")
         }
     }
 
@@ -1881,7 +1907,7 @@ fun BrowserPane(
                     com.the412banner.bfe.video.ConvertPhase.CANCELLED -> "Conversion cancelled"
                     else -> "Conversion failed: ${convertState.errorTail ?: "ffmpeg error"}"
                 }
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                AppSnackbar.show(context, msg, long = true)
             }
             else -> Unit
         }
@@ -1925,14 +1951,14 @@ fun BrowserPane(
             }
             isOperationRunning = false
             meta.onSuccess { apkEditor = ApkEditorTarget(it, kind, base, splits, dest, staged) }
-                .onFailure { Toast.makeText(context, "Couldn't read ${base.name}: ${it.message}", Toast.LENGTH_LONG).show() }
+                .onFailure { AppSnackbar.show(context, "Couldn't read ${base.name}: ${it.message}", long = true) }
         }
     }
 
     fun openApkEditorFor(loc: Loc, kind: com.the412banner.bfe.apk.ApkJobKind) {
         showMenuFor = null
         scope.launch {
-            val (file, staged) = realApkFile(loc) ?: run { Toast.makeText(context, "Couldn't read ${loc.name}", Toast.LENGTH_SHORT).show(); return@launch }
+            val (file, staged) = realApkFile(loc) ?: run { AppSnackbar.show(context, "Couldn't read ${loc.name}"); return@launch }
             openApkEditor(file, emptyList(), kind, currentLoc, staged)
         }
     }
@@ -1940,7 +1966,7 @@ fun BrowserPane(
     fun openInstalledClone(app: com.the412banner.bfe.storage.InstalledApp) {
         showInstalledPicker = false
         val info = runCatching { context.packageManager.getApplicationInfo(app.packageName, 0) }.getOrNull() ?: run {
-            Toast.makeText(context, "Can't read ${app.label}'s APK", Toast.LENGTH_SHORT).show(); return
+            AppSnackbar.show(context, "Can't read ${app.label}'s APK"); return
         }
         val base = File(info.sourceDir)
         val splits = info.splitSourceDirs?.map { File(it) }?.filter { it.isFile } ?: emptyList()
@@ -1950,7 +1976,7 @@ fun BrowserPane(
     fun openSign(loc: Loc) {
         showMenuFor = null
         scope.launch {
-            val (file, staged) = realApkFile(loc) ?: run { Toast.makeText(context, "Couldn't read ${loc.name}", Toast.LENGTH_SHORT).show(); return@launch }
+            val (file, staged) = realApkFile(loc) ?: run { AppSnackbar.show(context, "Couldn't read ${loc.name}"); return@launch }
             withContext(Dispatchers.IO) { runCatching { com.the412banner.bfe.apk.SigningKeys.builtIn(context) } }
             apkSignTarget = file to currentLoc
             if (staged != null) pendingApk = PendingApk(0L, null, currentLoc, staged)   // remembered for cleanup
@@ -1967,7 +1993,7 @@ fun BrowserPane(
     }
 
     fun startApkJob(kind: com.the412banner.bfe.apk.ApkJobKind, base: File, splits: List<File>, edits: com.the412banner.bfe.apk.ApkEdits?, outName: String, dest: Loc, key: com.the412banner.bfe.apk.KeyRef, schemes: com.the412banner.bfe.apk.SignSchemes, install: Boolean, staged: File?) {
-        com.the412banner.bfe.apk.ApkJobService.busyReason()?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); return }
+        com.the412banner.bfe.apk.ApkJobService.busyReason()?.let { AppSnackbar.show(context, it); return }
         scope.launch {
             val (out, tmp) = apkOutput(dest, outName)
             val jobId = com.the412banner.bfe.apk.ApkJobService.start(
@@ -1975,7 +2001,7 @@ fun BrowserPane(
                 com.the412banner.bfe.apk.ApkJobRequest(kind, base.absolutePath, splits.map { it.absolutePath }, out.absolutePath, edits, key, schemes, install),
             )
             pendingApk = PendingApk(jobId, tmp, dest, staged)
-            Toast.makeText(context, "${kind.name.lowercase().replaceFirstChar { it.uppercase() }} job started — see the pill for progress", Toast.LENGTH_SHORT).show()
+            AppSnackbar.show(context, "${kind.name.lowercase().replaceFirstChar { it.uppercase() }} job started — see the pill for progress")
         }
     }
 
@@ -1999,7 +2025,7 @@ fun BrowserPane(
                         loc
                     }
                     isOperationRunning = false
-                    if (resultLoc == null) Toast.makeText(context, "APK was built but couldn't be copied into ${p.dest.name}", Toast.LENGTH_LONG).show()
+                    if (resultLoc == null) AppSnackbar.show(context, "APK was built but couldn't be copied into ${p.dest.name}", long = true)
                 } else resultLoc = Loc.FileLoc(File(report.outputPath))
                 withContext(Dispatchers.IO) { p.stagedSource?.deleteRecursively() }
                 paneState.requestReload()
@@ -2011,7 +2037,7 @@ fun BrowserPane(
             com.the412banner.bfe.apk.ApkJobStage.ERROR, com.the412banner.bfe.apk.ApkJobStage.CANCELLED -> {
                 pendingApk = null
                 withContext(Dispatchers.IO) { p.tmpOut?.parentFile?.deleteRecursively(); p.stagedSource?.deleteRecursively() }
-                if (apkState.stage == com.the412banner.bfe.apk.ApkJobStage.ERROR) Toast.makeText(context, "APK job failed: ${apkState.error ?: "unknown error"}", Toast.LENGTH_LONG).show()
+                if (apkState.stage == com.the412banner.bfe.apk.ApkJobStage.ERROR) AppSnackbar.show(context, "APK job failed: ${apkState.error ?: "unknown error"}", long = true)
             }
             else -> Unit
         }
@@ -2042,14 +2068,14 @@ fun BrowserPane(
             }
             isOperationRunning = false
             if (created == null) {
-                Toast.makeText(context, "Could not create \"$rawName\"", Toast.LENGTH_SHORT).show()
+                AppSnackbar.show(context, "Could not create \"$rawName\"")
             } else {
                 highlightId = created.id
                 paneState.requestReload()
                 // Text-like files get a one-tap jump into an editor.
                 val ext = created.name.substringAfterLast('.', "").lowercase()
                 if (ext in TEXT_LIKE_EXTS) newFileOpenOffer = created
-                else Toast.makeText(context, "Created ${created.name}", Toast.LENGTH_SHORT).show()
+                else AppSnackbar.show(context, "Created ${created.name}")
             }
         }
     }
@@ -2281,7 +2307,7 @@ fun BrowserPane(
                         operationJob = null
                         paneState.requestReload()
                         if (failed > 0) {
-                            Toast.makeText(context, "$failed couldn't be deleted", Toast.LENGTH_SHORT).show()
+                            AppSnackbar.show(context, "$failed couldn't be deleted")
                         }
                     }
                 }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
@@ -2337,6 +2363,39 @@ fun BrowserPane(
         )
     }
 
+    // ── Open with sheet ── built-in actions for this file type first, then the viewer apps.
+    openWithReq?.let { req ->
+        val loc = req.loc
+        val actions = remember(req) {
+            val f = (loc as? Loc.FileLoc)?.file
+            val lower = loc.name.lowercase()
+            buildList {
+                val isInno = f != null && com.the412banner.bfe.unpack.SevenZip.isInnoSetup(f)
+                if (f != null && (isInno || com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(f))) {
+                    add(SheetAction(if (dualPane) "Extract to the other pane" else "Extract here", SheetIcons.ExtractHere) { launchFastExtract(loc) })
+                    add(SheetAction(if (isInno) "Unpack / Install\u2026" else "Extract to\u2026", SheetIcons.ExtractTo) { launchUnpack(loc) })
+                }
+                if (lower.endsWith(".apk")) {
+                    add(SheetAction("Install", SheetIcons.Install) { installApk(loc) })
+                    add(SheetAction("Clone APK\u2026", Icons.Filled.FileCopy) { openApkEditorFor(loc, com.the412banner.bfe.apk.ApkJobKind.CLONE) })
+                }
+                if (com.the412banner.bfe.video.VideoFormats.isVideoName(loc.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(loc.name)) {
+                    add(SheetAction("Convert to MP4\u2026", SheetIcons.Convert) { convertTargets = listOf(loc) })
+                }
+                if (f != null) add(SheetAction("Properties", SheetIcons.Properties) { propertiesTarget = loc })
+            }
+        }
+        OpenWithSheet(
+            file = loc,
+            uri = req.uri,
+            detectedMime = req.mime,
+            actions = actions,
+            // Root files are a staged cache copy, so a write grant would edit the copy, not the file.
+            allowWrite = loc !is Loc.RootLoc,
+            onDismiss = { openWithReq = null },
+        )
+    }
+
     Column(modifier = modifier) {
         // ── Pick-mode title ──
         if (pickMode && !pickerTitle.isNullOrEmpty()) {
@@ -2386,17 +2445,61 @@ fun BrowserPane(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
             ) {
-                Text(
-                    // Elided from the LEFT: the deepest part of a path is the informative part, so
-                    // when it doesn't fit we drop the /storage/emulated/0 prefix, not the tail.
-                    text = elidePathStart(locDisplayPath, 52),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    // fill = true: the path takes all remaining width, so the free-space figure
-                    // is pinned to the right edge instead of sliding around with the path length.
-                    modifier = Modifier.weight(1f),
-                )
+                // Clickable breadcrumb: drive (or pinned location) first, then one tappable crumb per
+                // folder down to the current one. Scrolls sideways and keeps the deepest crumb in view;
+                // the path takes all remaining width so free space stays pinned to the right edge.
+                val crumbs: List<Pair<String, (() -> Unit)?>> = remember(locDisplayPath, paneState.rootPath, paneState.altStack) {
+                    if (currentFile != null) {
+                        val root = File(paneState.rootPath)
+                        val rootAbs = root.absolutePath
+                        val curAbs = currentFile.absolutePath
+                        val rootPrefix = rootAbs.trimEnd('/') + "/"
+                        val rel = if (curAbs == rootAbs) "" else curAbs.removePrefix(rootPrefix)
+                        if (curAbs != rootAbs && !curAbs.startsWith(rootPrefix)) {
+                            listOf<Pair<String, (() -> Unit)?>>(elidePathStart(locDisplayPath, 52) to null)
+                        } else {
+                            val out = mutableListOf<Pair<String, (() -> Unit)?>>(
+                                describeLocation(root).driveLabel.ifBlank { root.name.ifBlank { "/" } } to { navFileDir(root) }
+                            )
+                            var acc = root
+                            rel.split('/').filter { it.isNotEmpty() }.forEach { seg ->
+                                acc = File(acc, seg)
+                                val target = acc
+                                out.add(seg to { navFileDir(target) })
+                            }
+                            out
+                        }
+                    } else {
+                        val stack = paneState.altStack
+                        stack.mapIndexed { i, loc ->
+                            (if (i == 0) paneState.altLabel else loc.name) to { paneState.altStack = stack.take(i + 1) }
+                        }
+                    }
+                }
+                val crumbScroll = rememberScrollState()
+                LaunchedEffect(locDisplayPath, crumbScroll.maxValue) { crumbScroll.scrollTo(crumbScroll.maxValue) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).horizontalScroll(crumbScroll),
+                ) {
+                    crumbs.forEachIndexed { i, (label, onClick) ->
+                        val last = i == crumbs.lastIndex
+                        if (i > 0) {
+                            Text("\u203A", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Text(
+                            text = label,
+                            color = if (last) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary,
+                            fontSize = 11.sp,
+                            fontWeight = if (last) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .then(if (!last && onClick != null) Modifier.clickable { onClick() } else Modifier)
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                        )
+                    }
+                }
                 if (freeSpace > 0) {
                     Text(
                         "${StringUtils.formatBytes(freeSpace)} free",
@@ -2596,7 +2699,7 @@ fun BrowserPane(
                     currentFile?.let {
                         FavoritesStore.add(context, it.absolutePath)
                         favTick++
-                        Toast.makeText(context, "Added \"${it.name}\" to Favorites", Toast.LENGTH_SHORT).show()
+                        AppSnackbar.show(context, "Added \"${it.name}\" to Favorites")
                     }
                 },
                 onJump = { dir ->
@@ -2606,7 +2709,7 @@ fun BrowserPane(
                 onUnpin = { dir ->
                     FavoritesStore.remove(context, dir.absolutePath)
                     favTick++
-                    Toast.makeText(context, "Removed \"${dir.name}\" from Favorites", Toast.LENGTH_SHORT).show()
+                    AppSnackbar.show(context, "Removed \"${dir.name}\" from Favorites")
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -2625,14 +2728,21 @@ fun BrowserPane(
                     androidx.compose.material3.CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             } else if (loadError != null && entries.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        loadError ?: "Couldn't read this folder.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 32.dp),
-                    )
-                }
+                PaneMessage(
+                    icon = Icons.Filled.FolderOff,
+                    title = loadError ?: "Couldn't read this folder",
+                    detail = "It may need permissions BFE doesn't have, or it was removed.",
+                    actionLabel = "Try again",
+                    onAction = { paneState.requestReload() },
+                )
+            } else if (entries.isNotEmpty() && shownEntries.isEmpty()) {
+                PaneMessage(
+                    icon = Icons.Filled.SearchOff,
+                    title = "No matches",
+                    detail = "Nothing in this folder matches \u201C${paneState.searchQuery}\u201D.",
+                    actionLabel = "Clear filter",
+                    onAction = { paneState.searchQuery = "" },
+                )
             } else if (paneState.viewMode == FmViewMode.GRID && entries.isNotEmpty()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 104.dp),
@@ -2643,19 +2753,17 @@ fun BrowserPane(
                         val isFav = remember(file.id, favTick) { isLocFav(file) }
                         FileGridTile(
                             file = file,
+                            showActions = !pickMode,
                             selectionMode = selectionMode,
                             selected = file.id in selectedIds || file.id == highlightId,
                             onLongPress = {
+                                // Long-press starts multi-select on this item (or toggles it when
+                                // already selecting); the action menu lives on ⋮ / Open with.
                                 if (!pickMode) {
-                                    // In selection mode a long-press toggles; otherwise it opens the
-                                    // same context menu the list rows show (the tile has no ⋮ button).
-                                    if (selectionMode) {
-                                        selectedIds = if (file.id in selectedIds)
-                                            selectedIds - file.id
-                                        else selectedIds + file.id
-                                    } else {
-                                        showMenuFor = file
-                                    }
+                                    if (!selectionMode) selectionMode = true
+                                    selectedIds = if (file.id in selectedIds)
+                                        selectedIds - file.id
+                                    else selectedIds + file.id
                                 }
                             },
                             onToggleSelect = {
@@ -2699,12 +2807,8 @@ fun BrowserPane(
                                 val nowFav = toggleFav(file)
                                 favTick++
                                 showMenuFor = null
-                                Toast.makeText(
-                                    context,
-                                    if (nowFav) "Added \"${file.name}\" to Favorites"
-                                    else "Removed \"${file.name}\" from Favorites",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                AppSnackbar.show(context, if (nowFav) "Added \"${file.name}\" to Favorites"
+                                    else "Removed \"${file.name}\" from Favorites")
                             },
                             onProperties = { propertiesTarget = file; showMenuFor = null },
                         )
@@ -2714,11 +2818,8 @@ fun BrowserPane(
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 if (entries.isEmpty()) {
                     item {
-                        Box(
-                            modifier = Modifier.fillParentMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("Empty directory", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(modifier = Modifier.fillParentMaxSize()) {
+                            PaneMessage(icon = Icons.Filled.FolderOpen, title = "This folder is empty")
                         }
                     }
                 } else {
@@ -2734,16 +2835,13 @@ fun BrowserPane(
                             selectionMode = selectionMode,
                             selected = file.id in selectedIds || file.id == highlightId,
                             onLongPress = {
-                                // In selection mode a long-press toggles; otherwise it opens the
-                                // per-item context menu (matching the grid tiles).
+                                // Long-press starts multi-select on this item (or toggles it when
+                                // already selecting); the action menu lives on ⋮ / Open with.
                                 if (!pickMode) {
-                                    if (selectionMode) {
-                                        selectedIds = if (file.id in selectedIds)
-                                            selectedIds - file.id
-                                        else selectedIds + file.id
-                                    } else {
-                                        showMenuFor = file
-                                    }
+                                    if (!selectionMode) selectionMode = true
+                                    selectedIds = if (file.id in selectedIds)
+                                        selectedIds - file.id
+                                    else selectedIds + file.id
                                 }
                             },
                             onToggleSelect = {
@@ -2788,12 +2886,8 @@ fun BrowserPane(
                                 val nowFav = toggleFav(file)
                                 favTick++
                                 showMenuFor = null
-                                Toast.makeText(
-                                    context,
-                                    if (nowFav) "Added \"${file.name}\" to Favorites"
-                                    else "Removed \"${file.name}\" from Favorites",
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                AppSnackbar.show(context, if (nowFav) "Added \"${file.name}\" to Favorites"
+                                    else "Removed \"${file.name}\" from Favorites")
                             },
                             onProperties = { propertiesTarget = file; showMenuFor = null },
                         )
@@ -2815,9 +2909,11 @@ fun BrowserPane(
 }
 
 // The context-menu item list shared by the list rows (FileItemRow) and the grid tiles
-// (FileGridTile), so both open the identical menu. Gating (isDir/canRun/isInno/looksLikeArchive) is
-// recomputed from [file] here — one source of truth for what each item shows. Every item dismisses
-// the menu first, then runs its action.
+// (FileGridTile), so both open the identical menu from their ⋮ / menu affordance.
+// Grouped into sections (open · share/info · type-specific tools · organise · edit) with a divider
+// between sections only, so the long menus stay scannable; the DropdownMenu scrolls when it has to.
+// Gating (isDir/isInno/looksLikeArchive/apk/video) is recomputed from [file] here — one source of
+// truth for what each item shows. Every item dismisses the menu first, then runs its action.
 @Composable
 private fun FileContextMenuItems(
     file: Loc,
@@ -2845,147 +2941,64 @@ private fun FileContextMenuItems(
     // File-specific extras (properties, favourites, archive extraction) are for direct-File entries;
     // SAF ("app storage") entries only get the backend-agnostic actions.
     val fileLoc = (file as? Loc.FileLoc)?.file
-    // Enter multi-select on this item (replaces the old long-press-only entry point).
-    DropdownMenuItem(
-        text = { Text("Select") },
-        leadingIcon = { Icon(Icons.Filled.Checklist, null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = { onDismissMenu(); onSelect() },
-    )
-    MenuItemDivider()
-    // Properties (File only — the Read-only toggle is a chmod).
-    if (fileLoc != null) {
-        DropdownMenuItem(
-            text = { Text("Properties") },
-            leadingIcon = { Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.primary) },
-            onClick = { onDismissMenu(); onProperties() },
-        )
-        MenuItemDivider()
-    }
-    // Favorites are File directories — only folders on real storage get the pin toggle.
-    if (isDir && fileLoc != null) {
-        DropdownMenuItem(
-            text = { Text(if (isFavorite) "Remove from Favorites" else "Add to Favorites") },
-            leadingIcon = {
-                Icon(
-                    if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                    null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            },
-            onClick = { onToggleFavorite() },
-        )
-        MenuItemDivider()
-    }
-    // Files (not folders) can be handed to another app. An .apk gets a dedicated "Install" action.
-    if (!isDir) {
-        if (file.name.lowercase().endsWith(".apk")) {
-            DropdownMenuItem(
-                text = { Text("Install APK") },
-                leadingIcon = { Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { onDismissMenu(); onInstallApk() },
-            )
-            MenuItemDivider()
-            // APK tools: clone under a new package (ARSCLib rewrite + apksig), edit in place, re-sign.
-            DropdownMenuItem(
-                text = { Text("Clone APK…") },
-                leadingIcon = { Icon(Icons.Filled.FileCopy, null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { onDismissMenu(); onCloneApk() },
-            )
-            MenuItemDivider()
-            DropdownMenuItem(
-                text = { Text("Edit APK…") },
-                leadingIcon = { Icon(Icons.Filled.Edit, null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { onDismissMenu(); onEditApk() },
-            )
-            MenuItemDivider()
-            DropdownMenuItem(
-                text = { Text("Sign APK…") },
-                leadingIcon = { Icon(Icons.Filled.Security, null, tint = MaterialTheme.colorScheme.primary) },
-                onClick = { onDismissMenu(); onSignApk() },
-            )
-            MenuItemDivider()
-        }
-        DropdownMenuItem(
-            text = { Text("Open with…") },
-            leadingIcon = { Icon(Icons.Filled.OpenInNew, null, tint = MaterialTheme.colorScheme.primary) },
-            onClick = { onDismissMenu(); onOpenWith() },
-        )
-        MenuItemDivider()
-        DropdownMenuItem(
-            text = { Text("Share") },
-            leadingIcon = { Icon(Icons.Filled.Share, null, tint = MaterialTheme.colorScheme.primary) },
-            onClick = { onDismissMenu(); onShare() },
-        )
-        MenuItemDivider()
-    }
-    // The SINGLE extraction action: the bundled 7-Zip engine handles a strict superset
-    // of everything the old in-app extractor did (zip, 7z, tar, gzip, bzip2, xz, zstd)
-    // PLUS disc images (ISO/UDF), RAR, cab, wim, split volumes and 80 GB+ single files.
-    // For an InnoSetup repack (Setup.exe + Setup-*.bin) it becomes "Unpack / Install…",
-    // where the screen decides between 7-Zip payload extraction and running Setup.exe in
-    // a container (FreeArc repacks). The screen also content-sniffs (`7zz l`) so a file
-    // is judged by content, not extension.
+    val isApk = !isDir && file.name.lowercase().endsWith(".apk")
+    // Content-aware archive check: extension OR a cheap magic-byte sniff (a few header bytes, read only
+    // when the menu opens — never `7zz l` per entry). Extraction is File-only (engines need a real path).
+    // For an InnoSetup repack the screen decides between payload extraction and running Setup.exe.
     val isInno = fileLoc != null && com.the412banner.bfe.unpack.SevenZip.isInnoSetup(fileLoc)
-    // Content-aware: extension OR a cheap magic-byte sniff, so a .wcp/.bin/renamed
-    // archive with an unlisted extension still gets the option (menu opens per row,
-    // so this reads only a few header bytes on demand — never `7zz l` per entry).
-    // Archive extraction is File-only (the native engines need a real path).
-    if (fileLoc != null && (isInno || com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(fileLoc))) {
+    val isArchive = fileLoc != null && (isInno || com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(fileLoc))
+    val isVideo = !isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(file.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(file.name))
+
+    @Composable
+    fun Item(label: String, icon: ImageVector, danger: Boolean = false, dismiss: Boolean = true, action: () -> Unit) {
+        val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
         DropdownMenuItem(
-            text = { Text(if (isInno) "Unpack / Install…" else "Unpack Archive…") },
-            leadingIcon = { Icon(Icons.Filled.Unarchive, null, tint = MaterialTheme.colorScheme.primary) },
-            onClick = { onDismissMenu(); onUnpack() },
+            text = { Text(label, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
+            leadingIcon = { Icon(icon, null, tint = tint) },
+            onClick = { if (dismiss) onDismissMenu(); action() },
         )
-        MenuItemDivider()
-        // Convenience: one tap, no screen — pre-fill defaults (new sibling folder, Auto
-        // power) and start straight into the progress pill. Same engines/throughput.
-        DropdownMenuItem(
-            text = { Text("Fast Extract") },
-            leadingIcon = { Icon(Icons.Filled.Bolt, null, tint = MaterialTheme.colorScheme.primary) },
-            onClick = { onDismissMenu(); onFastExtract() },
-        )
+    }
+
+    // ── Open ──
+    if (!isDir) {
+        Item("Open with\u2026", Icons.Filled.OpenInNew, action = onOpenWith)
         MenuItemDivider()
     }
-    // Video → MP4 via the bundled ffmpeg (Bink 1 / Smacker / WMV / AVI / MKV / …; .bk2 explained, not failed).
-    if (!isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(file.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(file.name))) {
-        DropdownMenuItem(
-            text = { Text("Convert to MP4…") },
-            leadingIcon = { Icon(Icons.Filled.Movie, null, tint = MaterialTheme.colorScheme.primary) },
-            onClick = { onDismissMenu(); onConvert() },
+    // ── Share / info ──
+    if (!isDir) Item("Share", Icons.Filled.Share, action = onShare)
+    if (fileLoc != null) Item("Properties", Icons.Filled.Info, action = onProperties)
+    if (isDir && fileLoc != null) {
+        // Favourites toggle dismisses itself (it posts a snackbar naming the folder).
+        Item(
+            if (isFavorite) "Remove from Favorites" else "Add to Favorites",
+            if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+            dismiss = false,
+            action = onToggleFavorite,
         )
-        MenuItemDivider()
     }
-    // Create an archive from this item (zip/7z/tar/tar.gz/tar.xz/tzst/Winlator .wcp). Works for any
-    // backend: SAF/root items are staged to a temp dir first (the engines need real paths).
-    DropdownMenuItem(
-        text = { Text("Compress…") },
-        leadingIcon = { Icon(Icons.Filled.Archive, null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = { onDismissMenu(); onCompress() },
-    )
+    if (!isDir || fileLoc != null) MenuItemDivider()
+    // ── Type-specific tools ──
+    if (isApk) {
+        Item("Install APK", Icons.Filled.Android, action = onInstallApk)
+        Item("Clone APK\u2026", Icons.Filled.FileCopy, action = onCloneApk)
+        Item("Edit APK\u2026", Icons.Filled.Edit, action = onEditApk)
+        Item("Sign APK\u2026", Icons.Filled.Security, action = onSignApk)
+    }
+    if (isArchive) {
+        Item("Fast Extract", Icons.Filled.Bolt, action = onFastExtract)
+        Item(if (isInno) "Unpack / Install\u2026" else "Unpack Archive\u2026", Icons.Filled.Unarchive, action = onUnpack)
+    }
+    if (isVideo) Item("Convert to MP4\u2026", Icons.Filled.Movie, action = onConvert)
+    // Create an archive from this item (any backend: SAF/root items are staged to a temp dir first).
+    Item("Compress\u2026", Icons.Filled.Archive, action = onCompress)
     MenuItemDivider()
-    DropdownMenuItem(
-        text = { Text("Rename") },
-        leadingIcon = { Icon(Icons.Filled.Edit, null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = { onDismissMenu(); onRename() },
-    )
+    // ── Organise ──
+    Item("Select", Icons.Filled.Checklist, action = onSelect)
+    Item("Rename", Icons.Filled.Edit, action = onRename)
+    Item("Copy", Icons.Filled.FileCopy, action = onCopy)
+    Item("Cut", Icons.Filled.ContentCut, action = onCut)
     MenuItemDivider()
-    DropdownMenuItem(
-        text = { Text("Copy") },
-        leadingIcon = { Icon(Icons.Filled.FileCopy, null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = { onDismissMenu(); onCopy() },
-    )
-    MenuItemDivider()
-    DropdownMenuItem(
-        text = { Text("Cut") },
-        leadingIcon = { Icon(Icons.Filled.ContentCut, null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = { onDismissMenu(); onCut() },
-    )
-    MenuItemDivider()
-    DropdownMenuItem(
-        text = { Text("Delete") },
-        leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.primary) },
-        onClick = { onDismissMenu(); onDelete() },
-    )
+    Item("Delete", Icons.Filled.Delete, danger = true, action = onDelete)
 }
 
 @Composable
@@ -3024,8 +3037,22 @@ private fun FileItemRow(
     onToggleFavorite: () -> Unit = {},
     onProperties: () -> Unit = {},
 ) {
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    // Locale-aware medium date ("Oct 13, 2026" / "13 Oct 2026"); the Properties dialog keeps the time.
+    val dateFormat = remember { java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM) }
     val isDir = file.isDir
+    val modified = file.lastModified
+    val dateLabel = if (modified > 0) dateFormat.format(Date(modified)) else ""
+    // Folders show how many entries they hold. Counted lazily for the rows actually composed, off the
+    // main thread and cached by path + mtime (see ChildCount); blank until ready, date-only when the
+    // folder can't be read.
+    val rowContext = LocalContext.current
+    var itemCount by remember(file.id, modified) { mutableStateOf(if (isDir) ChildCount.cached(file) else null) }
+    if (isDir && itemCount == null) {
+        LaunchedEffect(file.id, modified) { itemCount = ChildCount.count(rowContext, file) }
+    }
+    val countLabel = itemCount?.takeIf { it >= 0 }?.let { if (it == 1) "1 item" else "$it items" }
+    // Left half of the detail line: item count for folders, size for files.
+    val detailLabel = if (isDir) countLabel.orEmpty() else StringUtils.formatBytes(file.size)
     val isExe = !isDir && file.name.lowercase().let { it.endsWith(".exe") || it.endsWith(".bat") || it.endsWith(".msi") || it.endsWith(".sh") }
     // Image files show a real thumbnail instead of the generic file icon (handy when picking a
     // wallpaper/icon). Coil sizes the decode to the 36dp slot and caches it, so scrolling stays smooth.
@@ -3091,22 +3118,31 @@ private fun FileItemRow(
                     else -> Icon(Icons.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(10.dp))
-                Text(
-                    text = file.name,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (!isDir) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = StringUtils.formatBytes(file.size),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                    )
+                // One-line detail on the right: "N items · date" (folders) or "size · date" (files).
+                // The date drops off first in a narrow pane so the name keeps its room.
+                BoxWithConstraints(modifier = Modifier.weight(1f)) {
+                    val wide = maxWidth >= 260.dp
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = file.name,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        val right = listOf(detailLabel, if (wide) dateLabel else "")
+                            .filter { it.isNotEmpty() }.joinToString("  \u00B7  ")
+                        if (right.isNotEmpty()) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = right,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                            )
+                        }
+                    }
                 }
                 if (showActions) {
                     Box {
@@ -3230,14 +3266,26 @@ private fun FileItemRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    text = buildString {
-                        if (!isDir) append(StringUtils.formatBytes(file.size)).append("  \u2022  ")
-                        append(dateFormat.format(Date(file.lastModified)))
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                )
+                // Detail line: item count (folders) or size (files) on the left, date on the right.
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = detailLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (dateLabel.isNotEmpty()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = dateLabel,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
             if (showActions) Box {
                 IconButton(onClick = onMenu) {
@@ -3453,6 +3501,8 @@ private fun FavoriteCard(
 @Composable
 private fun FileGridTile(
     file: Loc,
+    // ⋮ in the tile's corner opens the action menu (long-press now multi-selects). Off in pick mode.
+    showActions: Boolean = true,
     selectionMode: Boolean,
     selected: Boolean,
     onLongPress: () -> Unit,
@@ -3499,7 +3549,7 @@ private fun FileGridTile(
     }
     // Thumbnail source: the File for direct storage, the SAF doc Uri otherwise (Coil handles both).
     val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as? Loc.SafLoc)?.docUri ?: ""
-    // The tile has no ⋮ button — long-press opens this menu, anchored to the Box around the Card.
+    // The action menu is anchored to the Box around the Card (opened from the corner ⋮).
     Box {
         Card(
             modifier = Modifier
@@ -3561,6 +3611,20 @@ private fun FileGridTile(
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+        }
+        if (showActions && !selectionMode) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable { onMenu() }
+                    .semantics { contentDescription = "Actions" },
+            ) {
+                Icon(Icons.Filled.MoreVert, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
             }
         }
         DropdownMenu(
@@ -3659,7 +3723,7 @@ private fun FilePropertiesDialog(
                                 attrs = attrs?.copy(readOnly = want)
                                 onChanged()
                             } else {
-                                Toast.makeText(context, "Couldn't change Read-only", Toast.LENGTH_SHORT).show()
+                                AppSnackbar.show(context, "Couldn't change Read-only")
                             }
                         }
                     },
@@ -3722,6 +3786,70 @@ private fun AttributeToggleRow(
             checked = checked,
             enabled = enabled,
             onCheckedChange = onToggle,
+        )
+    }
+}
+
+/** Centered empty / error / no-results state for a pane: icon, a short title, optional detail + action. */
+@Composable
+private fun PaneMessage(
+    icon: ImageVector,
+    title: String,
+    detail: String? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        if (detail != null) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                detail,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+        }
+        if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = onAction) { Text(actionLabel) }
+        }
+    }
+}
+
+/**
+ * The draggable handle between the two panes: a thin rule with a grip, 12dp wide to be easy to hit.
+ * Horizontal drags resize; a double-tap restores the even split.
+ */
+@Composable
+private fun PaneDivider(onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onReset: () -> Unit) {
+    val dragState = androidx.compose.foundation.gestures.rememberDraggableState { onDrag(it) }
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .width(12.dp)
+            .fillMaxHeight()
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .draggable(
+                state = dragState,
+                orientation = androidx.compose.foundation.gestures.Orientation.Horizontal,
+                onDragStopped = { onDragEnd() },
+            )
+            .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures(onDoubleTap = { onReset() }) }
+            .semantics { contentDescription = "Resize panes" },
+    ) {
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .height(36.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(MaterialTheme.colorScheme.outline),
         )
     }
 }

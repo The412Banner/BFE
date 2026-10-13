@@ -12,8 +12,8 @@ It is lifted from the in-app File Manager + archive subsystem of the
 the emulator machinery (Wine containers, X server, Steam/GOG store plumbing) stripped out and the
 browse / extract / manage core turned into its own app. GPL-3.0.
 
-> **Status:** early, fast-moving 0.x builds. Every release is CI-built and signature-verified, but the
-> project is not yet broadly device-tested. Grab the latest APK from
+> **Status: 1.0, the first stable release.** Every release is CI-built and signature-checked, and BFE
+> updates itself from this repository's releases (see [Updates](#updates)). Grab the latest APK from
 > [**Releases**](https://github.com/The412Banner/BFE/releases).
 
 ---
@@ -27,20 +27,28 @@ browse / extract / manage core turned into its own app. GPL-3.0.
   main thread from File, SAF and root locations, like the `.exe` PE icons).
 - **New ▾ → Folder / File…**: create an empty file on File, SAF and root locations (root creations
   are chown'd back to the owning app); text-like files offer "Open with…" right away.
-- Path / free-space bar, up/back navigation, sort by **name / size / date / type** (asc/desc), in-folder
-  **search**, show/hide hidden files.
+- **Clickable breadcrumb** (drive › folder › folder — tap any part to jump there) with free space,
+  up/back navigation, sort by **name / size / date / type** (asc/desc), in-folder **search**, show/hide
+  hidden files.
+- **Rows use their space:** folders show how many items they hold and when they were last changed;
+  files show size and date (counted lazily in the background, for File, SAF and root locations).
 - **Three view modes**, cycled from the toolbar and remembered: **Grid**, **List**, and a dense
   **Compact** list (~2× more rows on screen).
 - **Multi-select** with an action bar: copy, cut, delete, share. Copy/move/delete/rename with real
   progress, cancel, and conflict handling (**overwrite / merge / keep both / skip**). New folder.
 - **Favorites**, file **properties** + read-only toggle, image thumbnails (Coil) and **`.exe` icon
   extraction** (PE resources).
-- **Open with** any file in another app, **Share** one or many files, and **Install** `.apk` files
-  directly.
+- **Tap a file** to get BFE's own **Open with** sheet: what BFE can do with it (extract, install, clone,
+  convert, properties) on top, every installed app that can open it below, with **Open as**
+  Text / Image / Video / Audio / Archive / Any chips. **Always use for .ext** remembers an app per file
+  type (shown first and marked *Default*; manage them in Settings → Default apps). Long-press starts
+  multi-select; each row's **⋮** opens the full action menu.
+- **Share** one or many files, and **Install** `.apk` files directly.
+- Clear **empty, error and no-match states**, and short **snackbar** messages for results.
 
 ### Dual-pane "commander" mode
-- Toolbar toggle → **two fully independent panes side by side** — in landscape *and* portrait
-  (fixed 50/50 split).
+- Toolbar toggle → **two fully independent panes side by side** — in landscape *and* portrait. **Drag
+  the handle between them** to resize (double-tap it for 50/50); the split is remembered.
 - **One shared toolbar** controls the **active** pane (tap a pane to focus it); each pane keeps its own
   folder, selection, scroll, **view mode and sort**, so the two sides can differ (e.g. left Compact,
   right Grid).
@@ -134,6 +142,31 @@ build in BFE installs straight into Bannerlator.
 - **Bink 2 (`.bk2`) is proprietary** — there's no open decoder, so BFE says so up front instead of
   failing. Encoding is software x264 (no hardware encoder): quick for 480p/720p cutscenes, slow for 4K.
 
+### Settings & About
+⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
+**dynamic color** on Android 12+), default apps, and About — version, source code link, release notes,
+BFE's license and every bundled **open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264 and
+the Java libraries), readable in-app.
+
+---
+
+## Updates
+BFE 1.0 and later **update themselves** from this repository's releases:
+- When BFE opens it checks for a newer **stable** release (at most once every 6 hours; turn it off in
+  Settings). **Settings → Check now** checks on demand.
+- A newer version shows a dialog with its version, size and release notes: **Update**, **Later**, or
+  **Skip this version**.
+- **Update** downloads the APK with a progress bar (cancelable), checks its **SHA-256**, and opens
+  Android's installer. The first time, Android asks you to allow BFE to install apps — BFE explains
+  and continues as soon as you come back.
+- Offline or GitHub unreachable? The check fails silently.
+
+How it works: each release (made by `.github/workflows/release.yml`) publishes `BFE-X.Y.apk` plus an
+`update.json` (versionCode, versionName, notes, apk URL, SHA-256, size, date). The same `update.json`
+is written to the `manifest` branch, which the app reads from `raw.githubusercontent.com`; the release
+asset `releases/latest/download/update.json` is the fallback. The app compares `versionCode`, and
+updates install over the top because every release is signed with the same key.
+
 ---
 
 ## How storage access works
@@ -166,9 +199,11 @@ app's private folder in one operation.
 BFE is a separate app (`com.the412banner.bfe`) — it never touches Bannerlator or any other install.
 
 ## Signing & integrity
-Releases are built by CI (`.github/workflows/build.yml`) and signed with a **bundled, publicly-known
-TEST key** (`keystore/bfe-test.jks`) using APK signature schemes **v1 + v2 + v3**, so any BFE build
-installs over the previous one without uninstalling.
+Releases are built by CI (`.github/workflows/release.yml`; every push to `main` is also built by
+`build.yml`) and signed with **one fixed key** (`keystore/bfe-test.jks`, or the same key from the
+`BFE_KEYSTORE_B64` repository secret) using APK signature schemes **v1 + v2 + v3**, so any BFE build
+installs over the previous one without uninstalling. CI fails any build whose signing certificate
+isn't that key (SHA-256 `4693b885e7b260043fc35d0565794525302af5734b511a08011888ac772108fe`).
 
 **This repository is public, so that signing key is public too — do not treat it as private.** Anyone
 can produce an APK carrying BFE's signature; only install BFE builds you obtained from this repo's
@@ -177,8 +212,16 @@ a private release key can be added via a CI secret if tamper-resistance is ever 
 
 ## Building from source
 ```bash
-./gradlew assembleRelease     # signed with the committed test key
+./gradlew assembleRelease     # signed with the committed key
 ```
+
+### Cutting a release
+```bash
+gh workflow run release.yml -f version=1.1 -f release_notes="$(cat notes.txt)"
+```
+It bumps `versionName`/`versionCode` on `main` if needed, builds and signs the APK, checks the
+certificate and version, creates release `v1.1` (latest, not a prerelease) with `BFE-1.1.apk` and
+`update.json`, and updates the `manifest` branch. The notes are shown to users in the update dialog.
 Toolchain: AGP 8.8, Kotlin 2.0.21, Compose BOM 2024.02, Java 17, NDK 29, compileSdk 34. No Hilt, no
 local `.so` build step — the prebuilt native binaries live in `app/src/main/jniLibs/arm64-v8a/` and
 are **exec'd** (not `System.loadLibrary`'d) from the app's native-lib dir, which is why the manifest
@@ -192,15 +235,18 @@ app/src/main/java/com/the412banner/bfe/
 ├─ pack/       archive creation (7zz, tar+zstd, Winlator .wcp), PackService (compression job)
 ├─ apk/        APK cloner/editor/signer (ARSCLib rewrite, apksig, keys), ApkJobService
 ├─ video/      ffmpeg wrapper + ConvertService (video → MP4 job)
-├─ storage/    StorageBackend abstraction: File / SAF / Root backends, cross-backend transfer, pins
-├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), Unpack screen, Compress dialog
-└─ ui/         progress pills, theme, components
+├─ storage/    StorageBackend abstraction: File / SAF / Root backends, cross-backend transfer, pins, item counts
+├─ update/     UpdateManager (update.json check, download, SHA-256 check, install)
+├─ util/       snackbars, default apps, favourites
+├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), Open with sheet, Settings, Unpack screen, dialogs
+└─ ui/         progress pills, update dialogs, theme, components
 app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure
-keystore/bfe-test.jks             public test signing key
+keystore/bfe-test.jks             the (public) BFE signing key
+licenses/                         license and notice texts, also shown in Settings
+scripts/check-signing.sh          CI guard: the APK must carry the BFE certificate
 ```
 
 ## Known limitations
-- Dual-pane split is a fixed 50/50 (no drag-to-resize yet). Path bar isn't a clickable breadcrumb yet.
 - SAF only reaches apps that **expose a DocumentsProvider** — most ordinary apps don't, and Android
   blocks SAF from `Android/data`. Use the root mode for those.
 - Extracting *from* an archive that lives on a SAF/root location isn't supported yet (archives must be
@@ -211,10 +257,11 @@ keystore/bfe-test.jks             public test signing key
   (x264), so large/4K sources are slow; output is always H.264 + AAC MP4 (no other output formats yet).
 - APK clones of apps that verify their own signature, are Play-licensed, or are bound to
   Google-services/Firebase may not run; that's inherent to cloning.
-- Errors surface as toasts; no predictive-back animation (targetSdk 28).
+- No predictive-back animation (targetSdk 28).
 
 ## License
 BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)), inherited
-from its Winlator/Bannerlator lineage. Bundled third-party components keep their own notices — see
-`NOTICE_7ZIP.txt`, `NOTICE_INNOEXTRACT.txt`, `NOTICE_UNARC.txt`, `NOTICE_FFMPEG.txt` (FFmpeg + x264,
-GPL v2+, built with `--enable-gpl --enable-libx264`) and `License_7zip.txt`.
+from its Winlator/Bannerlator lineage. Bundled third-party components keep their own notices, in
+[`licenses/`](licenses) and in the app under Settings → Open-source licenses: `NOTICE_7ZIP.txt`,
+`License_7zip.txt`, `NOTICE_INNOEXTRACT.txt`, `NOTICE_UNARC.txt`, `NOTICE_FFMPEG.txt` (FFmpeg + x264,
+GPL v2+, built with `--enable-gpl --enable-libx264`) and `THIRD_PARTY_LIBRARIES.txt`.
