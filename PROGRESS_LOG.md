@@ -61,7 +61,20 @@ Before 1.0 (manual):
 | 0.9 | 2026-09-02 | `d09b3b8` | 33610094584 | **Toolbar never clips**: measured-width layout, FlowRow wrap, narrow icon collapse; selection bar + dialog chips wrap. |
 | 0.9.1 | 2026-09-02 | `3ce888c` | 33613357237 | **Fix:** extraction progress pinned at 100% — dest-size pollers now baseline the destination. |
 | 0.10 | 2026-09-02 | `2c20196` · `606c1fc` (+ ffmpeg CI 33615215915 / 33615584735) | 33617124598 | **Convert to MP4…** (static ffmpeg 7.1.5 + x264 `libffmpeg.so`, `build-ffmpeg.yml`); `.apk` icons; **New file**. |
-| 1.0 | 2026-10-13 | `73b9eb2f` feature · `10334042` CI fix · `41ac248d` compile fix · `f8516b95` cert-check fix + docs | 38440434618 (+ release.yml run) | **First stable.** In-app updater + `release.yml` + manifest branch; Open with sheet; Settings/About + licenses; item counts; breadcrumb; resizable panes; snackbars; M3 polish; signing from secret + cert guard. Runs 38439402215 (setup-android `tools` package gone), 38439521683 (missing `detectTapGestures` import) and 38439927296 (cert digest parse) failed. |
+| 1.0 | 2026-10-13 | `73b9eb2f` feature · `10334042` CI fix · `41ac248d` compile fix · `f8516b95` cert-check fix + docs | 38440434618 · main 38441935303 · release.yml 38441955085 (tag `v1.0` = `f75f3ea0`) | **First stable.** In-app updater + `release.yml` + manifest branch; Open with sheet; Settings/About + licenses; item counts; breadcrumb; resizable panes; snackbars; M3 polish; signing from secret + cert guard. APK `BFE-1.0.apk` 27,822,882 B, sha256 `7b33ea00…8a79145f`, cert same as 0.10. Runs 38439402215 (setup-android `tools` package gone), 38439521683 (missing `detectTapGestures` import) and 38439927296 (cert digest parse) failed. |
+| 1.0 (docs) | 2026-10-13 | `236f76bb` | — | release.yml body names the Settings button "Check now" (published v1.0 notes edited to match). |
+
+
+## Design decisions (owner, 2026-10-13)
+Made from the owner's screenshots during the 1.0 round. Keep these when changing the browser UI:
+- **Rows use the free space:** folders show "N items" and the last-modified date, files show size
+  and date. Counts are computed lazily per visible row, off the main thread. Byte sizes have no decimals ("34 B").
+- **Tapping a file opens BFE's own Open with sheet, never Android's chooser.** BFE's actions are at
+  the top (extract, install, clone, convert, properties) and installed apps that can open it are
+  below, with "Open as" type chips. A remembered "Always use for .ext" app is listed first and
+  marked, but is **never launched automatically**; every tap shows the sheet.
+- **Tapping a file does not open the ⋮ action menu.** This was tried and rejected; the ⋮ button keeps the menu.
+- Tapping a folder navigates; long-press starts multi-select; the ⋮ menu is grouped, with Delete in the error color.
 
 ## Architecture (where things live)
 ```
