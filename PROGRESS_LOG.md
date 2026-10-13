@@ -6,26 +6,34 @@ where it stands*.
 
 ---
 
-## Current state (2026-09-02)
+## Current state (2026-10-13)
 
-- **Latest release: v0.10** — https://github.com/The412Banner/BFE/releases/tag/v0.10
-  `main` @ `dc32a89` (README) / build commit `606c1fc`, CI run 33617124598, versionCode 11.
-- **Shipped feature set:** dual-pane commander (shared active-pane toolbar, per-pane Grid/List/Compact +
-  sort, wrapping toolbar); extraction (7-Zip, innoextract w/ GOG DLC batch, FreeArc unarc, into
-  SAF/root); compression (zip/7z/tar/tar.gz/tar.xz/tzst/Winlator `.wcp`); pinned SAF app storage;
-  root any-app `/data/data` browsing with chown-to-app-uid safety; APK cloner + signer (ARSCLib +
-  apksig, v1/v2/v3, built-in test key + key manager); video converter (static ffmpeg 7.1.5 + x264 →
-  H.264/AAC MP4); `.apk` icons; New file; Open-with / Share / Install-APK targets.
-- **Verification level:** every release is **CI-green + `apksigner` v1/v2/v3-verified + version-checked**.
-  The cloner pipeline is **JVM-proven on a real APK**; the shipped ffmpeg binary was **run from the APK**
-  (aarch64 PRoot) and converted a test clip. **Nothing from 0.5 onward has been run on a device yet**
-  by the maintainer — device testing is the open gate for: SAF/root browsing, the root chown path,
-  compression, cloner UI + split-merge, converter UI, toolbar wrapping, the 0.9.1 progress fix.
-- **Repo:** public since 2026-09-01. The committed test key (`keystore/bfe-test.jks`, pw `bfetest`)
-  is therefore public — accepted for a sideload dev tool; a private release key via CI secret is the
-  upgrade path if tamper-resistance is ever wanted.
+- **Latest release: v1.0 (versionCode 12), the first stable release.** https://github.com/The412Banner/BFE/releases/tag/v1.0
+  Cut by `release.yml`; see the timeline for commits and CI runs.
+- **1.0 adds:** in-app updater (update.json on the `manifest` branch, fallback
+  `releases/latest/download/update.json`; versionCode compare; Update / Later / Skip; cancelable
+  download; SHA-256 check; installer via FileProvider; install-unknown-apps flow; 6 h auto-check
+  toggle), `release.yml`, BFE's own **Open with** sheet on file tap (built-in actions + apps + Open as
+  chips + per-extension default), grouped ⋮ menu, long-press = multi-select, folder item counts + medium
+  dates in List/Compact, clickable breadcrumb, drag-to-resize panes, snackbars, empty/error/no-match
+  states, Settings + About (theme mode, dynamic color, default apps, licenses in-app), full Material 3
+  colour scheme with themed system bars, monochrome launcher icon, byte sizes without decimals.
+- **Signing:** one key since 0.1 (`CN=BFE Test`, cert SHA-256 `4693b885…08fe`). CI now reads it from
+  the `BFE_KEYSTORE_B64` secret (same key) with the committed file as fallback, and
+  `scripts/check-signing.sh` fails any build signed with a different certificate.
+- **Verification level:** 1.0 is CI-built, certificate-checked and version-checked; nothing in 1.0 has
+  been run on a device by the maintainer yet. The updater's download + install path can only be
+  exercised once a release newer than 1.0 exists. The older device-test backlog (SAF/root, compression,
+  cloner, converter, toolbar) still stands.
 
 ## Release pipeline (how every version is cut)
+**From 1.0:** `gh workflow run release.yml -f version=X.Y -f release_notes="..."` does steps 1-3 below
+in one job (version bump/validation, build, certificate + aapt check, release `vX.Y` with
+`BFE-X.Y.apk` + `update.json`, manifest branch). The notes are user-facing (shown in the update
+dialog), never a placeholder; the workflow rejects obvious ones. Push docs first so the tag lands on
+the final commit. Then verify both update.json URLs, the asset's version + certificate, and stage.
+
+Before 1.0 (manual):
 1. Feature work on `main` (agent-built), pushed → `build.yml` runs `assembleRelease` (signed with the
    test key, v1+v2+v3) → artifact `bfe-release-apk`.
 2. Verify: `gh run view <id> --json conclusion,jobs` (never trust `gh run watch`), download the
@@ -53,6 +61,7 @@ where it stands*.
 | 0.9 | 2026-09-02 | `d09b3b8` | 33610094584 | **Toolbar never clips**: measured-width layout, FlowRow wrap, narrow icon collapse; selection bar + dialog chips wrap. |
 | 0.9.1 | 2026-09-02 | `3ce888c` | 33613357237 | **Fix:** extraction progress pinned at 100% — dest-size pollers now baseline the destination. |
 | 0.10 | 2026-09-02 | `2c20196` · `606c1fc` (+ ffmpeg CI 33615215915 / 33615584735) | 33617124598 | **Convert to MP4…** (static ffmpeg 7.1.5 + x264 `libffmpeg.so`, `build-ffmpeg.yml`); `.apk` icons; **New file**. |
+| 1.0 | 2026-10-13 | `73b9eb2f` feature · `10334042` CI fix · `41ac248d` compile fix · docs | 38439927296 (+ release run) | **First stable.** In-app updater + `release.yml` + manifest branch; Open with sheet; Settings/About + licenses; item counts; breadcrumb; resizable panes; snackbars; M3 polish; signing from secret + cert guard. Runs 38439402215 (setup-android `tools` package gone) and 38439521683 (missing `detectTapGestures` import) failed. |
 
 ## Architecture (where things live)
 ```
@@ -86,14 +95,20 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
 - Build agents can die from a mid-session model switch (transcript lost) or a network drop (API
   connection lost) — resume via the agent id when it exists, else respawn with the file-map brief
   above. Work on disk is never lost.
+- `android-actions/setup-android@v3` installs the retired `tools` package by default, which current
+  sdkmanager rejects ("Failed to find package 'tools'"). Pass `packages: 'platform-tools'`.
+- A Compose gesture *extension* (`detectTapGestures`) can't be called by its fully qualified name;
+  import it.
+- The updater depends on signature continuity: CI checks the certificate digest on every build so a
+  wrong key can never reach a release.
 - The build agent and coordinator share one checkout: always check `git rev-list origin/main..HEAD`
   before pushing docs so you don't ship half-done work early.
 
-## Known limitations (as of 0.10)
-Fixed 50/50 split; path bar not clickable-segmented; SAF only reaches DocumentsProvider apps; extracting
+## Known limitations (as of 1.0)
+SAF only reaches DocumentsProvider apps; extracting
 *from* a SAF/root-hosted archive unsupported; piped tar.gz/xz report % not per-file; Compact ≈2× (not
 ¼) density; `.bk2` (Bink 2) undecodable; software-only x264; MP4-only output; clones of
-signature-checking / Play-licensed / Google-services apps may not run; toasts not snackbars; no
+signature-checking / Play-licensed / Google-services apps may not run; no
 predictive-back animation (targetSdk 28); imported keystore passwords stored in private prefs as
 plain text.
 
@@ -107,5 +122,10 @@ plain text.
   has most deps); the real work is merging the dual-pane/shared-toolbar `FileManagerScreen` refactor
   back **while keeping** Bannerlator's container/Wine/shortcut hooks. Do it in phases, on a feature
   branch, behind device tests, under the vc-77 freeze. First and cheapest: the 0.9.1 progress-bar fix.
-- Nice-to-haves: drag-to-resize divider; clickable breadcrumb; snackbars; extract-from-SAF/root
-  archives; more converter outputs; private release key via CI secret.
+- **First updater proof:** with 1.0 installed from the release, cut the next release (e.g. 1.0.1) and
+  confirm 1.0 offers it, downloads, verifies and installs over itself.
+- Device-check the 1.0 UI: Open with sheet (chips, default app, empty state), item counts on SAF/root,
+  breadcrumb, pane divider, Settings theme/dynamic color, license viewer.
+- Nice-to-haves: extract-from-SAF/root archives; more converter outputs; a built-in text/image viewer
+  for the Open with sheet; a private (non-public) release key, which would need key rotation (APK v3
+  signing lineage) so existing installs keep updating.
