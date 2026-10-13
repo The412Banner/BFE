@@ -1,0 +1,11 @@
+{
+  "versionCode": 12,
+  "versionName": "1.0",
+  "notes": "BFE 1.0 is the first stable release.\n\n- Automatic updates: BFE now checks for new releases, shows what changed, and downloads, verifies and installs updates for you. Turn it off or check by hand in Settings.\n- Open with, redesigned: tap a file to see what BFE can do with it (extract, install, convert, properties) and every app that can open it. Pick a type with \"Open as\" and remember a default app per file type.\n- Folders now show how many items they hold and when they last changed. File sizes read cleanly (34 B, 1.25 MB).\n- Tap any part of the path to jump there. Drag the divider between the two panes to resize them.\n- New Settings and About page: light, dark or system theme, dynamic color on Android 12 and later, default apps, version info and all open-source licenses.\n- Long-press starts multi-select. The ⋮ menu is grouped and easier to scan.\n- Clearer messages, empty and error states, and a refreshed look throughout.\n\nYour files and settings carry over. 1.0 installs over any earlier BFE.",
+  "apkName": "BFE-1.0.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.0/BFE-1.0.apk",
+  "sha256": "7b33ea005ee85d1a531ecd29cda0bd7a812f4071cdbfe31bb41215ea8a79145f",
+  "size": 27822882,
+  "publishedAt": "2026-10-13",
+  "minSupported": 1
+}
