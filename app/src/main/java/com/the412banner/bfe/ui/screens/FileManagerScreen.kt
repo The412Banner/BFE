@@ -14,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
@@ -3841,7 +3842,7 @@ private fun PaneDivider(onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onReset:
                 orientation = androidx.compose.foundation.gestures.Orientation.Horizontal,
                 onDragStopped = { onDragEnd() },
             )
-            .pointerInput(Unit) { androidx.compose.foundation.gestures.detectTapGestures(onDoubleTap = { onReset() }) }
+            .pointerInput(Unit) { detectTapGestures(onDoubleTap = { onReset() }) }
             .semantics { contentDescription = "Resize panes" },
     ) {
         Box(
