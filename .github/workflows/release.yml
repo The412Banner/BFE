@@ -89,6 +89,10 @@ jobs:
 
     - name: Set up Android SDK
       uses: android-actions/setup-android@v3
+      with:
+        # The action's default list includes the long-retired 'tools' package, which current
+        # sdkmanager no longer knows ("Failed to find package 'tools'"); AGP fetches the rest.
+        packages: 'platform-tools'
 
     - name: Set up Gradle
       uses: gradle/actions/setup-gradle@v4
