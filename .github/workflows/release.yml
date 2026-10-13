@@ -151,7 +151,7 @@ jobs:
           echo
           echo "Download **BFE-${VERSION}.apk** below and open it. Android 8.0 or newer, 64-bit ARM (arm64-v8a)."
           echo "It installs over any earlier BFE. From 1.0 on, BFE also finds and installs new versions by itself"
-          echo "(Settings > Check for updates)."
+          echo "(Settings > Check now)."
           echo
           echo "SHA-256: \`${SHA}\`"
         } > dist/release-body.md
