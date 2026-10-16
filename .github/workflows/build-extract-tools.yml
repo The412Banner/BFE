@@ -160,8 +160,10 @@ jobs:
         done
         (cd lzo-2.10 && ./configure --host=aarch64-linux-android --prefix="$PREFIX" --disable-shared --enable-static \
            CC="$CC" CFLAGS="-O2" && make -j"$(nproc)" && make install)
+        # lzop's help.c defines a global sysinfo(), which collides with bionic's static libc.a when
+        # linked -static; rename lzop's own function at compile time.
         (cd lzop-1.04 && ./configure --host=aarch64-linux-android CC="$CC" CFLAGS="-O2" \
-           CPPFLAGS="-I$PREFIX/include" LDFLAGS="-L$PREFIX/lib -static" && make -j"$(nproc)")
+           CPPFLAGS="-I$PREFIX/include -Dsysinfo=lzop_sysinfo" LDFLAGS="-L$PREFIX/lib -static" && make -j"$(nproc)")
         install -m 755 lzop-1.04/src/lzop "$DIST/liblzop.so"
 
     - name: Build lz4 1.10.0 CLI
