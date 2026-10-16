@@ -1,0 +1,251 @@
+name: Build rclone (arm64 Android, downloaded on first use)
+
+# Cross-compiles BFE's trimmed rclone (rclone/main.go: only the commands and backends the Cloud and
+# Remote screens use) for aarch64-linux-android26 with cgo and the NDK clang, so it links against
+# bionic like any Android executable. A generic static Linux build is the wrong tool here: Android's
+# seccomp filter kills it (SIGSYS) on some syscalls, and Go's pure DNS resolver finds no
+# /etc/resolv.conf on Android; the cgo build resolves through bionic's getaddrinfo instead.
+#
+# The binary is NOT bundled in the APK. BFE downloads it the first time Cloud or Remote is opened,
+# from a GitHub release asset whose SHA-256 is pinned in cloud/RcloneManager.kt. This workflow only
+# uploads the `rclone-android-arm64` artifact (raw binary, the .gz BFE downloads, SHA256SUMS, build
+# info and the dependency licence bundle) for a maintainer to publish as that release.
+#
+# A second job builds upstream's full rclone (every backend and command) once, only to report how
+# much the trimmed build saves. Manual or on changes to the build inputs; never cancels build.yml.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rclone/**'
+      - '.github/workflows/build-rclone.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rclone-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RCLONE_TAG: v1.75.2
+  ASSET_BASE: rclone-v1.75.2-android-arm64
+  NDK_PKG: "ndk;29.0.14206865"
+  NDK_FALLBACK_URL: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+  API: 26
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Fetch rclone ${{ env.RCLONE_TAG }}
+      run: |
+        set -euo pipefail
+        git clone -q --depth 1 --branch "$RCLONE_TAG" https://github.com/rclone/rclone.git build/rclone
+        git -C build/rclone log -1 --format='rclone %H (%cd)'
+        grep -E '^(go|toolchain) ' build/rclone/go.mod
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26.x'
+        check-latest: true
+        cache-dependency-path: build/rclone/go.sum
+
+    - name: Set up JDK 17 (needed by sdkmanager)
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'platform-tools'
+
+    - name: Provision NDK (sdkmanager, fallback to r29 zip)
+      run: |
+        set -euo pipefail
+        NDK=""
+        if yes | sdkmanager --install "$NDK_PKG" >/tmp/sdkmanager.log 2>&1; then
+          NDK="$ANDROID_SDK_ROOT/ndk/${NDK_PKG#ndk;}"
+          echo "sdkmanager installed $NDK_PKG"
+        else
+          echo "sdkmanager failed for $NDK_PKG:"; tail -20 /tmp/sdkmanager.log || true
+        fi
+        if [ -z "$NDK" ] || [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" ]; then
+          echo "Downloading fallback NDK from $NDK_FALLBACK_URL"
+          curl -sSL -o /tmp/ndk.zip "$NDK_FALLBACK_URL"
+          unzip -q /tmp/ndk.zip -d "$HOME"
+          NDK="$(ls -d "$HOME"/android-ndk-r29* | head -1)"
+        fi
+        if [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" ] && [ -n "${ANDROID_NDK_LATEST_HOME:-}" ]; then
+          echo "Falling back to ANDROID_NDK_LATEST_HOME=$ANDROID_NDK_LATEST_HOME"
+          NDK="$ANDROID_NDK_LATEST_HOME"
+        fi
+        test -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" || { echo "No usable NDK found"; exit 1; }
+        cat "$NDK/source.properties"
+        TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64"
+        {
+          echo "NDK=$NDK"
+          echo "TOOLCHAIN=$TOOLCHAIN"
+          echo "DIST=$GITHUB_WORKSPACE/build/dist"
+        } >> "$GITHUB_ENV"
+        echo "$TOOLCHAIN/bin" >> "$GITHUB_PATH"
+        "$TOOLCHAIN/bin/aarch64-linux-android${API}-clang" --version
+
+    - name: Build trimmed rclone (android/arm64, cgo, bionic)
+      working-directory: build/rclone
+      run: |
+        set -euo pipefail
+        mkdir -p bfe "$DIST"
+        cp "$GITHUB_WORKSPACE/rclone/main.go" bfe/main.go
+        export GOOS=android GOARCH=arm64 CGO_ENABLED=1
+        export CC="$TOOLCHAIN/bin/aarch64-linux-android${API}-clang"
+        export CC_FOR_TARGET="$CC"
+        export CGO_LDFLAGS="-fuse-ld=lld -s -w"
+        go version
+        go build -tags android -trimpath \
+          -ldflags "-s -w -X github.com/rclone/rclone/fs.Version=${RCLONE_TAG}-bfe" \
+          -o "$DIST/rclone" ./bfe
+        ls -la "$DIST/rclone"
+
+    - name: Inspect binary
+      working-directory: build/dist
+      run: |
+        set -euo pipefail
+        file rclone
+        echo "---- readelf -h ----"; llvm-readelf -h rclone | grep -E 'Class|Machine|Type'
+        echo "---- INTERP / NEEDED ----"
+        llvm-readelf -l rclone | grep -A1 INTERP || echo "no INTERP"
+        llvm-readelf -d rclone | grep NEEDED || echo "no NEEDED"
+        echo "---- embedded build info ----"
+        go version -m rclone > /tmp/buildinfo.txt
+        head -20 /tmp/buildinfo.txt; echo "($(grep -c $'\tdep\t' /tmp/buildinfo.txt) modules)"
+
+    - name: Package (gzip for download, checksums, build info)
+      working-directory: build/dist
+      run: |
+        set -euo pipefail
+        gzip -9 -n -c rclone > "${ASSET_BASE}.gz"
+        sha256sum rclone "${ASSET_BASE}.gz" > SHA256SUMS
+        BIN_SIZE=$(stat -c %s rclone)
+        GZ_SIZE=$(stat -c %s "${ASSET_BASE}.gz")
+        {
+          echo "BFE trimmed rclone build"
+          echo "rclone:   ${RCLONE_TAG} ($(git -C ../rclone rev-parse HEAD))"
+          echo "go:       $(go version)"
+          echo "ndk:      $(grep Pkg.Revision "$NDK/source.properties")"
+          echo "target:   android/arm64, API ${API}, cgo (bionic), -tags android -trimpath -s -w"
+          echo "binary:   rclone ${BIN_SIZE} bytes"
+          echo "download: ${ASSET_BASE}.gz ${GZ_SIZE} bytes"
+          echo
+          echo "SHA-256:"
+          cat SHA256SUMS
+          echo
+          echo "Imports (rclone/main.go):"
+          grep -E '^\s+_ "github.com/rclone/rclone/' "$GITHUB_WORKSPACE/rclone/main.go" | sed -E 's/.*rclone\/rclone\///; s/"//'
+        } > BUILD_INFO.txt
+        cat BUILD_INFO.txt
+        {
+          echo "### rclone ${RCLONE_TAG} for BFE (android/arm64)"
+          echo
+          echo "| file | bytes | sha256 |"
+          echo "|---|---|---|"
+          while read -r sum name; do echo "| \`$name\` | $(stat -c %s "$name") | \`$sum\` |"; done < SHA256SUMS
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Collect dependency licences
+      working-directory: build/dist
+      run: |
+        set -euo pipefail
+        MODCACHE="$(go env GOMODCACHE)"
+        # Module cache paths encode upper-case letters as '!' + lower-case.
+        esc() { echo "$1" | sed -E 's/([A-Z])/!\L\1/g'; }
+        {
+          echo "Licences of rclone and of every Go module linked into the BFE rclone binary"
+          echo "(${ASSET_BASE}), collected from the module cache at build time."
+          echo
+          echo "==== github.com/rclone/rclone ${RCLONE_TAG} (COPYING) ===="
+          cat ../rclone/COPYING
+          echo
+        } > rclone-licenses.txt
+        : > rclone-deps.txt
+        # `go version -m` lists each linked module as: dep <path> <version> [<sum>], and a replaced one
+        # is followed by: => <path> <version> [<sum>]. Read the replacement when there is one.
+        go version -m rclone | awk '$1=="dep"{if(p!="")print p; p=$2" "$3} $1=="=>"{p=$2" "$3} END{if(p!="")print p}' |
+        while read -r mod ver; do
+          dir="$MODCACHE/$(esc "$mod")@$(esc "$ver")"
+          files=$(ls "$dir" 2>/dev/null | grep -iE '^(licen[cs]e|copying|notice|patents)' || true)
+          kind="unknown"
+          for f in $files; do
+            t="$dir/$f"
+            if [ "$kind" != "unknown" ]; then continue; fi
+            if grep -qiE 'Mozilla Public License' "$t"; then kind="MPL-2.0"
+            elif grep -qiE 'Apache License' "$t"; then kind="Apache-2.0"
+            elif grep -qiE 'Permission is hereby granted, free of charge' "$t"; then kind="MIT"
+            elif grep -qiE 'Redistribution and use in source and binary forms' "$t"; then kind="BSD"
+            elif grep -qiE 'Permission to use, copy, modify, and(/or)? distribute' "$t"; then kind="ISC"
+            fi
+          done
+          echo "$mod $ver $kind" >> rclone-deps.txt
+          for f in $files; do
+            { echo "==== $mod $ver ($f) ===="; cat "$dir/$f"; echo; } >> rclone-licenses.txt
+          done
+        done
+        echo "modules: $(wc -l < rclone-deps.txt)"
+        awk '{print $3}' rclone-deps.txt | sort | uniq -c
+        grep ' unknown$' rclone-deps.txt || echo "every module has a recognised licence"
+        ls -la
+
+    - name: Upload rclone-android-arm64
+      uses: actions/upload-artifact@v4
+      with:
+        name: rclone-android-arm64
+        path: |
+          build/dist/rclone
+          build/dist/${{ env.ASSET_BASE }}.gz
+          build/dist/SHA256SUMS
+          build/dist/BUILD_INFO.txt
+          build/dist/rclone-licenses.txt
+          build/dist/rclone-deps.txt
+        if-no-files-found: error
+
+  full-size:
+    # Size reference only: upstream's own main package (all ~70 backends and every command).
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    continue-on-error: true
+
+    steps:
+    - name: Fetch rclone ${{ env.RCLONE_TAG }}
+      run: git clone -q --depth 1 --branch "$RCLONE_TAG" https://github.com/rclone/rclone.git rclone
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26.x'
+        check-latest: true
+        cache-dependency-path: rclone/go.sum
+
+    - name: Build upstream rclone (android/arm64) and report its size
+      working-directory: rclone
+      run: |
+        set -euo pipefail
+        NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+        export GOOS=android GOARCH=arm64 CGO_ENABLED=1
+        export CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${API}-clang"
+        export CGO_LDFLAGS="-fuse-ld=lld -s -w"
+        go build -tags android -trimpath -ldflags "-s -w" -o rclone-full .
+        BIN=$(stat -c %s rclone-full)
+        GZ=$(gzip -9 -n -c rclone-full | wc -c)
+        echo "upstream full rclone: binary ${BIN} bytes, gzip ${GZ} bytes"
+        echo "### upstream full rclone ${RCLONE_TAG} (android/arm64): binary ${BIN} B, gzip ${GZ} B" >> "$GITHUB_STEP_SUMMARY"
