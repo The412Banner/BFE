@@ -1,0 +1,29 @@
+Apache FtpServer 1.2.1 and Apache MINA 2.2.4 — used by BFE's "Access from network" (the FTP server)
+https://mina.apache.org/ftpserver-project/ · https://mina.apache.org/mina-project/
+License: Apache License, Version 2.0 — https://www.apache.org/licenses/LICENSE-2.0
+BFE uses the unmodified libraries from Maven Central (org.apache.ftpserver:ftpserver-core:1.2.1,
+org.apache.ftpserver:ftplet-api:1.2.1, org.apache.mina:mina-core:2.2.4). FtpServer's optional
+Spring configuration support is not included in BFE.
+
+The NOTICE files distributed with these libraries follow.
+
+=== Apache FtpServer Core ===
+Apache FtpServer Core
+Copyright 2003-2025 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+=== Apache Ftplet API ===
+Apache Ftplet API
+Copyright 2003-2025 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).
+
+=== Apache MINA Core ===
+Apache MINA Core
+Copyright 2004-2024 Apache MINA Project
+
+This product includes software developed at
+The Apache Software Foundation (http://www.apache.org/).

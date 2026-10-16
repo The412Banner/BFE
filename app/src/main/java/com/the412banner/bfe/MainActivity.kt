@@ -53,6 +53,7 @@ import com.the412banner.bfe.ui.UnpackProgressPill
 import com.the412banner.bfe.ui.screens.FileManagerScreen
 import com.the412banner.bfe.ui.screens.SettingsScreen
 import com.the412banner.bfe.ui.update.UpdateHost
+import com.the412banner.bfe.server.ServerService
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.ui.theme.BfeTheme
@@ -71,6 +72,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // Silent, throttled update check (no-op when turned off in Settings or checked recently).
         if (savedInstanceState == null) UpdateManager.checkOnLaunch(this)
+        // "Access from network": start the servers the user chose to start with BFE (no-op otherwise).
+        if (savedInstanceState == null) ServerService.startOnLaunch(this)
         setContent {
             BfeTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
