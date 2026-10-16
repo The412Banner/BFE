@@ -46,8 +46,8 @@ import kotlinx.coroutines.withContext
  * reachable from the OS "Open with"/Share sheet for an archive or a GOG setup.exe (see the manifest
  * intent-filters). An incoming content:// or file:// Uri is resolved to the real file where possible
  * ([IncomingFile.resolvePath]); only when the sending app hides the location is the file copied in.
- * The `QuickExtract` alias ("Extract to ./<Archive name>/" in the system chooser) opens the same screen
- * and starts extracting into the default folder straight away.
+ * [QuickExtractActivity] ("Extract to ./<Archive name>/") normally extracts in the background; with
+ * notifications off it opens this screen with [EXTRA_AUTO_START] so the extraction still starts by itself.
  */
 private sealed interface Stage {
     data object Resolving : Stage
@@ -64,8 +64,8 @@ class UnpackArchiveActivity : ComponentActivity() {
         val explicitPath = intent.getStringExtra(EXTRA_ARCHIVE_PATH)?.takeIf { it.isNotBlank() }
         val initialDest = intent.getStringExtra(EXTRA_INITIAL_DEST)?.takeIf { it.isNotBlank() }
         val uri: Uri? = intent.data ?: (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
-        // Picked as "Extract to ./<Archive name>/" (the QuickExtract alias) rather than plain "BFE".
-        val quickExtract = intent.component?.className == QUICK_EXTRACT_ALIAS
+        // "Extract to ./<Archive name>/" with BFE's notifications off: show this screen, but auto-start.
+        val autoStart = intent.getBooleanExtra(EXTRA_AUTO_START, false)
         setContent {
             BfeTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -81,7 +81,7 @@ class UnpackArchiveActivity : ComponentActivity() {
                         is Stage.Ready -> UnpackArchiveScreen(
                             archivePath = s.path,
                             initialDestPath = s.initialDest,
-                            autoStart = quickExtract,
+                            autoStart = autoStart,
                             onClose = { finish() },
                         )
                         is Stage.Copying -> CopyingScreen(s, copied, onCancel = { finish() })
@@ -133,7 +133,7 @@ class UnpackArchiveActivity : ComponentActivity() {
     companion object {
         const val EXTRA_ARCHIVE_PATH = "archivePath"
         const val EXTRA_INITIAL_DEST = "initialDest"
-        private const val QUICK_EXTRACT_ALIAS = "com.the412banner.bfe.QuickExtract"
+        const val EXTRA_AUTO_START = "autoStart"
 
         /**
          * @param initialDest optional starting extract destination (BFE dual-pane: the other pane's

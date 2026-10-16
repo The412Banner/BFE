@@ -208,12 +208,22 @@
             </intent-filter>
         </activity>
 
+        <!-- No-UI target of the QuickExtract alias: hands the file to UnpackService and finishes. -->
+        <activity
+            android:name="com.the412banner.bfe.QuickExtractActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:exported="false" />
+
         <!-- One-tap "Extract to ./<Archive name>/" next to "BFE" in other apps' Open with sheet (like
-             ZArchiver's): same activity, which auto-starts the extraction into the default folder. Keep its
-             MIME list identical to UnpackArchiveActivity's VIEW filter. -->
+             ZArchiver's): extracts in the background into the default folder, with progress, Pause/Cancel
+             and the result in notifications. Keep its MIME list identical to UnpackArchiveActivity's VIEW
+             filter. -->
         <activity-alias
             android:name="com.the412banner.bfe.QuickExtract"
-            android:targetActivity="com.the412banner.bfe.UnpackArchiveActivity"
+            android:targetActivity="com.the412banner.bfe.QuickExtractActivity"
             android:label="@string/quick_extract_label"
             android:exported="true">
             <intent-filter>

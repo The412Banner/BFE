@@ -7,8 +7,9 @@ import android.os.Environment
 import android.os.StatFs
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -103,6 +104,14 @@ object IncomingFile {
 
     /** Copies [uri] into [incomingDir] as [Meta.name], reporting bytes copied. Cancellable; a partial copy is removed. */
     suspend fun copyIn(ctx: Context, uri: Uri, meta: Meta, onProgress: (Long) -> Unit): File = withContext(Dispatchers.IO) {
+        copy(ctx, uri, meta, { !isActive }, onProgress)
+    }
+
+    /** [copyIn] for a plain worker thread (the background extraction service); stops when [isCancelled]. */
+    fun copyInBlocking(ctx: Context, uri: Uri, meta: Meta, isCancelled: () -> Boolean, onProgress: (Long) -> Unit): File =
+        copy(ctx, uri, meta, isCancelled, onProgress)
+
+    private fun copy(ctx: Context, uri: Uri, meta: Meta, isCancelled: () -> Boolean, onProgress: (Long) -> Unit): File {
         val dir = incomingDir(ctx).apply { mkdirs() }
         val out = File(dir, meta.name)
         val part = File(dir, meta.name + ".part")
@@ -113,7 +122,7 @@ object IncomingFile {
                     val buf = ByteArray(1 shl 20)
                     var total = 0L
                     while (true) {
-                        ensureActive()
+                        if (isCancelled()) throw CancellationException("Copy cancelled")
                         val n = src.read(buf)
                         if (n < 0) break
                         dst.write(buf, 0, n)
@@ -124,7 +133,7 @@ object IncomingFile {
             }
             out.delete()
             if (!part.renameTo(out)) error("Couldn't finish the copy")
-            out
+            return out
         } catch (t: Throwable) {
             part.delete()
             throw t

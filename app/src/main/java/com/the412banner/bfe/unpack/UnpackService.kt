@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
@@ -33,9 +35,15 @@ class UnpackService : Service() {
         private const val TAG = "UnpackService"
         private const val CHANNEL_ID = "unpack_channel"
         private const val NOTIFICATION_ID = 9003
+        private const val COPYING = "Copying into BFE…"
 
         const val ACTION_START = "com.the412banner.bfe.unpack.START"
         const val ACTION_CANCEL = "com.the412banner.bfe.unpack.CANCEL"
+        // Background "Extract to ./<Archive name>/" requests (see QuickExtractActivity) + live controls.
+        const val ACTION_QUICK = "com.the412banner.bfe.unpack.QUICK"
+        const val ACTION_PAUSE = "com.the412banner.bfe.unpack.PAUSE"
+        const val ACTION_RESUME = "com.the412banner.bfe.unpack.RESUME"
+        const val ACTION_CANCEL_ALL = "com.the412banner.bfe.unpack.CANCEL_ALL"
         const val EXTRA_ARCHIVE = "archive"
         // GOG DLC batch: several InnoSetup installers (base + DLC setups) extracted back-to-back into
         // one destination. When present it supersedes EXTRA_ARCHIVE; element 0 is the primary/base.
@@ -51,6 +59,38 @@ class UnpackService : Service() {
         // onStartCommand hasn't re-published `instance` yet.
         @Volatile private var proc: Process? = null
         @Volatile private var cancelled = false
+
+        // One job runs at a time; background requests that arrive meanwhile wait here (in order) and
+        // are planned only when their turn comes. [busy] is owned by the running job: set when one
+        // starts, cleared only by [onJobFinished] when nothing is left — always under [lock].
+        private class Queued(val name: String, val path: String?, val uri: Uri?)
+        private val queue = ArrayDeque<Queued>()
+        private val lock = Any()
+        @Volatile private var busy = false
+        @Volatile private var paused = false
+        // Each finished / failed / refused job keeps its own notification; the ongoing one moves on.
+        private val terminalIds = java.util.concurrent.atomic.AtomicInteger(9100)
+
+        // Pause = SIGSTOP the engine process (7zz / innoextract / unarc), resume = SIGCONT.
+        private const val SIGCONT = 18
+        private const val SIGSTOP = 19
+        private val ENGINE_BINARIES = listOf("lib7zz.so", "libinnoextract.so", "libunarc.so")
+
+        fun isBusy(): Boolean = busy
+
+        /**
+         * Queues [uri] (a file another app handed over) for a background extraction with default
+         * settings; progress, controls and the result live in notifications only. The read grant on
+         * [uri] is passed on to the service with the intent.
+         */
+        fun enqueue(ctx: Context, uri: Uri) {
+            val i = Intent(ctx, UnpackService::class.java).apply {
+                action = ACTION_QUICK
+                data = uri
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
+        }
 
         fun start(ctx: Context, archive: String, dest: String, mmt: Int, bufferBytes: Int, isInno: Boolean, totalSize: Long, engine: String = "7z") {
             val app = ctx.applicationContext
@@ -98,6 +138,8 @@ class UnpackService : Service() {
     // suspend is the main reason a long background extraction appears to "pause". Balanced by a
     // finally in the worker thread AND onDestroy, so it can never leak.
     @Volatile private var wakeLock: PowerManager.WakeLock? = null
+    // stopSelf(id) only stops when no newer start arrived meanwhile (a request queued at the last moment).
+    @Volatile private var lastStartId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -140,6 +182,7 @@ class UnpackService : Service() {
     )
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         // START_STICKY restart re-delivers a null intent. The worker thread and the 7zz process died
         // with the old process (7-Zip extraction isn't resumable), and our process-static state reset
         // to IDLE, so there is nothing to resume — clear any stale notification and stop cleanly. The
@@ -150,11 +193,50 @@ class UnpackService : Service() {
             return START_NOT_STICKY
         }
         when (intent.action) {
-            ACTION_CANCEL -> {
+            ACTION_CANCEL, ACTION_CANCEL_ALL -> {
+                if (intent.action == ACTION_CANCEL_ALL) synchronized(lock) { queue.clear() }
                 cancelled = true
                 runCatching { proc?.destroy() }
-                Log.i(TAG, "Cancel requested")
+                // A stopped process only acts on the kill once it runs again.
+                if (paused) { signalEngines(SIGCONT); paused = false }
+                Log.i(TAG, "Cancel requested (${intent.action})")
                 return START_NOT_STICKY
+            }
+            ACTION_PAUSE -> {
+                if (busy && !paused) {
+                    paused = true
+                    signalEngines(SIGSTOP)
+                    releaseWakeLock()
+                    refresh()
+                }
+                return START_NOT_STICKY
+            }
+            ACTION_RESUME -> {
+                if (paused) {
+                    acquireWakeLock()
+                    signalEngines(SIGCONT)
+                    paused = false
+                    refresh()
+                }
+                return START_NOT_STICKY
+            }
+            ACTION_QUICK -> {
+                val uri = intent.data
+                if (uri == null) {
+                    if (!busy) stopNow()
+                    return START_NOT_STICKY
+                }
+                val path = if (uri.scheme == "file") uri.path else null
+                val name = path?.let { File(it).name } ?: IncomingFile.meta(this, uri).name
+                synchronized(lock) {
+                    // Foreground within seconds of startForegroundService, whether it runs now or waits.
+                    startForegroundCompat(buildNotification(
+                        if (busy) UnpackManager.current else UnpackState(phase = UnpackPhase.LISTING, archiveName = name),
+                    ))
+                    queue.addLast(Queued(name, path, uri))
+                    if (busy) refresh() else runNextQueued()
+                }
+                return START_STICKY
             }
             ACTION_START -> {
                 val archive = intent.getStringExtra(EXTRA_ARCHIVE)
@@ -170,9 +252,12 @@ class UnpackService : Service() {
                     ?: listOfNotNull(archive?.let { File(it) })
                 if (archives.isEmpty() || dest == null) { stopNow(); return START_NOT_STICKY }
                 // Refuse a second concurrent job — one at a time, like the DownloadCoordinator.
-                if (UnpackManager.current.isRunning) {
-                    Log.w(TAG, "Unpack already running; ignoring start")
-                    return START_NOT_STICKY
+                synchronized(lock) {
+                    if (busy || UnpackManager.current.isRunning) {
+                        Log.w(TAG, "Unpack already running; ignoring start")
+                        return START_NOT_STICKY
+                    }
+                    busy = true
                 }
                 startForegroundCompat(buildNotification(UnpackManager.current.copy(
                     phase = UnpackPhase.LISTING, archiveName = archives.first().name,
@@ -186,6 +271,7 @@ class UnpackService : Service() {
 
     private fun runExtraction(archives: List<File>, destDir: File, mmt: Int, buffer: Int, isInno: Boolean, totalSize: Long, engine: String) {
         cancelled = false
+        paused = false
         val ctx = applicationContext
         // The primary (base-game) installer drives the state's name/path; the rest are DLC siblings
         // extracted into the same destDir after it (inno batch only).
@@ -419,14 +505,103 @@ class UnpackService : Service() {
             if (terminal.phase == UnpackPhase.DONE &&
                 archive.absolutePath.startsWith(IncomingFile.incomingDir(this).absolutePath + "/")
             ) archive.delete()
-            stopForeground(Service.STOP_FOREGROUND_DETACH)
             } finally {
-                // Balanced release on EVERY exit path (success, error, cancel, process death).
-                releaseWakeLock()
-                stopSelf()
+                // Balanced release on EVERY exit path (success, error, cancel, process death), then the
+                // next queued request, or stop.
+                onJobFinished()
             }
         }.also { it.name = "unpack-worker"; it.start() }
     }
+
+    // ── Background queue ──
+
+    /** Starts the next queued request on a worker thread, or marks the service idle. Caller holds [lock]. */
+    private fun runNextQueued() {
+        val item = queue.removeFirstOrNull()
+        if (item == null) { busy = false; return }
+        busy = true
+        Thread({ prepareAndRun(item) }, "unpack-prepare").start()
+    }
+
+    /** After every job (or a request that never got to run): release the CPU, then the next request or stop. */
+    private fun onJobFinished() {
+        releaseWakeLock()
+        paused = false
+        synchronized(lock) {
+            runNextQueued()
+            if (!busy) {
+                stopForeground(Service.STOP_FOREGROUND_REMOVE)
+                stopSelf(lastStartId)
+            }
+        }
+    }
+
+    /**
+     * Turns a queued request into a job: find the real file (or copy a streamed one into app storage,
+     * extracting to Download/), plan it like the Unpack screen would, then run it. A request that can't
+     * run leaves a notification saying why (tap opens the full Unpack screen for it).
+     */
+    private fun prepareAndRun(item: Queued) {
+        cancelled = false
+        paused = false
+        acquireWakeLock()
+        UnpackManager.set(UnpackState(phase = UnpackPhase.LISTING, archivePath = item.path ?: "", archiveName = item.name))
+        refresh()
+        var file: File? = item.path?.let { File(it) }?.takeIf { it.isFile }
+        val plan = try {
+            var destBase: File? = null
+            if (file == null && item.uri != null) file = IncomingFile.resolvePath(this, item.uri)?.let { File(it) }
+            if (file == null && item.uri != null) {
+                val meta = IncomingFile.meta(this, item.uri)
+                IncomingFile.clean(this, null)
+                val free = IncomingFile.freeBytes(IncomingFile.incomingDir(this))
+                if (meta.size > 0 && meta.size > free) {
+                    throw IllegalStateException(
+                        "${meta.name} is ${StringUtils.formatBytes(meta.size)} but only ${StringUtils.formatBytes(free)} is free.",
+                    )
+                }
+                file = IncomingFile.copyInBlocking(this, item.uri, meta, isCancelled = {
+                    while (paused && !cancelled) Thread.sleep(200)
+                    cancelled
+                }) { copied ->
+                    val pct = if (meta.size > 0) (copied * 100 / meta.size).toInt() else 0
+                    UnpackManager.update { it.copy(percent = pct, bytesProcessed = copied, currentFile = COPYING) }
+                    refresh()
+                }
+                destBase = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            }
+            val f = file ?: throw IllegalStateException("${item.name} couldn't be read.")
+            QuickExtract.plan(this, f, destBase)
+        } catch (c: java.util.concurrent.CancellationException) {
+            null
+        } catch (t: Throwable) {
+            QuickExtract.Plan.Refuse(t.message ?: t.javaClass.simpleName)
+        }
+        // Cancel pressed while it was still being planned (listing/classifying runs no `proc` to kill).
+        when (val decided = if (cancelled) null else plan) {
+            is QuickExtract.Plan.Run -> {
+                val job = decided.job
+                runExtraction(job.archives.map { File(it) }, File(job.dest), job.mmt, job.bufferBytes, job.isInno, job.totalSize, job.engine)
+                return   // the extraction's own finally calls onJobFinished
+            }
+            is QuickExtract.Plan.Refuse -> postNotice("Can't extract ${item.name}", decided.reason, file?.absolutePath)
+            null -> postNotice("Extraction cancelled", item.name, null)
+        }
+        onJobFinished()
+    }
+
+    /** Running engine processes of this app (the extractors are exec'd children of our process). */
+    private fun enginePids(): List<Int> {
+        val me = android.os.Process.myPid()
+        return File("/proc").list()?.mapNotNull { it.toIntOrNull() }?.filter { pid ->
+            runCatching {
+                val ppid = File("/proc/$pid/stat").readText().substringAfterLast(')').trim().split(' ')[1].toInt()
+                ppid == me && File("/proc/$pid/cmdline").readText().let { cmd -> ENGINE_BINARIES.any { cmd.contains(it) } }
+            }.getOrDefault(false)
+        }.orEmpty()
+    }
+
+    private fun signalEngines(signal: Int) = enginePids().forEach { runCatching { android.os.Process.sendSignal(it, signal) } }
 
     override fun onDestroy() {
         releaseWakeLock()   // backstop — the worker's finally already releases on normal exits
@@ -452,28 +627,38 @@ class UnpackService : Service() {
             UnpackArchiveActivity.intent(this, s.archivePath.ifEmpty { s.archiveName }),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val cancel = PendingIntent.getService(
-            this, 1,
-            Intent(this, UnpackService::class.java).apply { action = ACTION_CANCEL },
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val body = when (s.phase) {
-            UnpackPhase.LISTING -> "Reading ${s.archiveName}…"
+        fun action(requestCode: Int, label: String, what: String) = Notification.Action.Builder(
+            null, label,
+            PendingIntent.getService(
+                this, requestCode,
+                Intent(this, UnpackService::class.java).apply { action = what },
+                PendingIntent.FLAG_IMMUTABLE,
+            ),
+        ).build()
+        val waiting = synchronized(lock) { queue.map { it.name } }
+        val body = when {
+            s.phase == UnpackPhase.LISTING && s.currentFile == COPYING -> "$COPYING ${s.percent}%"
+            s.phase == UnpackPhase.LISTING -> "Reading ${s.archiveName}…"
             else -> buildString {
                 append("${s.percent}%")
-                if (s.speedBps > 0) append("  •  ${StringUtils.formatBytes(s.speedBps)}/s")
-                if (s.etaSeconds >= 0) append("  •  ETA ${formatDuration(s.etaSeconds * 1000)}")
+                if (!paused && s.speedBps > 0) append("  •  ${StringUtils.formatBytes(s.speedBps)}/s")
+                if (!paused && s.etaSeconds >= 0) append("  •  ETA ${formatDuration(s.etaSeconds * 1000)}")
             }
         }
+        val big = if (waiting.isEmpty()) body else body + "\nNext: " + waiting.joinToString(", ")
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Unpacking ${s.archiveName}")
+            .setSmallIcon(if (paused) android.R.drawable.ic_media_pause else android.R.drawable.stat_sys_download)
+            .setContentTitle(if (paused) "Paused · ${s.archiveName}" else "Extracting ${s.archiveName}")
             .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(big))
+            .apply { if (waiting.isNotEmpty()) setSubText("${waiting.size} queued") }
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setProgress(100, s.percent, s.phase == UnpackPhase.LISTING)
+            .setProgress(100, s.percent, s.phase == UnpackPhase.LISTING && s.currentFile != COPYING)
             .setContentIntent(tap)
-            .addAction(Notification.Action.Builder(null, "Cancel", cancel).build())
+            .addAction(if (paused) action(2, "Resume", ACTION_RESUME) else action(2, "Pause", ACTION_PAUSE))
+            .addAction(action(1, "Cancel", ACTION_CANCEL))
+            .apply { if (waiting.isNotEmpty()) addAction(action(3, "Cancel all", ACTION_CANCEL_ALL)) }
             .build()
     }
 
@@ -485,8 +670,9 @@ class UnpackService : Service() {
     /** Replace the ongoing notification with a dismissible terminal one (done / error / cancelled). */
     private fun postTerminalNotification(s: UnpackState) {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        val id = terminalIds.getAndIncrement()
         val tap = PendingIntent.getActivity(
-            this, 0,
+            this, id,
             UnpackArchiveActivity.intent(this, s.archivePath.ifEmpty { s.archiveName }),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
@@ -512,7 +698,27 @@ class UnpackService : Service() {
             .setAutoCancel(true)
             .setContentIntent(tap)
             .build()
-        nm.notify(NOTIFICATION_ID, n)
+        nm.notify(id, n)
+    }
+
+    /** A dismissible one-off notice (a request that couldn't run); tapping opens the Unpack screen for [path]. */
+    private fun postNotice(title: String, text: String, path: String?) {
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        val id = terminalIds.getAndIncrement()
+        val n = Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .apply {
+                if (path != null) setContentIntent(PendingIntent.getActivity(
+                    this@UnpackService, id, UnpackArchiveActivity.intent(this@UnpackService, path),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ))
+            }
+            .build()
+        nm.notify(id, n)
     }
 
     private fun startForegroundCompat(n: Notification) {
