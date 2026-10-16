@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
@@ -336,6 +337,7 @@ internal fun OpenWithSheet(
 
 /** Built-in action icons, kept here so the call site reads as a plain list. */
 internal object SheetIcons {
+    val Browse = Icons.Filled.FolderOpen
     val ExtractHere = Icons.Filled.Bolt
     val ExtractTo = Icons.Filled.Unarchive
     val Install = Icons.Filled.Android

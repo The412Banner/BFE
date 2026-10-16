@@ -71,6 +71,31 @@ browse / extract / manage core turned into its own app. GPL-3.0.
 - BFE registers as an **"Open with" / Share target** for archives and `setup.exe` files, so other apps
   can hand them straight to the extractor.
 
+### Browse archives like folders
+- **Open as folder** — the first action in an archive's **Open with** sheet and in its **⋮** menu —
+  opens a zip / 7z / rar / iso / tar / apk / xapk / jar / cab / deb / … (anything the bundled 7-Zip
+  lists) **in the same pane as a read-only folder**. The breadcrumb reads `…/folder › Game.zip › inner
+  › dir`; Back walks up the inner folders, then returns to the archive's folder. The pane's sort, view
+  mode, hidden-file toggle, filter and folder item counts all work inside.
+- **Compressed tars** (`.tar.gz`, `.tar.xz`, `.tar.bz2`, `.tar.zst`, `.tgz`, Winlator **`.wcp`**) open
+  straight into the tar's contents. 7-Zip can't list a tar inside a stream compressor directly, so the
+  inner tar is unpacked once into BFE's cache (with progress and Cancel) and reused next time.
+- **Tap a file inside** to extract just that file into BFE's cache and get the usual **Open with**
+  sheet for it: view it in another app, **install an APK**, or **browse an archive inside the
+  archive**. Large entries show progress and can be cancelled.
+- **Extract what you picked:** multi-select → **Extract…** (other pane, next to the archive, a new
+  folder named after it, or any folder), **Extract →** straight into the other pane, or **Copy** inside
+  the archive and **Paste** in any folder. Folders keep everything under them, with the usual
+  overwrite / merge / keep both / skip choices; SAF and root destinations work too. **Share** sends
+  extracted copies.
+- **Password-protected archives** (zip, 7z including encrypted file names, rar): BFE asks once and
+  remembers the password until the app closes; a wrong password says so and asks again.
+- **Big archives stay responsive:** listing runs in the background with a loading state and is
+  cached per archive (path + size + date). A 100,000-entry zip lists in about 1.4 s on a phone; folders
+  the archive doesn't store are filled in, and Windows `\` paths show as folders.
+- **Read-only for now:** new folder, rename, cut, delete and paste are hidden or refused inside an
+  archive ("Archives are read-only in BFE for now").
+
 ### Compression — create archives
 Select files/folders → **Compress…** → format, name, level, optional password, destination (this pane
 or the other). Same background job / pill / cancel as extraction.
@@ -213,6 +238,7 @@ a private release key can be added via a CI secret if tamper-resistance is ever 
 ## Building from source
 ```bash
 ./gradlew assembleRelease     # signed with the committed key
+./gradlew testReleaseUnitTest # JVM unit tests (archive-listing parser vs. real 7zz output); CI runs them too
 ```
 
 ### Cutting a release
@@ -235,10 +261,10 @@ app/src/main/java/com/the412banner/bfe/
 ├─ pack/       archive creation (7zz, tar+zstd, Winlator .wcp), PackService (compression job)
 ├─ apk/        APK cloner/editor/signer (ARSCLib rewrite, apksig, keys), ApkJobService
 ├─ video/      ffmpeg wrapper + ConvertService (video → MP4 job)
-├─ storage/    StorageBackend abstraction: File / SAF / Root backends, cross-backend transfer, pins, item counts
+├─ storage/    StorageBackend abstraction: File / SAF / Root / Archive (read-only) backends, `7zz l -slt` parser, cross-backend transfer, pins, item counts
 ├─ update/     UpdateManager (update.json check, download, SHA-256 check, install)
 ├─ util/       snackbars, default apps, favourites
-├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), Open with sheet, Settings, Unpack screen, dialogs
+├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), archive pane (ArchivePane), Open with sheet, Settings, Unpack screen, dialogs
 └─ ui/         progress pills, update dialogs, theme, components
 app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure
 keystore/bfe-test.jks             the (public) BFE signing key
@@ -249,8 +275,12 @@ scripts/check-signing.sh          CI guard: the APK must carry the BFE certifica
 ## Known limitations
 - SAF only reaches apps that **expose a DocumentsProvider** — most ordinary apps don't, and Android
   blocks SAF from `Android/data`. Use the root mode for those.
-- Extracting *from* an archive that lives on a SAF/root location isn't supported yet (archives must be
-  on normal storage; extracting *into* SAF/root works).
+- Extracting *from* or browsing an archive that lives on a SAF/root location isn't supported yet
+  (archives must be on normal storage; extracting *into* SAF/root works).
+- Archive browsing is read-only (no add / delete / rename inside an archive yet). InnoSetup / GOG
+  installers and FreeArc repacks can be unpacked but not browsed. Opening a compressed tar needs free
+  cache space for its inner tar. Extracting from an archive pane runs in the pane (progress + Cancel),
+  not as a background service job, so keep BFE open for very large selections.
 - Piped `tar.gz` / `tar.xz` compression reports percent but not per-file names.
 - Compact rows are ~2× denser than the standard list, not a literal quarter-height (readability floor).
 - Video conversion: **Bink 2 (`.bk2`) can't be decoded** (proprietary); encoding is software-only

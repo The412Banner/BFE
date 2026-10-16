@@ -71,6 +71,9 @@ object ApkIconLoader {
                     staged.delete()
                 }
             }
+            // An .apk inside an archive keeps the generic icon: pulling every one out for an icon
+            // would make browsing an XAPK or a ROM dump slow.
+            is Loc.ArchiveLoc -> null
         }
     }
 }

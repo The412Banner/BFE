@@ -164,6 +164,8 @@ import com.the412banner.bfe.ui.components.RailItem
 import com.the412banner.bfe.ui.components.RailLink
 import com.the412banner.bfe.ui.components.RailSection
 import com.the412banner.bfe.ui.components.rememberRailState
+import com.the412banner.bfe.storage.ArchiveBackend
+import com.the412banner.bfe.storage.ArchiveIndexCache
 import com.the412banner.bfe.storage.ChildCount
 import com.the412banner.bfe.storage.DocProviderApp
 import com.the412banner.bfe.storage.InstalledApp
@@ -195,8 +197,11 @@ import java.util.Locale
  * directory and truncates existing files — but they mean different things to the user, so both are
  * offered and the wording is chosen per item type (files overwrite, folders merge).
  */
-/** A file waiting in the Open with sheet: its share Uri and the detected MIME type. */
-private data class OpenWithRequest(val loc: Loc, val uri: Uri, val mime: String)
+/**
+ * A file waiting in the Open with sheet: its share Uri and the detected MIME type. [fromArchive] is set
+ * when [loc] is BFE's cache copy of an entry inside an archive (the sheet then offers archive actions).
+ */
+private data class OpenWithRequest(val loc: Loc, val uri: Uri, val mime: String, val fromArchive: Loc.ArchiveLoc? = null)
 
 enum class ConflictChoice { OVERWRITE, MERGE, KEEP_BOTH, SKIP }
 
@@ -404,6 +409,18 @@ class PaneState(
     val canGoUp: Boolean get() = if (isAlt) true else path != rootPath
 
     fun openAltRoot(root: Loc, label: String) { altStack = listOf(root); altLabel = label }
+    /** Whether the pane is showing the inside of an archive (read-only). */
+    val isArchive: Boolean get() = altStack.lastOrNull() is Loc.ArchiveLoc
+    /**
+     * Browse an archive in place: from a File folder it starts an archive stack (Back walks its inner
+     * folders, then returns to the folder); inside an archive a nested one is pushed on top.
+     */
+    fun openArchive(root: Loc.ArchiveLoc) { if (isArchive) altStack = altStack + root else { altStack = listOf(root); altLabel = "" } }
+    /** Leave [archive] (and anything opened inside it), back to where the pane was before it. */
+    fun closeArchive(archive: java.io.File) {
+        val keep = altStack.takeWhile { !(it is Loc.ArchiveLoc && it.archive == archive) }
+        if (keep.isEmpty()) exitAlt() else altStack = keep
+    }
     fun openAltInto(child: Loc) { altStack = altStack + child }
     fun exitAlt() { altStack = emptyList(); altLabel = "" }
     /** SAF back: up one level, or exit SAF back to the File location the pane was at. */
@@ -598,7 +615,8 @@ fun FileManagerScreen(
             BrowserPane(
                 paneState = state,
                 dualPane = true,
-                otherPaneDir = { other.currentLoc },
+                // A pane showing an archive is read-only, so it's never a destination for the other pane.
+                otherPaneDir = { other.currentLoc.takeUnless { it is Loc.ArchiveLoc } },
                 onRequestOtherReload = { other.requestReload() },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -842,10 +860,12 @@ private fun SharedToolbar(
     var showDriveMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     var showTools by remember { mutableStateOf(false) }
-    val driveLabel = if (active.isAlt) active.altLabel else describeLocation(File(active.path)).driveLabel
+    // Inside an archive the drive is still the File drive the archive sits on.
+    val driveLabel = if (active.isAlt && !active.isArchive) active.altLabel else describeLocation(File(active.path)).driveLabel
     val folderName = if (active.isAlt) active.currentLoc.name else File(active.path).name.ifBlank { active.path }
     val driveChipAlpha = if (active.showFavorites) 0.45f else 1f
     val driveIcon = when {
+        active.isArchive -> Icons.Filled.Archive
         active.isAlt && pinned.any { it.label == active.altLabel && it.isRoot } -> Icons.Filled.Security
         active.isAlt -> Icons.Filled.Cloud
         describeLocation(File(active.path)).storage == FavStorage.SD -> Icons.Filled.SdStorage
@@ -854,7 +874,7 @@ private fun SharedToolbar(
 
     // Which controls are present, in the order they appear (browse controls hide in Favorites).
     val browsing = !active.showFavorites
-    val showNewFolder = browsing && !pickMode
+    val showNewFolder = browsing && !pickMode && !active.isArchive
     val showSplitAndTools = !pickMode
 
     // ── The individual controls, shared by the one-row and wrapped layouts ──
@@ -1127,7 +1147,7 @@ private fun SharedToolbar(
                 Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
-                if (browsing) {
+                if (browsing && !active.isArchive) {
                     DropdownMenuItem(
                         text = { Text("New folder…") },
                         leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
@@ -1302,6 +1322,8 @@ fun BrowserPane(
     var loading by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var openWithReq by remember { mutableStateOf<OpenWithRequest?>(null) }
+    // Archive browsing: opening state, password prompt, Extract to… (ArchivePane.kt).
+    val archivePane = rememberArchivePaneState()
 
     // ── Reactive listing ── re-lists whenever the current dir, sort, hidden filter or a reload signal
     // changes. Navigation is pure state mutation (paneState.path / altStack); this effect turns that
@@ -1317,6 +1339,16 @@ fun BrowserPane(
         if (pickMode) (loc as? Loc.FileLoc)?.let { pickPrefs.edit().putString("lastFilePickerDir", it.file.absolutePath).apply() }
         loading = true
         loadError = null
+        // An archive is listed from its index: build that first (it can take a while for a big or
+        // compressed archive, may ask for a password, and is cancelled by leaving the archive).
+        if (loc is Loc.ArchiveLoc) {
+            if (reset && ArchiveIndexCache.peek(loc.archive) == null) entries = emptyList()
+            when (val o = archivePane.ensureOpen(loc)) {
+                is ArchivePaneState.Open.Ready -> o.warning?.let { AppSnackbar.show(context, "${loc.archive.name}: $it", long = true) }
+                ArchivePaneState.Open.Cancelled -> { loading = false; paneState.closeArchive(loc.archive); return@LaunchedEffect }
+                is ArchivePaneState.Open.Failed -> { entries = emptyList(); loadError = o.message; loading = false; return@LaunchedEffect }
+            }
+        }
         val result = withContext(Dispatchers.IO) {
             runCatching {
                 Storage.backend(loc).listChildren(context, loc)
@@ -1368,7 +1400,7 @@ fun BrowserPane(
     fun openLoc(loc: Loc) {
         when (loc) {
             is Loc.FileLoc -> navFileDir(loc.file)
-            is Loc.SafLoc, is Loc.RootLoc -> paneState.openAltInto(loc)
+            is Loc.SafLoc, is Loc.RootLoc, is Loc.ArchiveLoc -> paneState.openAltInto(loc)
         }
     }
 
@@ -1421,6 +1453,8 @@ fun BrowserPane(
                 ?: return@runCatching null
             androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", staged)
         }.getOrNull()
+        // An entry inside an archive has no Uri until it's extracted (withArchiveCopies below).
+        is Loc.ArchiveLoc -> null
     }
 
     // Resolve the share Uri off the main thread (root staging copies), then hand it to [use].
@@ -1432,25 +1466,78 @@ fun BrowserPane(
         }
     }
 
+    // ── Archive browsing (read-only; ArchivePane.kt + storage/ArchiveBackend.kt) ──
+    // Open the archive [file] as a folder in this pane (on top of the current archive if nested).
+    fun browseArchive(file: File) {
+        showMenuFor = null
+        paneState.openArchive(ArchiveBackend.rootLoc(file))
+    }
+
+    // Pull the files among [locs] out of their archive into BFE's cache — progress and Cancel on the
+    // strip — then hand the copies to [then]. Copies already in the cache are used straight away.
+    fun withArchiveCopies(locs: List<Loc.ArchiveLoc>, then: (List<File>) -> Unit) {
+        val files = locs.filter { !it.isDir }
+        if (files.isEmpty()) return
+        val cached = files.map { archivePane.cachedCopy(it) }
+        if (cached.all { it != null }) { then(cached.filterNotNull()); return }
+        operationJob = scope.launch {
+            operationProgress = 0f
+            operationDeterminate = true
+            operationLabel = if (files.size == 1) "Extracting ${files[0].name}…" else "Extracting ${files.size} files…"
+            isOperationRunning = true
+            val out = try {
+                archivePane.extractForView(files) { pct -> operationProgress = pct / 100f }
+            } finally {
+                isOperationRunning = false
+                operationDeterminate = false
+                operationJob = null
+            }
+            if (!out.isNullOrEmpty()) then(out)
+        }
+    }
+
+    // A tap on a file inside an archive: extract it to the cache, then BFE's Open with sheet for the copy.
+    fun openArchiveEntry(loc: Loc.ArchiveLoc) = withArchiveCopies(listOf(loc)) { files ->
+        val copy = Loc.FileLoc(files.first())
+        withViewUri(copy, "Couldn't open ${loc.name}") { uri ->
+            openWithReq = OpenWithRequest(copy, uri, guessMime(copy.name, context.contentResolver.getType(uri)), fromArchive = loc)
+        }
+    }
+
+    // An archive inside the archive: pull it out, then browse the copy.
+    fun browseArchiveEntry(loc: Loc.ArchiveLoc) = withArchiveCopies(listOf(loc)) { files -> browseArchive(files.first()) }
+
     // "Open with": BFE's own sheet (OpenWithSheet) — built-in actions for this file plus every app
     // that can VIEW it. A plain tap on a file lands here too. The Uri is resolved first (root files
     // are staged to cache), then the sheet is shown by the block near the other dialogs below.
-    fun openWith(loc: Loc) = withViewUri(loc, "Couldn't open ${loc.name}") { uri ->
-        openWithReq = OpenWithRequest(loc, uri, guessMime(loc.name, context.contentResolver.getType(uri)))
+    fun openWith(loc: Loc) {
+        if (loc is Loc.ArchiveLoc) { openArchiveEntry(loc); return }
+        withViewUri(loc, "Couldn't open ${loc.name}") { uri ->
+            openWithReq = OpenWithRequest(loc, uri, guessMime(loc.name, context.contentResolver.getType(uri)))
+        }
     }
 
     // Share a file to another app via ACTION_SEND.
-    fun shareFile(loc: Loc) = withViewUri(loc, "Couldn't share ${loc.name}") { uri ->
-        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-            type = context.contentResolver.getType(uri) ?: "*/*"
-            putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }, "Share ${loc.name}"))
+    fun shareFile(loc: Loc) {
+        if (loc is Loc.ArchiveLoc) { withArchiveCopies(listOf(loc)) { shareFile(Loc.FileLoc(it.first())) }; return }
+        withViewUri(loc, "Couldn't share ${loc.name}") { uri ->
+            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = context.contentResolver.getType(uri) ?: "*/*"
+                putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, "Share ${loc.name}"))
+        }
     }
 
     // Share several files at once via ACTION_SEND_MULTIPLE (used by the selection action bar).
     fun shareFiles(locs: List<Loc>) {
         val files = locs.filter { !it.isDir }
         if (files.isEmpty()) return
+        // Entries inside an archive are shared as extracted copies.
+        val archived = files.filterIsInstance<Loc.ArchiveLoc>()
+        if (archived.isNotEmpty()) {
+            withArchiveCopies(archived) { copies -> shareFiles(files.filter { it !is Loc.ArchiveLoc } + copies.map { Loc.FileLoc(it) }) }
+            return
+        }
         if (files.size == 1) { shareFile(files.first()); return }
         scope.launch {
             val uris = withContext(Dispatchers.IO) { ArrayList(files.mapNotNull { viewUri(it) }) }
@@ -1696,11 +1783,64 @@ fun BrowserPane(
         return conflictChoice
     }
 
+    // Extract archive entries into [dstDir]: Extract to…, Copy → from an archive pane, or pasting
+    // entries copied inside an archive. Same conflict choices as a paste; 7zz does the extraction.
+    fun extractFromArchive(sources: List<Loc>, dstDir: Loc, onDone: () -> Unit = {}) {
+        val items = sources.filterIsInstance<Loc.ArchiveLoc>()
+        if (items.isEmpty()) return
+        if (dstDir is Loc.ArchiveLoc) { AppSnackbar.show(context, ArchiveBackend.READ_ONLY_MESSAGE); return }
+        operationJob = scope.launch {
+            operationProgress = 0f
+            operationDeterminate = false
+            operationLabel = "Extracting…"
+            isOperationRunning = true
+            val dstBackend = Storage.backend(dstDir)
+            var applyToAll: ConflictChoice? = null
+            var skipped = 0
+            val plan = ArrayList<ArchivePaneState.Item>()
+            for (src in items) {
+                var target = src.name
+                var replace = false
+                val exists = withContext(Dispatchers.IO) { dstBackend.childNamed(context, dstDir, target) != null }
+                if (exists) {
+                    val choice = applyToAll ?: askConflict(src)?.also { if (conflictApplyToAll) applyToAll = it }
+                        ?: run { skipped++; null } ?: continue
+                    when (choice) {
+                        ConflictChoice.OVERWRITE, ConflictChoice.MERGE -> replace = true
+                        ConflictChoice.KEEP_BOTH -> target = withContext(Dispatchers.IO) { uniqueName(dstDir, src.name) }
+                        ConflictChoice.SKIP -> { skipped++; continue }
+                    }
+                }
+                plan.add(ArchivePaneState.Item(src, target, replace))
+            }
+            val msg = try {
+                if (plan.isEmpty()) null else archivePane.extractTo(plan, dstDir) { label, fraction ->
+                    operationLabel = label
+                    operationDeterminate = fraction != null
+                    if (fraction != null) operationProgress = fraction
+                }
+            } finally {
+                isOperationRunning = false
+                operationDeterminate = false
+                operationJob = null
+            }
+            selectionMode = false
+            selectedIds = emptySet()
+            paneState.requestReload()
+            onDone()
+            val text = listOfNotNull(msg, if (skipped > 0) "$skipped skipped" else null).joinToString(", ")
+            if (text.isNotEmpty()) AppSnackbar.show(context, text, long = true)
+        }
+    }
+
     // Copy/move [sources] into [dstDir]. File→File keeps the fast FileUtils path (unchanged); anything
     // touching a SAF side goes through StorageTransfer (recursive stream copy). [onDone] refreshes the
     // OTHER pane after a cross-pane op; the source pane always refreshes (a move removes items from it).
     fun performCopyMove(sources: List<Loc>, dstDir: Loc, cut: Boolean, onDone: () -> Unit = {}) {
         if (sources.isEmpty()) return
+        // Archives are read-only: nothing goes into one, and copying out of one is an extraction.
+        if (dstDir is Loc.ArchiveLoc) { AppSnackbar.show(context, ArchiveBackend.READ_ONLY_MESSAGE); return }
+        if (sources.any { it is Loc.ArchiveLoc }) { extractFromArchive(sources, dstDir, onDone); return }
         val dstBackend = Storage.backend(dstDir)
         operationJob = scope.launch {
             operationProgress = 0f
@@ -1781,6 +1921,7 @@ fun BrowserPane(
 
     // Within-pane clipboard paste: copy/move the clipboard into the current directory.
     fun performPaste() {
+        if (currentLoc is Loc.ArchiveLoc) { AppSnackbar.show(context, ArchiveBackend.READ_ONLY_MESSAGE); return }
         val sources = clipboard
         val cut = isCutOperation
         clipboard = emptyList()
@@ -1971,7 +2112,9 @@ fun BrowserPane(
         }
         val base = File(info.sourceDir)
         val splits = info.splitSourceDirs?.map { File(it) }?.filter { it.isFile } ?: emptyList()
-        openApkEditor(base, splits, com.the412banner.bfe.apk.ApkJobKind.CLONE, currentLoc, null)
+        // An archive pane is read-only: the clone lands in the folder the archive sits in.
+        val dest = if (currentLoc is Loc.ArchiveLoc) Loc.FileLoc(File(paneState.path)) else currentLoc
+        openApkEditor(base, splits, com.the412banner.bfe.apk.ApkJobKind.CLONE, dest, null)
     }
 
     fun openSign(loc: Loc) {
@@ -2253,6 +2396,17 @@ fun BrowserPane(
             onChanged = { paneState.requestReload() },
         )
     }
+    // …and the read-only details of an archive or an entry inside one.
+    (propertiesTarget as? Loc.ArchiveLoc)?.let { ArchivePropertiesDialog(it, onDismiss = { propertiesTarget = null }) }
+
+    // Archive password prompt + Extract to… (default: the other pane, else next to the archive).
+    ArchiveDialogs(
+        state = archivePane,
+        hereDir = if (paneState.isArchive) File(paneState.path) else null,
+        outerArchive = (paneState.altStack.firstOrNull() as? Loc.ArchiveLoc)?.archive,
+        otherPane = if (dualPane) otherPaneDir() else null,
+        onExtract = { items, dest -> extractFromArchive(items, dest) { if (dualPane) onRequestOtherReload() } },
+    )
 
     if (selectedEntry != null && selectedEntry != showMenuFor) {
         val file = selectedEntry ?: return
@@ -2370,9 +2524,21 @@ fun BrowserPane(
         val actions = remember(req) {
             val f = (loc as? Loc.FileLoc)?.file
             val lower = loc.name.lowercase()
+            val fromArchive = req.fromArchive
             buildList {
+                if (fromArchive != null) {
+                    // BFE's cache copy of an entry inside an archive: browse it when it's an archive
+                    // itself, install an APK, extract the entry somewhere real, or look at its details.
+                    if (f != null && com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(f)) add(SheetAction("Open as folder", SheetIcons.Browse) { browseArchive(f) })
+                    if (lower.endsWith(".apk")) add(SheetAction("Install", SheetIcons.Install) { installApk(loc) })
+                    add(SheetAction("Extract to\u2026", SheetIcons.ExtractTo) { archivePane.extractTargets = listOf(fromArchive) })
+                    add(SheetAction("Properties", SheetIcons.Properties) { propertiesTarget = fromArchive })
+                    return@buildList
+                }
                 val isInno = f != null && com.the412banner.bfe.unpack.SevenZip.isInnoSetup(f)
                 if (f != null && (isInno || com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(f))) {
+                    // First for any archive 7-Zip lists (InnoSetup/FreeArc installers are unpack-only).
+                    if (!isInno) add(SheetAction("Open as folder", SheetIcons.Browse) { browseArchive(f) })
                     add(SheetAction(if (dualPane) "Extract to the other pane" else "Extract here", SheetIcons.ExtractHere) { launchFastExtract(loc) })
                     add(SheetAction(if (isInno) "Unpack / Install\u2026" else "Extract to\u2026", SheetIcons.ExtractTo) { launchUnpack(loc) })
                 }
@@ -2391,8 +2557,8 @@ fun BrowserPane(
             uri = req.uri,
             detectedMime = req.mime,
             actions = actions,
-            // Root files are a staged cache copy, so a write grant would edit the copy, not the file.
-            allowWrite = loc !is Loc.RootLoc,
+            // Root files and archive entries are cache copies, so a write grant would edit the copy.
+            allowWrite = loc !is Loc.RootLoc && req.fromArchive == null,
             onDismiss = { openWithReq = null },
         )
     }
@@ -2470,6 +2636,11 @@ fun BrowserPane(
                             }
                             out
                         }
+                    } else if (paneState.isArchive) {
+                        // …/folder › Game.zip › inner › dir — the first crumb leaves the archive.
+                        val stack = paneState.altStack
+                        listOf<Pair<String, (() -> Unit)?>>("\u2026/" + File(paneState.path).name.ifBlank { "/" } to { paneState.exitAlt() }) +
+                            stack.mapIndexed { i, loc -> loc.name to { paneState.altStack = stack.take(i + 1) } }
                     } else {
                         val stack = paneState.altStack
                         stack.mapIndexed { i, loc ->
@@ -2501,7 +2672,9 @@ fun BrowserPane(
                         )
                     }
                 }
-                if (freeSpace > 0) {
+                if (currentLoc is Loc.ArchiveLoc) {
+                    ArchiveCrumbBadge(currentLoc)
+                } else if (freeSpace > 0) {
                     Text(
                         "${StringUtils.formatBytes(freeSpace)} free",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2555,7 +2728,14 @@ fun BrowserPane(
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Copy", fontSize = 12.sp) }
-                    OutlinedButton(
+                    // Inside an archive (read-only): Extract… instead of Cut, and Copy → extracts.
+                    if (paneState.isArchive) OutlinedButton(
+                        enabled = selectedIds.isNotEmpty(),
+                        onClick = { archivePane.extractTargets = entries.filter { it.id in selectedIds }.filterIsInstance<Loc.ArchiveLoc>() },
+                        contentPadding = selBarPadding,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                    ) { Text("Extract\u2026", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
+                    else OutlinedButton(
                         enabled = selectedIds.isNotEmpty(),
                         onClick = {
                             clipboard = entries.filter { it.id in selectedIds }
@@ -2572,8 +2752,8 @@ fun BrowserPane(
                             onClick = { crossPaneTransfer(cut = false) },
                             contentPadding = selBarPadding,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                        ) { Text("Copy →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
-                            OutlinedButton(
+                        ) { Text(if (paneState.isArchive) "Extract →" else "Copy →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
+                            if (!paneState.isArchive) OutlinedButton(
                             enabled = selectedIds.isNotEmpty(),
                             onClick = { crossPaneTransfer(cut = true) },
                             contentPadding = selBarPadding,
@@ -2581,14 +2761,14 @@ fun BrowserPane(
                         ) { Text("Move →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
                     }
                     OutlinedButton(
-                        enabled = selectedIds.any { p -> entries.any { it.id == p && !it.isDir } },
+                        enabled = entries.any { !it.isDir && it.id in selectedIds },
                         onClick = {
                             shareFiles(entries.filter { it.id in selectedIds })
                         },
                         contentPadding = selBarPadding,
                     ) { Text("Share", fontSize = 12.sp) }
                     // Compress the selection into a new archive (zip/7z/tar/…/wcp) here or in the other pane.
-                    if (!pickMode) {
+                    if (!pickMode && !paneState.isArchive) {
                             OutlinedButton(
                             enabled = selectedIds.isNotEmpty(),
                             onClick = { compressTargets = entries.filter { it.id in selectedIds } },
@@ -2603,7 +2783,7 @@ fun BrowserPane(
                             ) { Text("Convert", fontSize = 12.sp) }
                         }
                     }
-                    OutlinedButton(
+                    if (!paneState.isArchive) OutlinedButton(
                         enabled = selectedIds.isNotEmpty(),
                         onClick = { pendingBulkDelete = entries.filter { it.id in selectedIds } },
                         contentPadding = selBarPadding,
@@ -2724,17 +2904,22 @@ fun BrowserPane(
             val shownEntries = if (paneState.searchQuery.isBlank()) entries
             else entries.filter { it.name.contains(paneState.searchQuery, ignoreCase = true) }
 
+            val inArchive = currentLoc as? Loc.ArchiveLoc
             if (loading && entries.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (inArchive != null) {
+                    // Opening an archive (listing it, or unpacking a .tar.gz/.wcp's inner tar) can take a while.
+                    ArchiveOpeningIndicator(archivePane, inArchive.archive.name, onCancel = { paneState.closeArchive(inArchive.archive) })
+                } else Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     androidx.compose.material3.CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
             } else if (loadError != null && entries.isEmpty()) {
                 PaneMessage(
                     icon = Icons.Filled.FolderOff,
                     title = loadError ?: "Couldn't read this folder",
-                    detail = "It may need permissions BFE doesn't have, or it was removed.",
-                    actionLabel = "Try again",
-                    onAction = { paneState.requestReload() },
+                    detail = if (inArchive != null) "BFE's 7-Zip couldn't open ${inArchive.archive.name}. It may be damaged, incomplete, or a format 7-Zip can extract but not list."
+                        else "It may need permissions BFE doesn't have, or it was removed.",
+                    actionLabel = if (inArchive != null) "Close archive" else "Try again",
+                    onAction = { if (inArchive != null) paneState.closeArchive(inArchive.archive) else paneState.requestReload() },
                 )
             } else if (entries.isNotEmpty() && shownEntries.isEmpty()) {
                 PaneMessage(
@@ -2812,6 +2997,8 @@ fun BrowserPane(
                                     else "Removed \"${file.name}\" from Favorites")
                             },
                             onProperties = { propertiesTarget = file; showMenuFor = null },
+                            onBrowse = { if (file is Loc.ArchiveLoc) browseArchiveEntry(file) else (file as? Loc.FileLoc)?.let { browseArchive(it.file) } },
+                            onExtractTo = { showMenuFor = null; (file as? Loc.ArchiveLoc)?.let { archivePane.extractTargets = listOf(it) } },
                         )
                     }
                 }
@@ -2891,6 +3078,8 @@ fun BrowserPane(
                                     else "Removed \"${file.name}\" from Favorites")
                             },
                             onProperties = { propertiesTarget = file; showMenuFor = null },
+                            onBrowse = { if (file is Loc.ArchiveLoc) browseArchiveEntry(file) else (file as? Loc.FileLoc)?.let { browseArchive(it.file) } },
+                            onExtractTo = { showMenuFor = null; (file as? Loc.ArchiveLoc)?.let { archivePane.extractTargets = listOf(it) } },
                         )
                     }
                 }
@@ -2937,7 +3126,14 @@ private fun FileContextMenuItems(
     onToggleFavorite: () -> Unit,
     onProperties: () -> Unit,
     onDismissMenu: () -> Unit,
+    onBrowse: () -> Unit = {},
+    onExtractTo: () -> Unit = {},
 ) {
+    // Inside an archive: the read-only archive menu instead (ArchivePane.kt).
+    if (file is Loc.ArchiveLoc) {
+        ArchiveEntryMenuItems(file, onOpenWith, onBrowse, onExtractTo, onShare, onProperties, onSelect, onCopy, onDismissMenu)
+        return
+    }
     val isDir = file.isDir
     // File-specific extras (properties, favourites, archive extraction) are for direct-File entries;
     // SAF ("app storage") entries only get the backend-agnostic actions.
@@ -2986,6 +3182,8 @@ private fun FileContextMenuItems(
         Item("Sign APK\u2026", Icons.Filled.Security, action = onSignApk)
     }
     if (isArchive) {
+        // Browse it like a folder (read-only). InnoSetup/FreeArc installers are unpack-only.
+        if (!isInno) Item("Open as folder", Icons.Filled.FolderOpen, action = onBrowse)
         Item("Fast Extract", Icons.Filled.Bolt, action = onFastExtract)
         Item(if (isInno) "Unpack / Install\u2026" else "Unpack Archive\u2026", Icons.Filled.Unarchive, action = onUnpack)
     }
@@ -3037,6 +3235,8 @@ private fun FileItemRow(
     isFavorite: Boolean = false,
     onToggleFavorite: () -> Unit = {},
     onProperties: () -> Unit = {},
+    onBrowse: () -> Unit = {},
+    onExtractTo: () -> Unit = {},
 ) {
     // Locale-aware medium date ("Oct 13, 2026" / "13 Oct 2026"); the Properties dialog keeps the time.
     val dateFormat = remember { java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM) }
@@ -3182,6 +3382,8 @@ private fun FileItemRow(
                                 onToggleFavorite = onToggleFavorite,
                                 onProperties = onProperties,
                                 onDismissMenu = onDismissMenu,
+                                onBrowse = onBrowse,
+                                onExtractTo = onExtractTo,
                             )
                         }
                     }
@@ -3318,6 +3520,8 @@ private fun FileItemRow(
                         onToggleFavorite = onToggleFavorite,
                         onProperties = onProperties,
                         onDismissMenu = onDismissMenu,
+                        onBrowse = onBrowse,
+                        onExtractTo = onExtractTo,
                     )
                 }
             }
@@ -3530,6 +3734,8 @@ private fun FileGridTile(
     onDelete: () -> Unit = {},
     onToggleFavorite: () -> Unit = {},
     onProperties: () -> Unit = {},
+    onBrowse: () -> Unit = {},
+    onExtractTo: () -> Unit = {},
 ) {
     val isDir = file.isDir
     val isImage = !isDir && File(file.name).extension.lowercase() in IMAGE_THUMB_EXTS
@@ -3654,6 +3860,8 @@ private fun FileGridTile(
                 onToggleFavorite = onToggleFavorite,
                 onProperties = onProperties,
                 onDismissMenu = onDismissMenu,
+                onBrowse = onBrowse,
+                onExtractTo = onExtractTo,
             )
         }
     }

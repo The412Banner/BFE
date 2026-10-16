@@ -82,6 +82,10 @@ jobs:
         BFE_KEY_PASSWORD: ${{ secrets.BFE_KEY_PASSWORD }}
       run: ./gradlew --no-daemon --build-cache assembleRelease
 
+    # JVM unit tests (pure-Kotlin parts, e.g. the archive-listing parser fed real 7zz output).
+    - name: Unit tests
+      run: ./gradlew --no-daemon --build-cache testReleaseUnitTest
+
     - name: Check the signing certificate
       run: scripts/check-signing.sh app/build/outputs/apk/release/*.apk
 

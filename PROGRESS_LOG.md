@@ -6,6 +6,32 @@ where it stands*.
 
 ---
 
+## In flight: archive browsing (branch `feat/archive-browse`, 2026-10-16)
+
+Open an archive like a folder, ZArchiver / MT Manager style. Branched from `feat/open-with-all-archives`,
+rebased onto `main` = 1.0.1 (`ca38ed6`). **Not merged, not released, not device-run as a UI** (see proof).
+
+- **What it does:** "Open as folder" (first Open with action for archives, also in ⋮) shows the archive in
+  the same pane through the alt-stack (like SAF/root): breadcrumb `…/folder › Game.zip › inner › dir`,
+  Back walks inner dirs then out. Tap a file inside → extracted to `cache/archive-view/<hash>/` → the
+  normal Open with sheet (Open as folder for a nested archive, Install for an APK, Extract to…,
+  Properties). Multi-select → Extract… / Extract → (other pane) / Copy + paste anywhere = extraction
+  with the paste conflict choices. Passwords asked once per archive per session. Compressed tars
+  (`.tar.gz/.xz/.bz2/.zst/.tgz/.wcp`) auto-descend via a one-time cached inner tar
+  (`cache/archive-tar/<hash>/inner.tar`, 2 kept). Read-only: write actions hidden or refused.
+- **Where:** `storage/ArchiveListing.kt` (pure Kotlin: `SltParser`, `ArchiveTree`, `SltOutcome`),
+  `storage/ArchiveBackend.kt` (`Loc.ArchiveLoc` backend, `ArchiveIndexCache`, `ArchivePasswords`,
+  `ArchiveExtract`, cache housekeeping), `ui/screens/ArchivePane.kt` (pane state, opening indicator,
+  password / Extract to… / Properties dialogs, archive ⋮ menu). `FileManagerScreen.kt` only gets hooks.
+  `unpack/` (SevenZip.kt, UnpackService.kt) and the manifest are untouched (the decoder branch owns them).
+- **Proof level:** parser + tree **JVM-tested** (`ArchiveListingTest`, 21 tests, kotlinc 2.0.21 in the
+  sandbox and `testReleaseUnitTest` in CI) on fixtures captured from the bundled 7zz 24.08 on the device
+  (zip with/without dir entries, 7z, `-ba`, tar, tar.gz, wcp/zstd, Windows-backslash zip, ZipCrypto,
+  7z encrypted files + encrypted headers, not-an-archive, truncated zip) plus a synthetic 100k-entry
+  listing; the real 100k-entry listing (29 MB) parses in ~0.5 s on the device's JVM. The 7zz command
+  lines BFE runs (`-p`, `-spd`, folder-prefix names, list files, `-so`, wrong-password text) were
+  **device-verified by hand**. Everything UI is **compile-only** (CI). Needs an on-device UI pass.
+
 ## Current state (2026-10-13)
 
 - **Latest release: v1.0 (versionCode 12), the first stable release.** https://github.com/The412Banner/BFE/releases/tag/v1.0
@@ -63,6 +89,7 @@ Before 1.0 (manual):
 | 0.10 | 2026-09-02 | `2c20196` · `606c1fc` (+ ffmpeg CI 33615215915 / 33615584735) | 33617124598 | **Convert to MP4…** (static ffmpeg 7.1.5 + x264 `libffmpeg.so`, `build-ffmpeg.yml`); `.apk` icons; **New file**. |
 | 1.0 | 2026-10-13 | `73b9eb2f` feature · `10334042` CI fix · `41ac248d` compile fix · `f8516b95` cert-check fix + docs | 38440434618 · main 38441935303 · release.yml 38441955085 (tag `v1.0` = `f75f3ea0`) | **First stable.** In-app updater + `release.yml` + manifest branch; Open with sheet; Settings/About + licenses; item counts; breadcrumb; resizable panes; snackbars; M3 polish; signing from secret + cert guard. APK `BFE-1.0.apk` 27,822,882 B, sha256 `7b33ea00…8a79145f`, cert same as 0.10. Runs 38439402215 (setup-android `tools` package gone), 38439521683 (missing `detectTapGestures` import) and 38439927296 (cert digest parse) failed. |
 | 1.0 (docs) | 2026-10-13 | `236f76bb` | — | release.yml body names the Settings button "Check now" (published v1.0 notes edited to match). |
+| (branch) | 2026-10-16 | `feat/archive-browse`: `61cab355` feature + a follow-up (IO-dispatcher placement, quieter warnings, clone destination outside archives) | 38976084785 (green, unit tests included) | **Archive browsing**, read-only (see "In flight"). On top of 1.0.1 `ca38ed6`. Not merged, not released, not device-run. |
 
 
 ## Design decisions (owner, 2026-10-13)
@@ -117,6 +144,18 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
 - The build agent and coordinator share one checkout: always check `git rev-list origin/main..HEAD`
   before pushing docs so you don't ship half-done work early.
 
+- **7zz facts learned for archive browsing (bundled 7-Zip 24.08, device-verified 2026-10-16):**
+  without `-p` an encrypted listing waits on "Enter password:" (stdin closed → "Break signaled",
+  exit 255) — always pass `-p<pw>` (empty is fine); `-ttar.gzip` (tar nested in a stream compressor)
+  is E_NOTIMPL and `-tgzip.tar` is "not a tar", so compressed tars need the inner tar on disk; a folder
+  name extracts its whole subtree even when the archive has no entry for that folder; `-spd` turns off
+  wildcard matching; the zstd stream's only entry has NO `Path` line; a FAT-host zip lists
+  `Win\Dir\a.txt` and 7zz on Android extracts it as one file with backslashes in its name; 7z marks
+  folders only via `Attributes = D …`, tar via `Folder = +` / `Mode = d…`; 7-Zip's list-file reader
+  trims spaces/quotes per line (names with edge spaces must go on argv after `--`).
+- **On-device shell:** toybox `env` treats any argument containing `=` as an assignment, and app lib
+  paths look like `/data/app/~~xyz==/…` — run `LD_LIBRARY_PATH=$d $d/lib7zz.so`, never `env … $d/lib7zz.so`.
+
 ## Known limitations (as of 1.0)
 SAF only reaches DocumentsProvider apps; extracting
 *from* a SAF/root-hosted archive unsupported; piped tar.gz/xz report % not per-file; Compact ≈2× (not
@@ -124,6 +163,10 @@ SAF only reaches DocumentsProvider apps; extracting
 signature-checking / Play-licensed / Google-services apps may not run; no
 predictive-back animation (targetSdk 28); imported keystore passwords stored in private prefs as
 plain text.
+
+Archive browsing (branch above): read-only; no browsing of SAF/root-hosted archives, InnoSetup/GOG or
+FreeArc installers; archive-pane extraction is a pane job (progress + Cancel), not a foreground service;
+icons/thumbnails inside archives are generic; a compressed tar needs cache space for its inner tar.
 
 ## Backlog / next
 - **Device-test pass** (the real gate): SAF pin + browse; root pin, copy *into* an emulator app's
@@ -139,6 +182,10 @@ plain text.
   confirm 1.0 offers it, downloads, verifies and installs over itself.
 - Device-check the 1.0 UI: Open with sheet (chips, default app, empty state), item counts on SAF/root,
   breadcrumb, pane divider, Settings theme/dynamic color, license viewer.
+- **Archive browsing follow-ups:** device UI pass (open zip/7z/rar/iso/apk/wcp, nested archive, password
+  prompt, Extract to all four destinations, SAF/root destination, 100k-entry zip scroll, cancel a big
+  inner-tar unpack); write support via `7zz a` / `d` / `rn` in `ArchiveBackend`; `innoextract --list`
+  for Inno/GOG installers; thumbnails for cached image entries; browse SAF/root archives by staging.
 - Nice-to-haves: extract-from-SAF/root archives; more converter outputs; a built-in text/image viewer
   for the Open with sheet; a private (non-public) release key, which would need key rotation (APK v3
   signing lineage) so existing installs keep updating.
