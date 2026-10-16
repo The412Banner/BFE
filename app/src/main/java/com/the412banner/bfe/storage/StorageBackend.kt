@@ -13,7 +13,8 @@ import java.io.OutputStream
 /**
  * A browsable storage location, backed by EITHER a real filesystem [FileLoc] (direct java.io.File —
  * the app's own All-Files-Access storage) or a Storage-Access-Framework document [SafLoc] (another
- * app's DocumentsProvider, reached through a persisted tree Uri).
+ * app's DocumentsProvider, reached through a persisted tree Uri) — plus [RootLoc] (root shell) and
+ * [ArchiveLoc] (an entry inside an archive, browsed read-only through the bundled 7zz).
  *
  * The File Manager works in terms of [Loc]; each op is dispatched to the matching [StorageBackend] via
  * [Storage.backend]. The File path is byte-for-byte the old behaviour (FileBackend just calls the same
@@ -62,6 +63,23 @@ sealed class Loc {
     ) : Loc() {
         override val id get() = "root:$path"
     }
+
+    /**
+     * An entry INSIDE an archive, browsed like a folder (read-only — see [ArchiveBackend]). [archive]
+     * is the archive file the user opened (a File, or BFE's cache copy of an archive nested in another
+     * one); [inner] is the normalised '/'-separated path within it, "" for the archive's root.
+     */
+    class ArchiveLoc(
+        val archive: File,
+        val inner: String,
+        override val name: String,
+        override val isDir: Boolean,
+        override val size: Long,
+        override val lastModified: Long,
+    ) : Loc() {
+        override val id get() = "arc:${archive.absolutePath}!/$inner"
+        val isRoot: Boolean get() = inner.isEmpty()
+    }
 }
 
 /**
@@ -87,6 +105,7 @@ object Storage {
         is Loc.FileLoc -> FileBackend
         is Loc.SafLoc -> SafBackend
         is Loc.RootLoc -> RootBackend
+        is Loc.ArchiveLoc -> ArchiveBackend
     }
 }
 
