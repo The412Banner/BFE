@@ -21,6 +21,14 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- The in-app updater: reads update.json and downloads the release APK from GitHub. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Home → Apps: lists BFE under Settings → Usage access so the user can allow it; only then does
+         StorageStatsManager report other apps' sizes. Nothing is granted by declaring it. -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Home → Apps → Uninstall: apps targeting API 28+ need this (normal) permission to hand a package
+         to the system uninstall dialog; the user still confirms every uninstall there. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <!-- The Open with sheet lists every app that can VIEW a file. Not needed at targetSdk 28, but
          declared so the list keeps working if targetSdk is raised past 29 (package visibility). -->

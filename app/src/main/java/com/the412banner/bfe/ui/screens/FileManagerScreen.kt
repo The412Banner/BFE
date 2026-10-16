@@ -58,6 +58,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DensitySmall
 import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.SearchOff
@@ -180,6 +181,8 @@ import com.the412banner.bfe.storage.StorageTransfer
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.FavoritesStore
+import com.the412banner.bfe.ui.screens.home.FmLocationRequest
+import com.the412banner.bfe.ui.screens.home.HomePrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -463,6 +466,11 @@ fun FileManagerScreen(
     pickerTitle: String? = null,
     onPick: ((File) -> Unit)? = null,
     onOpenSettings: () -> Unit = {},
+    // Home dashboard wiring (all off in pickers): a location to jump the ACTIVE pane to, the toolbar's
+    // Home button, and what Back does once the active pane is at its storage root.
+    openRequest: FmLocationRequest? = null,
+    onHome: (() -> Unit)? = null,
+    onBackAtRoot: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val prefs = remember { androidx.preference.PreferenceManager.getDefaultSharedPreferences(context) }
@@ -519,6 +527,13 @@ fun FileManagerScreen(
     var pendingLabel by remember { mutableStateOf("App storage") }
     var pendingPkg by remember { mutableStateOf<String?>(null) }
     val activeState = rememberUpdatedState(active)
+
+    // ── Home dashboard hooks ── each request is a new object, so asking for the same folder twice
+    // still moves the pane. This Back handler is registered before the panes' own, so it only runs
+    // when the active pane can't go up any further. The last folder feeds Settings → Start on.
+    LaunchedEffect(openRequest) { openRequest?.applyTo(activeState.value) }
+    if (onBackAtRoot != null) BackHandler(enabled = !active.canGoUp && !active.showFavorites) { onBackAtRoot() }
+    if (!pickMode) LaunchedEffect(active, active.path) { HomePrefs.setLastFolder(context, active.path) }
 
     // Open a pinned location (SAF tree or root path) in the ACTIVE pane, resolving it off the main
     // thread. Root pins request root lazily (Magisk prompts once); denied/unavailable ⇒ a clear
@@ -653,6 +668,7 @@ fun FileManagerScreen(
                 onAddAppStorage = { showAddStorage = true },
                 onUnpin = { p -> PinnedStorage.remove(context, p); pinnedTick++ },
                 onOpenSettings = onOpenSettings,
+                onHome = onHome,
             )
 
             if (!effectiveDual) {
@@ -837,6 +853,7 @@ private fun SharedToolbar(
     onAddAppStorage: () -> Unit,
     onUnpin: (PinnedLocation) -> Unit,
     onOpenSettings: () -> Unit,
+    onHome: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var showDriveMenu by remember { mutableStateOf(false) }
@@ -858,6 +875,13 @@ private fun SharedToolbar(
     val showSplitAndTools = !pickMode
 
     // ── The individual controls, shared by the one-row and wrapped layouts ──
+
+    @Composable
+    fun HomeButton() {
+        if (onHome != null) IconButton(onClick = onHome) {
+            Icon(Icons.Filled.Home, "Home", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
 
     @Composable
     fun BackButton() {
@@ -1174,12 +1198,13 @@ private fun SharedToolbar(
         // the classic single row whenever it all fits with room for a readable folder name.
         val chipDp = if (narrow) 48 else (driveLabel.length * 8 + 36).coerceAtLeast(60)
         val newFolderDp = if (!showNewFolder) 0 else if (narrow) 48 else 84
-        val iconButtons = 1 /* back */ + (if (browsing) 3 else 0) /* view, search, sort */ + 1 /* favourites */ + (if (showSplitAndTools) 2 else 0)
+        val iconButtons = (if (onHome != null) 1 else 0) /* home */ + 1 /* back */ + (if (browsing) 3 else 0) /* view, search, sort */ + 1 /* favourites */ + (if (showSplitAndTools) 2 else 0)
         val fixedDp = 48 * iconButtons + chipDp + 4 + newFolderDp
         val fitsOneRow = fixedDp + 72 <= width.value
 
         if (fitsOneRow) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                HomeButton()
                 BackButton()
                 DriveChip(iconOnly = narrow)
                 Spacer(Modifier.width(4.dp))
@@ -1200,6 +1225,7 @@ private fun SharedToolbar(
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Row one: the essentials (never wrapped): back, drive, name, search, view-mode, split.
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    HomeButton()
                     BackButton()
                     DriveChip(iconOnly = narrow)
                     Spacer(Modifier.width(4.dp))

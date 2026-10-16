@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.BuildConfig
+import com.the412banner.bfe.ui.screens.home.HomePrefs
 import com.the412banner.bfe.ui.theme.ThemeSettings
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.CheckState
@@ -219,6 +221,26 @@ private fun MainSettings(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         // ── Files ──
         SectionHeader("Files")
+        // Which screen BFE opens on: the Home dashboard, or straight into the last folder you had open.
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Home, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Text("Start on", style = MaterialTheme.typography.bodyLarge)
+            }
+            Spacer(Modifier.height(8.dp))
+            var startOn by remember { mutableStateOf(HomePrefs.startOn(context)) }
+            val choices = listOf(HomePrefs.START_HOME to "Home", HomePrefs.START_LAST_FOLDER to "Last folder")
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                choices.forEachIndexed { i, (value, label) ->
+                    SegmentedButton(
+                        selected = startOn == value,
+                        onClick = { startOn = value; HomePrefs.setStartOn(context, value) },
+                        shape = SegmentedButtonDefaults.itemShape(i, choices.size),
+                    ) { Text(label) }
+                }
+            }
+        }
         SettingRow(
             icon = Icons.Filled.Apps,
             title = "Default apps",
