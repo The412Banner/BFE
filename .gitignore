@@ -13,3 +13,6 @@ local.properties
 
 # NOTE: keystore/ and app/src/main/jniLibs/ are intentionally committed — this is a
 # sideload test app, so the test key and the prebuilt native extractors ship in the repo.
+
+# Python bytecode (scripts/icons)
+__pycache__/

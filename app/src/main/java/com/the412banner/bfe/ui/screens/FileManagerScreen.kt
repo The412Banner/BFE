@@ -57,7 +57,6 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DensitySmall
 import androidx.compose.material.icons.filled.FileCopy
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
@@ -89,7 +88,6 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.ViewColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -143,7 +141,6 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -161,6 +158,10 @@ import com.the412banner.bfe.core.PeIconExtractor
 import com.the412banner.bfe.core.StorageRoot
 import com.the412banner.bfe.core.StorageRoots
 import com.the412banner.bfe.ui.components.CollapsibleRail
+import com.the412banner.bfe.ui.icons.BfeIcon
+import com.the412banner.bfe.ui.icons.FileIcons
+import com.the412banner.bfe.ui.icons.FileTypeIcon
+import com.the412banner.bfe.ui.icons.fileIconPainter
 import com.the412banner.bfe.ui.components.RailItem
 import com.the412banner.bfe.ui.components.RailLink
 import com.the412banner.bfe.ui.components.RailSection
@@ -248,10 +249,6 @@ private fun comparatorFor(sortBy: String, desc: Boolean): Comparator<Loc> {
     val directed = if (desc) inner.reversed() else inner
     return compareBy<Loc> { if (it.isDir) 0 else 1 }.then(directed)
 }
-
-private val FileTypeIcon: Map<String, ImageVector> = mapOf(
-    "folder" to Icons.Filled.Folder,
-)
 
 // Image extensions that get a real thumbnail (via Coil) instead of the generic file icon.
 private val IMAGE_THUMB_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif")
@@ -799,7 +796,7 @@ private fun AddAppStorageDialog(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth().clickable { onPick(null) }.padding(vertical = 10.dp),
                         ) {
-                            Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                            BfeIcon(FileIcons.FOLDER, size = 24.dp)
                             Spacer(Modifier.width(10.dp))
                             Text("Choose a folder…", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
                         }
@@ -2611,7 +2608,7 @@ fun BrowserPane(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                Icon(Icons.Filled.Folder, null, modifier = Modifier.size(18.dp))
+                BfeIcon(FileIcons.FOLDER, size = 18.dp)
                 Spacer(Modifier.width(8.dp))
                 Text("Select this folder")
             }
@@ -2680,6 +2677,10 @@ fun BrowserPane(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f).horizontalScroll(crumbScroll),
                 ) {
+                    if (paneState.isArchive) {
+                        BfeIcon(FileIcons.FOLDER_OPEN, size = 16.dp)
+                        Spacer(Modifier.width(2.dp))
+                    }
                     crumbs.forEachIndexed { i, (label, onClick) ->
                         val last = i == crumbs.lastIndex
                         if (i > 0) {
@@ -3033,7 +3034,7 @@ fun BrowserPane(
                 if (entries.isEmpty()) {
                     item {
                         Box(modifier = Modifier.fillParentMaxSize()) {
-                            PaneMessage(icon = Icons.Filled.FolderOpen, title = "This folder is empty")
+                            PaneMessage(icon = Icons.Filled.FolderOpen, iconRes = FileIcons.FOLDER_OPEN, title = "This folder is empty")
                         }
                     }
                 } else {
@@ -3280,7 +3281,6 @@ private fun FileItemRow(
     val countLabel = itemCount?.takeIf { it >= 0 }?.let { if (it == 1) "1 item" else "$it items" }
     // Left half of the detail line: item count for folders, size for files.
     val detailLabel = if (isDir) countLabel.orEmpty() else StringUtils.formatBytes(file.size)
-    val isExe = !isDir && file.name.lowercase().let { it.endsWith(".exe") || it.endsWith(".bat") || it.endsWith(".msi") || it.endsWith(".sh") }
     // Image files show a real thumbnail instead of the generic file icon (handy when picking a
     // wallpaper/icon). Coil sizes the decode to the 36dp slot and caches it, so scrolling stays smooth.
     val isImage = !isDir && File(file.name).extension.lowercase() in IMAGE_THUMB_EXTS
@@ -3332,17 +3332,15 @@ private fun FileItemRow(
                 }
                 when {
                     exeIcon != null -> Image(bitmap = exeIcon!!, contentDescription = null, modifier = Modifier.size(22.dp))
-                    isExe -> Icon(Icons.Filled.Terminal, null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(22.dp))
-                    isDir -> Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                     isImage -> AsyncImage(
                         model = thumbModel,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
-                        error = rememberVectorPainter(Icons.Filled.InsertDriveFile),
+                        placeholder = fileIconPainter(file.name, false),
+                        error = fileIconPainter(file.name, false),
                         modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)),
                     )
-                    else -> Icon(Icons.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+                    else -> FileTypeIcon(file.name, isDir, size = 22.dp)
                 }
                 Spacer(Modifier.width(10.dp))
                 // One-line detail on the right: "N items · date" (folders) or "size · date" (files).
@@ -3455,35 +3453,19 @@ private fun FileItemRow(
                     contentDescription = null,
                     modifier = Modifier.size(if (compact) 24.dp else 36.dp),
                 )
-                isExe -> Icon(
-                    imageVector = Icons.Filled.Terminal,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
-                )
-                isDir -> Icon(
-                    imageVector = Icons.Filled.Folder,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
-                )
-                // Real image preview. Falls back to the generic file icon while loading or on decode failure.
+                // Real image preview. Falls back to the image type icon while loading or on decode failure.
                 isImage -> AsyncImage(
                     model = thumbModel,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
-                    error = rememberVectorPainter(Icons.Filled.InsertDriveFile),
+                    placeholder = fileIconPainter(file.name, false),
+                    error = fileIconPainter(file.name, false),
                     modifier = Modifier
                         .size(36.dp)
                         .clip(RoundedCornerShape(6.dp)),
                 )
-                else -> Icon(
-                    imageVector = Icons.Filled.InsertDriveFile,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
-                )
+                // BFE's folder / file-type artwork (special folders by name, files by extension).
+                else -> FileTypeIcon(file.name, isDir, size = if (compact) 24.dp else 36.dp)
             }
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -3659,12 +3641,7 @@ private fun FavoriteCard(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.Folder,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(36.dp),
-            )
+            FileTypeIcon(file.name, isDir = true, size = 36.dp)
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -3808,24 +3785,16 @@ private fun FileGridTile(
                 Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
                     when {
                         exeIcon != null -> Image(bitmap = exeIcon!!, contentDescription = null, modifier = Modifier.size(48.dp))
-                        isDir -> Icon(
-                            Icons.Filled.Folder, null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(48.dp),
-                        )
                         isImage -> AsyncImage(
                             model = thumbModel,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            placeholder = rememberVectorPainter(Icons.Filled.InsertDriveFile),
-                            error = rememberVectorPainter(Icons.Filled.InsertDriveFile),
+                            placeholder = fileIconPainter(file.name, false),
+                            error = fileIconPainter(file.name, false),
                             modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)),
                         )
-                        else -> Icon(
-                            Icons.Filled.InsertDriveFile, null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(44.dp),
-                        )
+                        // The artwork carries its own keyline padding, so it fills the whole 56dp box.
+                        else -> FileTypeIcon(file.name, isDir, size = 56.dp)
                     }
                     if (selectionMode) {
                         androidx.compose.material3.Checkbox(
@@ -4034,6 +4003,8 @@ private fun AttributeToggleRow(
 private fun PaneMessage(
     icon: ImageVector,
     title: String,
+    // BFE artwork to show instead of [icon] (drawn full colour, slightly faded).
+    @androidx.annotation.DrawableRes iconRes: Int? = null,
     detail: String? = null,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
@@ -4043,7 +4014,8 @@ private fun PaneMessage(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(48.dp))
+        if (iconRes != null) BfeIcon(iconRes, size = 64.dp, alpha = 0.85f)
+        else Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(12.dp))
         Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         if (detail != null) {

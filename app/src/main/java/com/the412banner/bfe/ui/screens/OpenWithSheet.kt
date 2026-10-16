@@ -30,14 +30,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Unarchive
@@ -72,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
+import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.storage.Loc
 import com.the412banner.bfe.util.AppSnackbar
@@ -202,19 +198,7 @@ internal fun OpenWithSheet(
             // ── Header: icon · name · size ──
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 12.dp)) {
-                    Icon(
-                        when (categoryOf(detectedMime)) {
-                            "Text" -> Icons.Filled.Description
-                            "Image" -> Icons.Filled.Image
-                            "Video" -> Icons.Filled.Movie
-                            "Audio" -> Icons.Filled.AudioFile
-                            "Archive" -> Icons.Filled.Archive
-                            else -> if (file.name.lowercase().endsWith(".apk")) Icons.Filled.Android else Icons.Filled.InsertDriveFile
-                        },
-                        null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp),
-                    )
+                    FileTypeIcon(file.name, isDir = false, size = 40.dp, mime = detectedMime)
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(

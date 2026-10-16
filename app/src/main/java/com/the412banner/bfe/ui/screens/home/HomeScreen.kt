@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FiberNew
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
@@ -88,6 +87,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.BuildConfig
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.storage.RootAccess
@@ -425,7 +425,7 @@ private fun FavoritesRow(favorites: List<File>, onOpen: (File) -> Unit) {
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                        Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                        FileTypeIcon(dir.name, isDir = true, size = 28.dp)
                         Spacer(Modifier.width(8.dp))
                         Column {
                             Text(dir.name.ifBlank { dir.path }, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)

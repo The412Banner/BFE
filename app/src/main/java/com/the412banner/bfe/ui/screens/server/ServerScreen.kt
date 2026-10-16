@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -80,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.core.StorageRoots
 import com.the412banner.bfe.server.LanAddresses
 import com.the412banner.bfe.server.ServerActivity
@@ -441,7 +441,7 @@ private fun SharesCard(settings: ServerSettings, commit: (ServerSettings) -> Uni
         Spacer(Modifier.height(10.dp))
         if (settings.wholeStorage) {
             FolderRow(
-                icon = Icons.Filled.Storage,
+                icon = { Icon(Icons.Filled.Storage, null, tint = MaterialTheme.colorScheme.primary) },
                 name = ServerSettings.STORAGE_LABEL,
                 path = ServerSettings.storageRoot().absolutePath,
                 readOnly = settings.wholeStorageReadOnly,
@@ -463,7 +463,10 @@ private fun SharesCard(settings: ServerSettings, commit: (ServerSettings) -> Uni
             }
             settings.folders.forEachIndexed { i, f ->
                 FolderRow(
-                    icon = if (volumes.any { it.removable && it.dir.absolutePath == f.path }) Icons.Filled.SdStorage else Icons.Filled.Folder,
+                    icon = {
+                        if (volumes.any { it.removable && it.dir.absolutePath == f.path }) Icon(Icons.Filled.SdStorage, null, tint = MaterialTheme.colorScheme.primary)
+                        else FileTypeIcon(File(f.path).name, isDir = true, size = 24.dp)
+                    },
                     name = f.label,
                     path = f.path,
                     readOnly = f.readOnly,
@@ -503,7 +506,7 @@ private fun SharesCard(settings: ServerSettings, commit: (ServerSettings) -> Uni
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FolderRow(
-    icon: ImageVector,
+    icon: @Composable () -> Unit,
     name: String,
     path: String,
     readOnly: Boolean,
@@ -512,7 +515,7 @@ private fun FolderRow(
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+            icon()
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

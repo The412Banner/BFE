@@ -6,6 +6,48 @@ where it stands*.
 
 ---
 
+## In flight: BFE's own file & folder icons (branch `feat/file-icons`, 2026-10-16)
+
+Owner: "Folders are to use a proper folder icon, not a blank coloured folder … create our own
+file/folder icon/images." Branched from `test/next` (`179e151`), rebased onto `337c82b` (the
+Banners File Explorer rename). **Not merged, not released, not
+device-run.**
+
+- **Artwork (original, 25 drawables, 48×48 grid):** manila folder (darker back panel + tab, grey and
+  white sheets peeking out, gradient front flap with a highlight line, flap shadow, darker edge);
+  open folder; 8 emblem folders (Download, Pictures, Music, Movies, Documents, Android, Games, Backups;
+  emblem pressed into the flap with a light emboss line). Files: white page + folded corner + coloured
+  type band with a white glyph — archive (violet, zipper running down the page), apk (green robot),
+  exe (sky, app window), wcp/tzst package (teal cube), image (sky + hills + sun scene), video (red
+  play), audio (pink notes), document (blue), spreadsheet (green grid), slides (orange), text (slate),
+  code (indigo `</>`), OTA payload.bin (charcoal chip), generic (plain page); disc image = a silver
+  disc with soft iridescent sheen and a see-through hole.
+- **Source of truth:** `scripts/icons/bfe_icons.py` (shapes: paths with solid / userSpaceOnUse
+  gradient fills and solid strokes only — no filters, masks or clips, so SVG and VectorDrawable map
+  1:1). `scripts/icons/generate.py` writes `res/drawable/ic_bfe_*.xml` (gradients as
+  `aapt:attr` + `xmlns:aapt`; fill alpha folded into gradient stops, never combined with a shader).
+- **Mapping:** `ui/icons/FileIcons.kt` — `fileIconRes(name, isDir, mime?)`, `fileIconPainter`,
+  `FileTypeIcon(name, isDir, modifier, size, mime?)` (hidden dot entries at alpha 0.5) and `BfeIcon`.
+  Special folders by exact name (case-insensitive); files by extension (every SevenZip.SUPPORTED /
+  ExtraFormats extension, split volumes `.001` / `.r00` / `.z01`, disc images incl. emulator formats,
+  media, office, text/config, code), `payload.bin` by name, then MIME as a fallback (Open with).
+  Drawn with `Image`, never `Icon` (a tint would flatten the colours).
+- **Call sites:** FileManagerScreen list / compact / grid rows (also archive panes, which reuse them),
+  Coil placeholders/errors under image thumbnails, favourites list, "Choose a folder…", "Select this
+  folder", empty-folder state, archive breadcrumb (open folder); CategoryScreen thumbnails;
+  RemoteBrowser rows + download target + empty state (CloudScreens `EmptyState` gained `iconRes`);
+  Open with header (name, then detected MIME); Unpack screen source card (new icon) + Change folder;
+  Home favourites; Apps backup "Save to"; Access-from-network shared folders; first-run welcome.
+  The `.exe/.bat/.msi/.sh` Terminal placeholder is gone (exe/msi/bat → app-window icon, sh → code);
+  PE and APK icons still replace the type icon once loaded. Grid tiles keep the fixed 56dp box (type
+  icons now fill it); list rows keep 36/24dp, compact 22dp. Menu/action glyphs stay Material.
+- **Proof level:** every icon rendered with rsvg-convert at 20/32/48/72 px on dark (#121418, BFE
+  #141D2E) and light (#F7F7F5, #FFFFFF) and inspected; each shipped XML converted back to SVG by an
+  independent parser (`scripts/icons/vd2svg.py`, reads only the XML) and pixel-compared with the
+  master render at 48 and 144 px: 0 differing pixels for all 25. Owner preview
+  `/sdcard/Download/BFE-Icons-Preview.html` (offline, inline SVG). Kotlin is CI-compiled only;
+  Compose's own vector parser on a device has not drawn them yet.
+
 ## In flight: archive browsing (branch `feat/archive-browse`, 2026-10-16)
 
 Open an archive like a folder, ZArchiver / MT Manager style. Branched from `feat/open-with-all-archives`,

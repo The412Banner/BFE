@@ -11,9 +11,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -47,6 +44,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
 import java.io.File
+import com.the412banner.bfe.ui.icons.BfeIcon
+import com.the412banner.bfe.ui.icons.FileIcons
 import com.the412banner.bfe.ui.ApkJobPill
 import com.the412banner.bfe.ui.ConvertProgressPill
 import com.the412banner.bfe.ui.PackProgressPill
@@ -247,11 +246,7 @@ private fun PermissionGate(content: @Composable () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            Icons.Filled.FolderOpen, null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(64.dp),
-        )
+        BfeIcon(FileIcons.FOLDER_OPEN, size = 80.dp)
         Spacer(Modifier.height(16.dp))
         Text("Welcome to BFE", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
         Spacer(Modifier.height(12.dp))

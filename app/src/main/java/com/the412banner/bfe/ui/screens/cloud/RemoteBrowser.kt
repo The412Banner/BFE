@@ -30,10 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Android
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -41,17 +38,12 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
@@ -91,7 +83,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,6 +90,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.preference.PreferenceManager
+import com.the412banner.bfe.ui.icons.BfeIcon
+import com.the412banner.bfe.ui.icons.FileIcons
+import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.cloud.CloudServices
 import com.the412banner.bfe.cloud.CloudSetup
 import com.the412banner.bfe.cloud.CloudTransfers
@@ -138,27 +132,6 @@ private class OpenedFile(val entry: RcEntry, val file: File, val uri: Uri, val m
 
 @Suppress("DEPRECATION")
 private fun defaultDownloadDir(): String = File(Environment.getExternalStorageDirectory(), "Download").absolutePath
-
-private val IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "svg", "tif", "tiff")
-private val VIDEO_EXTS = setOf("mp4", "mkv", "webm", "avi", "mov", "m4v", "wmv", "flv", "3gp", "ts", "mpg", "mpeg", "bik")
-private val AUDIO_EXTS = setOf("mp3", "flac", "ogg", "opus", "wav", "m4a", "aac", "wma")
-private val ARCHIVE_EXTS = setOf("zip", "7z", "rar", "tar", "gz", "xz", "bz2", "zst", "tzst", "wcp", "iso", "001")
-private val TEXT_EXTS = setOf("txt", "md", "log", "ini", "cfg", "conf", "json", "xml", "yml", "yaml", "csv", "html", "htm")
-
-private fun entryIcon(e: RcEntry): ImageVector {
-    if (e.isDir) return Icons.Filled.Folder
-    val ext = e.name.substringAfterLast('.', "").lowercase()
-    return when {
-        ext in IMAGE_EXTS -> Icons.Filled.Image
-        ext in VIDEO_EXTS -> Icons.Filled.Movie
-        ext in AUDIO_EXTS -> Icons.Filled.AudioFile
-        ext in ARCHIVE_EXTS -> Icons.Filled.Archive
-        ext == "apk" -> Icons.Filled.Android
-        ext == "pdf" -> Icons.Filled.PictureAsPdf
-        ext in TEXT_EXTS -> Icons.Filled.Description
-        else -> Icons.Filled.InsertDriveFile
-    }
-}
 
 /** The cached copy an "open" downloads to; keyed on path + size + date so a changed file is re-fetched. */
 private fun openCacheFile(ctx: Context, remote: String, e: RcEntry): File {
@@ -495,7 +468,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                         )
                         visible.isEmpty() && query.isNotBlank() -> EmptyState(Icons.Filled.Search, "No matches", "Nothing in this folder matches “$query”.")
                         visible.isEmpty() -> EmptyState(
-                            Icons.Filled.Folder, "This folder is empty", "Upload files here from this device.",
+                            Icons.Filled.FolderOpen, "This folder is empty", "Upload files here from this device.", iconRes = FileIcons.FOLDER_OPEN,
                             action = "Upload files", onAction = { runCatching { pickDocs.launch(arrayOf("*/*")) } },
                         )
                         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -666,7 +639,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                             .clickable { pick = LocalPick.DownloadDir(targets); downloadTargets = null }
                             .padding(vertical = 8.dp),
                     ) {
-                        Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary)
+                        BfeIcon(FileIcons.FOLDER, size = 24.dp)
                         Spacer(Modifier.width(10.dp))
                         Text(downloadDir, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text("Change", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
@@ -807,7 +780,7 @@ private fun EntryRow(
         if (selecting) {
             Checkbox(checked = selected, onCheckedChange = { onClick() })
         }
-        Icon(entryIcon(e), null, tint = if (e.isDir) cs.primary else cs.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp).size(28.dp))
+        FileTypeIcon(e.name, e.isDir, Modifier.padding(horizontal = 4.dp), size = 28.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(e.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

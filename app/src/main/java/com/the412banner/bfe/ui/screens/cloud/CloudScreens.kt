@@ -74,6 +74,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.the412banner.bfe.ui.icons.BfeIcon
 import com.the412banner.bfe.cloud.CloudSection
 import com.the412banner.bfe.cloud.CloudServices
 import com.the412banner.bfe.cloud.CloudSetup
@@ -623,6 +624,8 @@ internal fun EmptyState(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     text: String,
+    // BFE artwork to show instead of [icon] (full colour, slightly faded).
+    @androidx.annotation.DrawableRes iconRes: Int? = null,
     action: String? = null,
     onAction: () -> Unit = {},
 ) {
@@ -631,7 +634,8 @@ internal fun EmptyState(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(56.dp))
+        if (iconRes != null) BfeIcon(iconRes, size = 64.dp, alpha = 0.85f)
+        else Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(56.dp))
         Spacer(Modifier.height(12.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))

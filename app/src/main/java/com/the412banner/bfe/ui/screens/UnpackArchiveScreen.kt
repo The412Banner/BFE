@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -66,6 +65,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.the412banner.bfe.ui.icons.BfeIcon
+import com.the412banner.bfe.ui.icons.FileIcons
+import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.unpack.ExtraFormats
 import com.the412banner.bfe.unpack.Innoextract
@@ -325,24 +327,30 @@ fun UnpackArchiveScreen(
             SectionCard {
                 Text("Source", style = sectionTitle())
                 Spacer(Modifier.height(6.dp))
-                Text(selected.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(2.dp))
-                val typeText = when {
-                    isInno && innoClassifying -> "InnoSetup installer • checking…"
-                    isInno -> buildString {
-                        append("InnoSetup installer")
-                        innoClass?.compression?.let { append(" • ").append(it) }
-                        innoClass?.declaredSize?.let { append(", ").append(it) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FileTypeIcon(selected.name, isDir = false, size = 40.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(selected.name, color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(2.dp))
+                        val typeText = when {
+                            isInno && innoClassifying -> "InnoSetup installer • checking…"
+                            isInno -> buildString {
+                                append("InnoSetup installer")
+                                innoClass?.compression?.let { append(" • ").append(it) }
+                                innoClass?.declaredSize?.let { append(", ").append(it) }
+                            }
+                            typeLoading -> "reading…"
+                            detectedType != null -> detectedType
+                            else -> "not an archive"
+                        }
+                        Text(
+                            "${StringUtils.formatBytes(sourceSize)}  •  $typeText",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                        )
                     }
-                    typeLoading -> "reading…"
-                    detectedType != null -> detectedType
-                    else -> "not an archive"
                 }
-                Text(
-                    "${StringUtils.formatBytes(sourceSize)}  •  $typeText",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp,
-                )
                 if (innoExtract) {
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -388,7 +396,7 @@ fun UnpackArchiveScreen(
                     onClick = { destPicker.launch(DirPicker.buildDirIntent()) },
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                 ) {
-                    Icon(Icons.Filled.Folder, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    BfeIcon(FileIcons.FOLDER, size = 18.dp)
                     Spacer(Modifier.width(6.dp))
                     Text("Change folder", color = MaterialTheme.colorScheme.onBackground)
                 }

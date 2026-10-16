@@ -37,34 +37,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Archive
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -98,7 +87,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -113,6 +102,8 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import com.the412banner.bfe.ui.icons.BfeIcon
+import com.the412banner.bfe.ui.icons.fileIconRes
 import com.the412banner.bfe.UnpackArchiveActivity
 import com.the412banner.bfe.core.FileUtils
 import com.the412banner.bfe.core.StringUtils
@@ -589,38 +580,23 @@ private fun CategoryTopBar(
     )
 }
 
-/** Generic icon for a non-media file, by extension. */
-private fun fileIcon(item: MediaItem): ImageVector = when (item.kind) {
-    MediaKind.IMAGE -> Icons.Filled.Image
-    MediaKind.VIDEO -> Icons.Filled.Movie
-    MediaKind.AUDIO -> Icons.Filled.AudioFile
-    MediaKind.OTHER -> when (item.name.substringAfterLast('.', "").lowercase()) {
-        "pdf" -> Icons.Filled.PictureAsPdf
-        "xls", "xlsx", "xlsm", "ods", "csv", "tsv" -> Icons.Filled.TableChart
-        "ppt", "pptx", "odp" -> Icons.Filled.Slideshow
-        "epub", "mobi", "azw3", "fb2", "djvu" -> Icons.Filled.Book
-        "doc", "docx", "docm", "odt", "rtf", "txt", "md", "xps" -> Icons.Filled.Description
-        "apk" -> Icons.Filled.Android
-        "zip", "7z", "rar", "tar", "gz", "xz", "zst", "tzst", "wcp", "iso" -> Icons.Filled.Archive
-        else -> Icons.Filled.InsertDriveFile
-    }
-}
-
 /**
  * The file's thumbnail in a [size] box: Coil for images (as in the file manager), MediaStore's
- * thumbnail for video / audio art, a type icon otherwise or while loading.
+ * thumbnail for video / audio art, BFE's type icon otherwise or while loading.
  */
 @Composable
 private fun MediaThumb(item: MediaItem, size: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val icon = fileIcon(item)
+    val iconRes = fileIconRes(item.name, isDir = false)
+    // The artwork has its own keyline padding: full size in list/grid boxes, capped in gallery cells.
+    val iconSize = size.coerceAtMost(64.dp)
     when (item.kind) {
         MediaKind.IMAGE -> AsyncImage(
             model = item.file,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            placeholder = rememberVectorPainter(icon),
-            error = rememberVectorPainter(icon),
+            placeholder = painterResource(iconRes),
+            error = painterResource(iconRes),
             modifier = modifier,
         )
         MediaKind.VIDEO, MediaKind.AUDIO -> {
@@ -630,11 +606,11 @@ private fun MediaThumb(item: MediaItem, size: Dp, modifier: Modifier = Modifier)
             val b = bmp
             if (b != null) Image(bitmap = b, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier)
             else Box(modifier, contentAlignment = Alignment.Center) {
-                Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(size * 0.5f))
+                BfeIcon(iconRes, size = iconSize)
             }
         }
         MediaKind.OTHER -> Box(modifier, contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.6f))
+            BfeIcon(iconRes, size = iconSize)
         }
     }
 }

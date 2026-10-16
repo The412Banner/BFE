@@ -33,7 +33,6 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileCopy
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Search
@@ -87,6 +86,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.apk.ApkJobKind
 import com.the412banner.bfe.apk.ApkJobManager
 import com.the412banner.bfe.apk.ApkJobReport
@@ -302,7 +302,7 @@ fun AppsScreen(onBack: () -> Unit, onBrowseData: (FmLocationRequest) -> Unit) {
                     Spacer(Modifier.height(10.dp))
                     Text("Save to", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        FileTypeIcon(backupDir.name, isDir = true, size = 18.dp)
                         Spacer(Modifier.width(6.dp))
                         Text(backupDir.absolutePath.removePrefix("/storage/emulated/0/"), fontSize = 12.sp, modifier = Modifier.weight(1f))
                     }

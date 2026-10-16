@@ -74,6 +74,18 @@ you come back to it.
 - **Share** one or many files, and **Install** `.apk` files directly.
 - Clear **empty, error and no-match states**, and short **snackbar** messages for results.
 
+### Icons
+Banners File Explorer draws its own file and folder artwork (original, made for BFE — no icon packs):
+**manila folders** with a tab, a sheet of paper peeking out and a shaded front flap; **special
+folders** carry a pressed-in emblem (Download, DCIM / Pictures / Screenshots, Music, Movies / Videos,
+Documents, Android, Games / Winlator, BFE Backups); **files** are white pages with a folded corner and
+a coloured type band (archive, app, Windows program, Winlator package, image, video, audio, document,
+spreadsheet, slides, text, code, OTA `payload.bin`); **disc images** are a silver disc. Hidden (dot)
+items show the same icon faded. They are used in every listing (list, compact, grid, archives,
+categories, cloud/remote, favourites, Open with); real thumbnails, APK icons and EXE icons still win
+once loaded. The drawables (`res/drawable/ic_bfe_*.xml`) are generated from the masters in
+`scripts/icons/`.
+
 ### Dual-pane "commander" mode
 - Toolbar toggle → **two fully independent panes side by side** — in landscape *and* portrait. **Drag
   the handle between them** to resize (double-tap it for 50/50); the split is remembered.
@@ -402,6 +414,7 @@ app/src/main/java/com/the412banner/bfe/
 │  ├─ apps/       installed apps list, sizes (Usage access / root), APK backup + share
 │  ├─ server/     Access from network screen (ServerScreen + QR code)
 │  └─ cloud/      CloudScreen / RemoteScreen, accounts, add-account forms, remote browser, transfers UI
+├─ ui/icons/   FileIcons: name → BFE icon (special folders, file types), FileTypeIcon / BfeIcon
 └─ ui/         progress pills, update dialogs, theme, components
 app/src/main/resources/…/server/web/  the Access-from-network web page's app.css + app.js
 app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure,
@@ -411,6 +424,7 @@ rclone/main.go                    the trimmed rclone entry point (which commands
 keystore/bfe-test.jks             the (public) BFE signing key
 licenses/                         license and notice texts, also shown in Settings
 scripts/check-signing.sh          CI guard: the APK must carry the BFE certificate
+scripts/icons/                    the file/folder icon masters + generator for res/drawable/ic_bfe_*.xml
 ```
 
 ## Known limitations
