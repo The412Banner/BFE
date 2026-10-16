@@ -190,6 +190,9 @@ jobs:
             t="$dir/$f"
             if [ "$kind" != "unknown" ]; then continue; fi
             if grep -qiE 'Mozilla Public License' "$t"; then kind="MPL-2.0"
+            elif grep -qiE 'GNU LESSER GENERAL PUBLIC LICENSE' "$t"; then kind="LGPL"
+            elif grep -qiE 'GNU GENERAL PUBLIC LICENSE' "$t"; then kind="GPL"
+            elif grep -qiE 'CC0 1\.0|Creative Commons Zero' "$t"; then kind="CC0-1.0"
             elif grep -qiE 'Apache License' "$t"; then kind="Apache-2.0"
             elif grep -qiE 'Permission is hereby granted, free of charge' "$t"; then kind="MIT"
             elif grep -qiE 'Redistribution and use in source and binary forms' "$t"; then kind="BSD"
