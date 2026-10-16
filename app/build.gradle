@@ -103,7 +103,8 @@ android {
             excludes += ['META-INF/versions/**', 'META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/*.kotlin_module']
         }
         jniLibs {
-            // The native binaries (7zz / innoextract / unarc + their .so closure) are exec'd from
+            // The native binaries (7zz / innoextract / unarc / ffmpeg, the ExtraFormats tools — lunzip,
+            // lzop, lz4, unecm, unalz, unace, lzx — + their .so closure) are exec'd from
             // nativeLibraryDir, so they must be extracted to disk — see extractNativeLibs in the
             // manifest. Legacy packaging keeps them uncompressed and page-aligned.
             useLegacyPackaging = true
@@ -153,6 +154,10 @@ dependencies {
     // tar + zstd-jni (arm64 native inside the AAR). Same pair Bannerlator uses for its .wcp handling.
     implementation 'org.apache.commons:commons-compress:1.20'
     implementation 'com.github.luben:zstd-jni:1.5.2-3@aar'
+    // XZ for Java (public domain): LZMA for ALZip .egg blocks and xz for Android OTA payload.bin
+    // REPLACE_XZ operations, both decoded in-app (EggArchive / OtaPayload). commons-compress 1.20's
+    // own LZMA/XZ support is built on this same library.
+    implementation 'org.tukaani:xz:1.9'
 
     // APK cloner / signer (0.8). ARSCLib = pure-Java binary AndroidManifest + resources.arsc editor
     // (what APKEditor uses) for the package rename + fixups and split merging; apksig = Google's

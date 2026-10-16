@@ -90,6 +90,13 @@ you come back to it.
 | **7-Zip** (`7zz`) | `.7z`, `.zip`, `.rar` (incl. multi-part), split volumes (`.001`, `.bin`), `.tar` / `.tar.gz` / `.tar.xz`, disc images `.iso` / `.udf` / `.img`, `.wcp` / `.tzst`, and more |
 | **innoextract** | **InnoSetup / GOG offline installers** — unpacks the game files directly, including **automatic DLC batch**: sibling `setup_*.exe` DLC installers in the same folder are detected and extracted into one merged game folder |
 | **unarc** (FreeArc) | **FreeArc / ISDone game repacks** (FitGirl / DODI-style `Setup-N.bin` volumes) decoded natively |
+| **lunzip · lzop · lz4** | **lzip** (`.lz`, `.tlz`, `.tar.lz`), **lzop** (`.lzo`, `.tzo`, `.tar.lzo`), **LZ4** (`.lz4`, `.tar.lz4`; frame, concatenated and legacy) — a `.tar` inside is unpacked straight away |
+| **unecm** (ecm-tools) | **ECM CD images** (`game.bin.ecm` → `game.bin`, with its `.cue` brought along) |
+| **unalz** | **ALZip `.alz`** (Korean CP949 names converted to UTF-8) |
+| **EGG** (built in) | **ALZip `.egg`** — Deflate, BZip2, LZMA and **AZO**; solid and split (`.vol1.egg`, `.vol2.egg`, …) archives; CRC-checked |
+| **unace 1.2b** | **ACE 1.x** (`.ace`) |
+| **lzx** (amiga-lzx) | **Amiga LZX** (`.lzx`) |
+| **OTA payload** (built in) | **Android OTA `payload.bin`** (full OTAs) → one `<partition>.img` per partition; pick which partitions; every operation SHA-256-checked |
 
 - One-tap **Fast Extract**, or the full **Unpack Archive** screen (destination picker, options).
 - Runs as a **background foreground-service job** with a progress notification, cancel, and an
@@ -98,6 +105,9 @@ you come back to it.
   folder, then copied into the target with the ownership fix described below).
 - BFE registers as an **"Open with" / Share target** for archives and `setup.exe` files, so other apps
   can hand them straight to the extractor.
+- Formats are recognised by their **header**, not just the extension, so a renamed `.lz`, `.egg`,
+  `.ace` or `payload.bin` still gets Extract. What an engine can't do is said **before** starting:
+  ACE 2.0 compression, password-protected EGG/ALZ/ACE, incremental OTAs.
 
 ### Browse archives like folders
 - **Open as folder** — the first action in an archive's **Open with** sheet and in its **⋮** menu —
@@ -274,8 +284,9 @@ cloud. (Until the Home screen lands it lives at ⋮ → **Settings → Access fr
 ⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
 **dynamic color** on Android 12+), **Start on** (Home or the last folder), default apps, Access from
 network, and About — version, source code link, release notes, BFE's license and every bundled
-**open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264, NanoHTTPD, Apache FtpServer/MINA, rclone and
-the Java libraries), readable in-app.
+**open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264, the lzip / lzop / LZ4 / ECM / ALZ /
+ACE / LZX tools, the EGG and OTA-payload credits, NanoHTTPD, Apache FtpServer/MINA, rclone and the Java
+libraries), readable in-app.
 
 ---
 
@@ -372,7 +383,8 @@ extraction fails. CI uses Gradle build/configuration caching so warm builds are 
 ### Repo map
 ```
 app/src/main/java/com/the412banner/bfe/
-├─ unpack/     7-Zip / innoextract / unarc wrappers, UnpackService (extraction job), FastExtract
+├─ unpack/     7-Zip / innoextract / unarc wrappers, ExtraFormats (lzip/lzop/LZ4/ECM/ALZ/ACE/LZX tools +
+│              in-app EggArchive / AzoDecoder / OtaPayload), UnpackService (extraction job), FastExtract
 ├─ pack/       archive creation (7zz, tar+zstd, Winlator .wcp), PackService (compression job)
 ├─ apk/        APK cloner/editor/signer (ARSCLib rewrite, apksig, keys), ApkJobService
 ├─ video/      ffmpeg wrapper + ConvertService (video → MP4 job)
@@ -392,7 +404,9 @@ app/src/main/java/com/the412banner/bfe/
 │  └─ cloud/      CloudScreen / RemoteScreen, accounts, add-account forms, remote browser, transfers UI
 └─ ui/         progress pills, update dialogs, theme, components
 app/src/main/resources/…/server/web/  the Access-from-network web page's app.css + app.js
-app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure
+app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure,
+                                  liblunzip / liblzop / liblz4 / libunecm / libunalz / libunace / liblzx
+native/patches/                   patches applied to those tools by build-extract-tools.yml
 rclone/main.go                    the trimmed rclone entry point (which commands + backends are built)
 keystore/bfe-test.jks             the (public) BFE signing key
 licenses/                         license and notice texts, also shown in Settings
@@ -409,6 +423,9 @@ scripts/check-signing.sh          CI guard: the APK must carry the BFE certifica
   cache space for its inner tar. Extracting from an archive pane runs in the pane (progress + Cancel),
   not as a background service job, so keep BFE open for very large selections.
 - Piped `tar.gz` / `tar.xz` compression reports percent but not per-file names.
+- **ACE 2.0** archives can't be unpacked (the bundled unace 1.2b reads ACE 1.x only), nor
+  **password-protected** EGG / ALZ / ACE archives. **Incremental OTA** payloads need the phone's
+  current images and are refused; full OTAs work.
 - Compact rows are ~2× denser than the standard list, not a literal quarter-height (readability floor).
 - Video conversion: **Bink 2 (`.bk2`) can't be decoded** (proprietary); encoding is software-only
   (x264), so large/4K sources are slow; output is always H.264 + AAC MP4 (no other output formats yet).
@@ -433,6 +450,26 @@ BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](L
 from its Winlator/Bannerlator lineage. Bundled third-party components keep their own notices, in
 [`licenses/`](licenses) and in the app under Settings → Open-source licenses: `NOTICE_7ZIP.txt`,
 `License_7zip.txt`, `NOTICE_INNOEXTRACT.txt`, `NOTICE_UNARC.txt`, `NOTICE_FFMPEG.txt` (FFmpeg + x264,
-GPL v2+, built with `--enable-gpl --enable-libx264`), `NOTICE_RCLONE.txt` (rclone, MIT, by Nick
+GPL v2+, built with `--enable-gpl --enable-libx264`), `NOTICE_LUNZIP.txt`, `NOTICE_LZOP.txt`,
+`NOTICE_LZ4.txt`, `NOTICE_UNECM.txt`, `NOTICE_UNALZ.txt`, `NOTICE_UNACE.txt`, `NOTICE_LZX.txt`,
+`NOTICE_EGG.txt`, `NOTICE_OTA_PAYLOAD.txt`, `NOTICE_RCLONE.txt` (rclone, MIT, by Nick
 Craig-Wood and contributors, plus the licence of every Go module in the downloaded build) and
 `THIRD_PARTY_LIBRARIES.txt`.
+
+### Credits
+BFE's extra archive formats stand on these projects (licences and exact versions in the notices):
+- **lunzip** by Antonio Diaz Diaz (GPL-2.0+) — lzip.
+- **lzop** and **LZO** by Markus F.X.J. Oberhumer (GPL-2.0+) — lzop.
+- **LZ4** by Yann Collet (CLI GPL-2.0+, library BSD-2-Clause) — LZ4.
+- **ECM** by Neill Corlett, from **ecm-tools** maintained by alucryd (GPL-3.0+) — ECM images.
+- **unalz** by kippler (zlib), with Debian's patches by Changwoo Ryu, **GNU libiconv** (LGPL-2.1+)
+  and parts of **bzip2** by Julian Seward — ALZ.
+- **UNACE 1.2b** by Marcel Lemke (GPL-2.0+), with Debian's patches (Guillem Jover and others) — ACE.
+- **amiga-lzx** by Gareth Davidson (WTFPL) and its Rust crate dependencies (MIT / Apache-2.0) — LZX.
+- **EggDotNet** by Andrew Kolman (MIT), the reference for BFE's EGG reader, and ESTsoft's published
+  EGG format specification; **xunazo** by kippler / Bandisoft (zlib), ported to Kotlin for AZO, whose
+  arithmetic coder comes from **Project Nayuki**'s Reference-arithmetic-coding (MIT).
+- **AOSP update_engine**'s `update_metadata.proto` (Apache-2.0) — the payload.bin format.
+- **XZ for Java** (public domain) and **Apache Commons Compress** (Apache-2.0) — LZMA / xz / bzip2.
+- Test archives from EggDotNet, xunazo, patool, acefile-testdata and Sembiance's format samples were
+  used to verify the decoders (not shipped).

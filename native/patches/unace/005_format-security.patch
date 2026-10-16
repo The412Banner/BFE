@@ -1,0 +1,30 @@
+Description: Fix format-security build failures.
+Author: Guillem Jover <guillem@hadrons.org>
+Origin: vendor
+Forwarded: not-needed
+
+
+---
+ unace.c |    4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+--- a/unace.c
++++ b/unace.c
+@@ -265,7 +265,7 @@ INT  open_archive(INT print_err)
+       printf("Authenticity Verification:");   // print the AV
+       sprintf(av_str, "\ncreated on %d.%d.%d by ",
+               ts_day(adat.time_cr), ts_month(adat.time_cr), ts_year(adat.time_cr));
+-      printf(av_str);
++      printf("%s", av_str);
+       copylen = mhead.AV_SIZE;
+       if (copylen > 79)
+         copylen = 79;
+@@ -566,7 +566,7 @@ int main(INT argc, CHAR * argv[])
+    INT show_help,
+        arg_cnt = 1;
+ 
+-   printf(version);
++   printf("%s", version);
+    show_help=0;
+ 
+    if (argc < 3 || strlen(argv[1]) > 1 || argv[argc-1][0] == '-')

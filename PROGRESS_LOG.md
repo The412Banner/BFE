@@ -173,6 +173,33 @@ new Home screen's **Cloud** and **Remote** tiles (`CloudScreen(onBack)` / `Remot
   31 BSD, 5 MPL-2.0, ISC, CC0, and `cloudsoda/sddl` LGPL-3.0 via the SMB backend); full texts are the
   workflow's `rclone-licenses.txt`, to be attached to the release.
 
+## In flight: extra archive formats (branch `feat/extra-decoders`, 2026-10-16, not merged)
+The formats ZArchiver / MT Manager open that the bundled 7-Zip can't, behind one service engine
+`"extra"` (`unpack/ExtraFormats.kt`). Built on `feat/quick-extract` (874ce64) so its background
+Extract-to queue, Pause/Resume and QuickExtract planner cover them too.
+
+| Format | Engine | Proof |
+|---|---|---|
+| lzip `.lz` `.tlz` `.tar.lz` | lunzip 1.15 (`liblunzip.so`, static) | device-run, hash-exact (single, tar, multi-member, truncated → rc 2) |
+| lzop `.lzo` `.tzo` `.tar.lzo` | lzop 1.04 + LZO 2.10 (`liblzop.so`, static) | device-run, hash-exact (truncated → rc 1) |
+| LZ4 `.lz4` `.tar.lz4` | lz4 1.10.0 CLI (`liblz4.so`, static) | device-run, hash-exact (frame, legacy, block-dependent, concatenated) |
+| ECM `.ecm` | ecm-tools 1.0.3, decode-only patch (`libunecm.so`, static) | device-run, hash-exact (literal + Mode 1 + Mode 2 Form 1/2 sectors) |
+| ALZ `.alz` | unalz 0.65 + Debian patches + static GNU libiconv (`libunalz.so`) | device-run, hash-exact vs EggDotNet's zip twin; listing parser checked on real output |
+| EGG `.egg` | in-app `EggArchive` + `AzoDecoder` (xunazo port) | JVM + ART on device (d8 + `app_process`): all 34 EggDotNet test archives, 6 hash-exact vs reference zip, CRC-32 per block, 13 encrypted ones refused |
+| ACE 1.x `.ace` | unace 1.2b + Debian 1.2b-27 patches + 2 BFE fixes (`libunace.so`) | device-run, hash-exact vs acefile (LZ77 + stored); ACE 2.0 / password refused up front |
+| Amiga LZX `.lzx` | amiga-lzx 0.1.5 `lzx` (`liblzx.so`, Rust PIE) | device-run, hash-exact (own archive + 2 real Aminet samples) |
+| OTA `payload.bin` | in-app `OtaPayload` | JVM + ART on device: synthetic full / mixed / incremental payloads; schema checked with `protoc --decode` against AOSP's proto |
+
+- **Native build:** `.github/workflows/build-extract-tools.yml` (push-triggered on itself / `native/**`,
+  plus dispatch). Green run **38979886818** @ `466b879` → artifact `extract-tools-arm64`, committed to
+  jniLibs; hashes in each `licenses/NOTICE_*.txt`. Patches in `native/patches/`.
+- **App build:** `build.yml` (dispatched on the branch) green on the integration commit (run
+  38978472804 @ `12de52c`) and again on the branch tip with the binaries + notices committed.
+- **Not done in-app:** the screen / service / QuickExtract wiring is CI-compiled only — no APK was
+  installed on the device (per the brief). ACE 2.0 is not decodable (see backlog).
+- Skipped **unlzx.c**: no licence statement anywhere (distros list it as unknown) — amiga-lzx (WTFPL)
+  replaces it.
+
 ## Release pipeline (how every version is cut)
 **From 1.0:** `gh workflow run release.yml -f version=X.Y -f release_notes="..."` does steps 1-3 below
 in one job (version bump/validation, build, certificate + aapt check, release `vX.Y` with
@@ -297,6 +324,24 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
 - **On-device shell:** toybox `env` treats any argument containing `=` as an assignment, and app lib
   paths look like `/data/app/~~xyz==/…` — run `LD_LIBRARY_PATH=$d $d/lib7zz.so`, never `env … $d/lib7zz.so`.
 
+- **Debian's unace 1.2b-24..27 extracts nothing:** its CVE-2015-2063 bounds check counts the PSIZE
+  field twice, so every file header is rejected (rc 0, zero files). BFE's patch 010 fixes it; patch 011
+  closes a 1-byte overflow in read_wd() that AddressSanitizer found on a corrupt archive.
+- **bionic headers leak `PATH_MAX` (4096) through stdio/fcntl**; old code that falls back to its own
+  `PATH_MAX` in some files gets two sizes for one global array. Build such code with `-include limits.h`.
+- Static links against bionic `libc.a` collide with any global named like a syscall wrapper (lzop's
+  `sysinfo()`): rename with `-D`.
+- `workflow_dispatch` alone can't be dispatched from a branch until the workflow exists on the default
+  branch — give a new workflow a `push: paths:` trigger. Bound every download (`curl --max-time`,
+  `timeout sdkmanager`, `timeout-minutes`): two runs hung for 20 min on a stalled mirror.
+- Kotlin `pos += f()` reads `pos` *before* calling `f()`; if `f()` advances `pos`, the update is lost.
+- unalz exits 0 on every failure — judge it by its output (`done.` without `failed.` / `err code(`).
+- update_engine has **no REPLACE_ZSTD** (the enum ends at LZ4DIFF_PUFFDIFF = 13); zstd in OTAs is the
+  on-device VABC COW compression, not a payload operation.
+- In-app Kotlin decoders can be proven under ART without installing anything: compile the decoders +
+  a test main, `d8 --min-api 26`, push the dex, and run it as root with
+  `app_process -Djava.class.path=<dex> <dir> <MainKt> …`.
+
 ## Known limitations (as of 1.0)
 SAF only reaches DocumentsProvider apps; extracting
 *from* a SAF/root-hosted archive unsupported; piped tar.gz/xz report % not per-file; Compact ≈2× (not
@@ -317,6 +362,12 @@ icons/thumbnails inside archives are generic; a compressed tar needs cache space
   client; RO folder refuses writes; screen off with "keep running" on (transfer continues); Wi-Fi off →
   "paused" notification → back on → resumes on the new address; notification Stop; "start when BFE
   opens"; process kill → service restarts what was running. Confirm nothing listens on rmnet/cellular.
+
+- **Extra formats (feat/extra-decoders):** device-test the in-app flow once an APK with them is installed
+  (Open with → Extract for `.lz`/`.egg`/`.ace`/`payload.bin`, Pause/Resume on a tool, the payload
+  partition picker); a real full-OTA `payload.bin` and a real `.alz` with Korean names. Possible
+  follow-ups: ACE 2.0 via a Kotlin port of droe/acefile (BSD-2, decodes ACE 2.0 incl. its
+  EXE/DELTA/SOUND/PIC filters), password support for EGG (ZIP 2.0 / AES / LEA) and ALZ.
 - **Device-test pass** (the real gate): SAF pin + browse; root pin, copy *into* an emulator app's
   sandbox and confirm the app still reads it; Create WCP from a DXVK folder and install it in
   Bannerlator; Clone & Install a simple app, then an installed split app; convert a `.bik`/`.wmv`

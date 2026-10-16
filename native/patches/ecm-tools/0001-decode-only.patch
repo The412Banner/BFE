@@ -1,0 +1,29 @@
+Description: BFE decode-only build
+ Shipped as libunecm.so (Android only extracts lib*.so to the exec-able native-lib dir), so
+ the program name can never be "ecm2bin". Always decode instead of choosing the mode from argv[0].
+Author: The412Banner
+
+--- a/ecm.c
++++ b/ecm.c
+@@ -1041,7 +1041,9 @@
+         // bin2ecm source
+         // ecm2bin source
+         //
+-        encode = (strcmp(argv[0], "ecm2bin") != 0);
++        // BFE: shipped decode-only as libunecm.so, so argv[0] can never be "ecm2bin";
++        // always decode (ECM -> BIN) instead of picking the mode from the program name.
++        encode = 0;
+         infilename  = argv[1];
+ 
+         tempfilename = malloc(strlen(infilename) + 7);
+@@ -1085,7 +1087,9 @@
+         // bin2ecm source dest
+         // ecm2bin source dest
+         //
+-        encode = (strcmp(argv[0], "ecm2bin") != 0);
++        // BFE: shipped decode-only as libunecm.so, so argv[0] can never be "ecm2bin";
++        // always decode (ECM -> BIN) instead of picking the mode from the program name.
++        encode = 0;
+         infilename  = argv[1];
+         outfilename = argv[2];
+         break;

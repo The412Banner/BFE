@@ -1,0 +1,37 @@
+Description: Fix compilations warnings
+Author: Guillem Jover <guillem@hadrons.org>
+Origin: vendor
+Forwarded: not-needed
+
+
+Index: b/uac_dcpr.c
+===================================================================
+--- a/uac_dcpr.c
++++ b/uac_dcpr.c
+@@ -67,6 +67,7 @@ void sortrange(INT left, INT right)
+ 
+    //sort partial ranges - when very small, sort directly
+    if (left < zr)
++   {
+       if (left < zr - 1)
+          sortrange(left, zr);
+       else if (sort_freq[left] < sort_freq[zr])
+@@ -74,8 +75,10 @@ void sortrange(INT left, INT right)
+          xchg_def(sort_freq[left], sort_freq[zr]);
+          xchg_def(sort_org[left], sort_org[zr]);
+       }
++   }
+ 
+    if (right > zl)
++   {
+       if (zl < right - 1)
+          sortrange(zl, right);
+       else if (sort_freq[zl] < sort_freq[right])
+@@ -83,6 +86,7 @@ void sortrange(INT left, INT right)
+          xchg_def(sort_freq[zl], sort_freq[right]);
+          xchg_def(sort_org[zl], sort_org[right]);
+       }
++   }
+ }
+ 
+ void quicksort(INT n)

@@ -1,0 +1,42 @@
+Description: Fixes cross-compilation support
+ The gccmaked program does not support cross-compilation. Move the dependency
+ information into a new makefile.dep, and generate that directly from the
+ makefile via «$(CPP) -MM».
+Author: Guillem Jover <guillem@debian.org>
+Origin: vendor
+Forwarded: not-needed
+Last-Update: 2019-07-11
+
+---
+ unix/makefile |   21 ++++-----------------
+ 1 file changed, 4 insertions(+), 17 deletions(-)
+
+--- a/unix/makefile
++++ b/unix/makefile
+@@ -43,22 +43,9 @@ unace$(EXEEXT): $(OBJ) $(CHALLOC) $(LIBS
+ 
+ clean:
+ 	rm -f *.o a.out core unace unace.exe
++	rm -f makefile.dep
+ 
+-dep:
+-	chmod a+rx ./gccmaked
+-	./gccmaked -- $(CPPFLAGS) -- *.c*
+-	rm -f ?akefile.bak
++makefile.dep: $(SRC)
++	$(CPP) $(CPPFLAGS) -MM $(SRC) >$@
+ 
+-# DO NOT DELETE
+-globals.o: globals.c os.h acestruc.h declare.h portable.h unace.h
+-uac_comm.o: uac_comm.c globals.h acestruc.h declare.h portable.h os.h \
+- unace.h uac_dcpr.h uac_comm.h
+-uac_crc.o: uac_crc.c uac_crc.h declare.h
+-uac_crt.o: uac_crt.c os.h globals.h acestruc.h declare.h portable.h \
+- unace.h uac_crt.h uac_sys.h
+-uac_dcpr.o: uac_dcpr.c os.h globals.h acestruc.h declare.h portable.h \
+- unace.h uac_comm.h uac_crc.h uac_dcpr.h uac_sys.h
+-uac_sys.o: uac_sys.c os.h globals.h acestruc.h declare.h portable.h \
+- unace.h uac_sys.h
+-unace.o: unace.c os.h globals.h acestruc.h declare.h portable.h \
+- unace.h uac_comm.h uac_crc.h uac_crt.h uac_dcpr.h uac_sys.h
++-include makefile.dep

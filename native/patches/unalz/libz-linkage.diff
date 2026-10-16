@@ -1,0 +1,32 @@
+Description: Use system zlib
+ Use system zlib instead of the internal old version of zlib.
+Forwarded: not-needed
+Author: Changwoo Ryu <cwryu@debian.org>
+Last-Update: 2013-02-02
+
+--- a/Makefile
++++ b/Makefile
+@@ -1,9 +1,9 @@
+ CPP = g++
+ CC  = gcc
+-OBJ = main.o UnAlz.o UnAlzUtils.o UnAlzBz2decompress.o UnAlzBzip2.o UnAlzbzlib.o zlib/adler32.o zlib/crc32.o zlib/infback.o zlib/inffast.o zlib/inflate.o zlib/inftrees.o zlib/zutil.o bzip2/blocksort.o bzip2/compress.o bzip2/crctable.o bzip2/huffman.o bzip2/randtable.o
++OBJ = main.o UnAlz.o UnAlzUtils.o UnAlzBz2decompress.o UnAlzBzip2.o UnAlzbzlib.o bzip2/blocksort.o bzip2/compress.o bzip2/crctable.o bzip2/huffman.o bzip2/randtable.o
+ BIN = unalz
+-LDFLAGS = 
+-CFLAGS = -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 
++LDFLAGS = -lz
++CFLAGS += -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 
+ 
+ all:
+ 	@echo ""
+--- a/UnAlzBzip2.cpp
++++ b/UnAlzBzip2.cpp
+@@ -10,7 +10,7 @@
+ ////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+ //#include "stdafx.h"
+-#include "zlib/zlib.h"
++#include <zlib.h>
+ #include "bzip2/bzlib.h"
+ #include "bzip2/bzlib_private.h"
+ #include "UnAlz.h"

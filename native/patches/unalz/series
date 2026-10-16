@@ -1,0 +1,5 @@
+libz-linkage.diff
+zlib-1.2.7-build.diff
+pipe-mode-fixes.diff
+filename-length-check.diff
+fix-offset-overflow.patch

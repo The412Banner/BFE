@@ -1,0 +1,25 @@
+Author: Xiang Chen <x14ngch3n@gmail.com>
+Description: Fix heap buffer over read
+ We are searching for the file magic value within a 1024 buffer, and iterating
+ over each byte in the buffer, comparing against the magic value, which is 7
+ bytes long. But instead of stopping 6 bytes before the end of the buffer we
+ continue until the last one, where we will have exceeded the memory for all
+ of those 6 last comparisons.
+Forwarded: not-needed
+Bug-Debian: https://bugs.debian.org/1138160
+
+---
+ unace.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/unace.c
++++ b/unace.c
+@@ -232,7 +232,7 @@ INT read_arc_head(void)         // searc
+       old_fpos = fpos;
+       fpos += read(archan, &buf[buf_pos], size_buf - buf_pos);
+ 
+-      for (i = 0; i < size_buf; i++)    // look for the acesign
++      for (i = 0; i <= size_buf - acesign_len; i++)    // look for the acesign
+       {                         
+          if (!memcmp(acesign, &buf[i], acesign_len))
+          {             

@@ -87,10 +87,19 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("innoextract", "zlib License, with Boost / liblzma / libiconv", "NOTICE_INNOEXTRACT.txt"),
     LicenseDoc("unarc (FreeArc)", "License and source notice", "NOTICE_UNARC.txt"),
     LicenseDoc("FFmpeg + x264", "GNU GPL v2 or later", "NOTICE_FFMPEG.txt"),
+    LicenseDoc("lunzip (lzip)", "GNU GPL v2 or later", "NOTICE_LUNZIP.txt"),
+    LicenseDoc("lzop + LZO", "GNU GPL v2 or later", "NOTICE_LZOP.txt"),
+    LicenseDoc("lz4", "GNU GPL v2 or later; library BSD 2-Clause", "NOTICE_LZ4.txt"),
+    LicenseDoc("unecm (ecm-tools)", "GNU GPL v3 or later", "NOTICE_UNECM.txt"),
+    LicenseDoc("unalz", "zlib License, with bzip2 / libiconv (LGPL v2.1+)", "NOTICE_UNALZ.txt"),
+    LicenseDoc("unace 1.2b", "GNU GPL v2 or later", "NOTICE_UNACE.txt"),
+    LicenseDoc("lzx (amiga-lzx)", "WTFPL, with MIT / Apache-2.0 crates", "NOTICE_LZX.txt"),
+    LicenseDoc("EGG / AZO", "EggDotNet (MIT), xunazo (zlib)", "NOTICE_EGG.txt"),
+    LicenseDoc("OTA payload", "AOSP update_engine format (Apache 2.0)", "NOTICE_OTA_PAYLOAD.txt"),
     LicenseDoc("NanoHTTPD", "BSD 3-Clause License", "NOTICE_NANOHTTPD.txt"),
     LicenseDoc("Apache FtpServer + MINA", "Apache License 2.0", "NOTICE_APACHE_FTPSERVER.txt"),
     LicenseDoc("rclone", "MIT; downloaded on first use of Cloud / Remote", "NOTICE_RCLONE.txt"),
-    LicenseDoc("Libraries", "AndroidX, Coil, libsu, Commons Compress, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
+    LicenseDoc("Libraries", "AndroidX, Coil, libsu, Commons Compress, XZ for Java, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
 )
 
 /**

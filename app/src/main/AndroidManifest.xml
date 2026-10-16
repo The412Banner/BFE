@@ -74,7 +74,8 @@
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation">
             <!-- Let the OS "Open with"/Share sheet hand an archive, disc image or installer .exe to the
-                 extractor. Every type here is one the bundled 7-Zip / innoextract / unarc can open (the same
+                 extractor. Every type here is one the bundled 7-Zip / innoextract / unarc or the ExtraFormats
+                 engines (lzip, lzop, LZ4, ALZ/EGG, ACE, Amiga LZX) can open (the same
                  set ZArchiver and MT Manager register); octet-stream catches .bin/.wcp/.cso and other files
                  senders can't type. Senders that type a file as */* match these filters too. -->
             <intent-filter>
@@ -146,6 +147,20 @@
                 <data android:mimeType="application/vnd.microsoft.portable-executable" />
                 <data android:mimeType="application/x-dosexec" />
                 <data android:mimeType="application/x-ms-dos-executable" />
+                <data android:mimeType="application/x-lzip" />
+                <data android:mimeType="application/lzip" />
+                <data android:mimeType="application/x-lzip-compressed-tar" />
+                <data android:mimeType="application/x-lzop" />
+                <data android:mimeType="application/x-lzop-compressed-tar" />
+                <data android:mimeType="application/x-lz4" />
+                <data android:mimeType="application/lz4" />
+                <data android:mimeType="application/x-lz4-compressed-tar" />
+                <data android:mimeType="application/x-alz" />
+                <data android:mimeType="application/x-alz-compressed" />
+                <data android:mimeType="application/x-egg" />
+                <data android:mimeType="application/x-ace-compressed" />
+                <data android:mimeType="application/x-ace" />
+                <data android:mimeType="application/x-lzx" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter>
@@ -217,6 +232,20 @@
                 <data android:mimeType="application/vnd.microsoft.portable-executable" />
                 <data android:mimeType="application/x-dosexec" />
                 <data android:mimeType="application/x-ms-dos-executable" />
+                <data android:mimeType="application/x-lzip" />
+                <data android:mimeType="application/lzip" />
+                <data android:mimeType="application/x-lzip-compressed-tar" />
+                <data android:mimeType="application/x-lzop" />
+                <data android:mimeType="application/x-lzop-compressed-tar" />
+                <data android:mimeType="application/x-lz4" />
+                <data android:mimeType="application/lz4" />
+                <data android:mimeType="application/x-lz4-compressed-tar" />
+                <data android:mimeType="application/x-alz" />
+                <data android:mimeType="application/x-alz-compressed" />
+                <data android:mimeType="application/x-egg" />
+                <data android:mimeType="application/x-ace-compressed" />
+                <data android:mimeType="application/x-ace" />
+                <data android:mimeType="application/x-lzx" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>
@@ -308,6 +337,20 @@
                 <data android:mimeType="application/vnd.microsoft.portable-executable" />
                 <data android:mimeType="application/x-dosexec" />
                 <data android:mimeType="application/x-ms-dos-executable" />
+                <data android:mimeType="application/x-lzip" />
+                <data android:mimeType="application/lzip" />
+                <data android:mimeType="application/x-lzip-compressed-tar" />
+                <data android:mimeType="application/x-lzop" />
+                <data android:mimeType="application/x-lzop-compressed-tar" />
+                <data android:mimeType="application/x-lz4" />
+                <data android:mimeType="application/lz4" />
+                <data android:mimeType="application/x-lz4-compressed-tar" />
+                <data android:mimeType="application/x-alz" />
+                <data android:mimeType="application/x-alz-compressed" />
+                <data android:mimeType="application/x-egg" />
+                <data android:mimeType="application/x-ace-compressed" />
+                <data android:mimeType="application/x-ace" />
+                <data android:mimeType="application/x-lzx" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity-alias>

@@ -14,7 +14,7 @@ import java.io.File
  *
  * "Fast" means fast-to-START (no folder picker / Power / buffer step), NOT a faster engine: the
  * throughput is identical to "Unpack Archive…" because it drives the very same engines
- * (7-Zip / innoextract / native unarc) through the very same service.
+ * (7-Zip / innoextract / native unarc / the [ExtraFormats] ones) through the very same service.
  *
  * The caller drives the [Outcome]: a job either starts (pill appears) or the file needs the full
  * screen (container-only repack, or All Files Access) / isn't an archive at all — never a silent
@@ -79,6 +79,16 @@ object FastExtract {
                 SevenZip.InnoRoute.CONTAINER_ONLY ->
                     Outcome.OpenScreen(file.absolutePath, "This repack needs the container installer — opening Unpack")
             }
+        }
+
+        // lzip / lzop / LZ4 / ECM / ALZ / EGG / ACE / Amiga LZX / OTA payload — the ExtraFormats engine.
+        // Anything it can't do (ACE 2.0, encrypted EGG, incremental OTA…) opens the screen, which says why.
+        val extra = withContext(Dispatchers.IO) { ExtraFormats.probe(context, archive) }
+        if (extra != null) {
+            if (extra.problem != null || !hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
+            val dest = defaultDest(archive, isInno = false, overrideBase = destOverride)
+            UnpackService.start(context, archive.absolutePath, dest, 1, ReadBuffer.MB1.bytes, false, archive.length(), ExtraFormats.ENGINE)
+            return Outcome.Started(archive.name)
         }
 
         // Plain file: judge by content (7zz l), exactly like the screen's pre-flight.
