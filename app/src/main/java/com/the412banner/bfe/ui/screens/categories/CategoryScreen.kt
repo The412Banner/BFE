@@ -694,7 +694,7 @@ private fun MediaGridCell(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text(item.name, fontSize = 11.sp, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
+            Text(item.name, fontSize = 11.sp, lineHeight = 14.sp, minLines = 2, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis)
             Text(StringUtils.formatBytes(item.size), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

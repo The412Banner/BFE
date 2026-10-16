@@ -3836,10 +3836,14 @@ private fun FileGridTile(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
+                // Always two lines tall (minLines) so every tile in a row is the same height and the
+                // icons line up, whether the name wraps or not.
                 Text(
                     file.name,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    minLines = 2,
                     maxLines = 2,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     overflow = TextOverflow.Ellipsis,

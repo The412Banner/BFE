@@ -320,6 +320,8 @@ internal fun OpenWithSheet(
                         Text(
                             app.label,
                             fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            minLines = 2,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             textAlign = TextAlign.Center,
