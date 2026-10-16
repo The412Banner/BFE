@@ -1,0 +1,22 @@
+Description: Fix the file-header size check added for CVE-2015-2063
+ The bounds check from 006_security-afl.patch adds 4 bytes for ADDSIZE and then
+ 28 for the file header, but those 28 bytes begin with PSIZE, which *is* the
+ ADDSIZE field. Every file header (they always carry ADDSIZE) therefore failed the
+ check and was silently skipped, so unace 1.2b-24..27 extracts and lists nothing.
+ Count the shared field once; the check itself stays.
+Author: The412Banner
+Forwarded: no
+
+--- a/unace.c
++++ b/unace.c
+@@ -186,7 +186,9 @@
+          memcpy(mhead.AV, tp, mhead.AV_SIZE);
+          break;
+       case FILE_BLK:
+-         need_size += 28;
++         /* The 28 bytes below start with PSIZE, which is the ADDSIZE field
++            already counted above when ACE_ADDSIZE is set. */
++         need_size += (head.HEAD_FLAGS & ACE_ADDSIZE) ? 24 : 28;
+          if (need_size > head.HEAD_SIZE)
+             return 0;
+          fhead.PSIZE     =BUFP2LONG(tp);

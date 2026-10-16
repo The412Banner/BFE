@@ -7,3 +7,5 @@
 007_cross-compiling.patch
 008_comm_parsing.patch
 009_fix_buffer_overread.patch
+010_file-header-size-check.patch
+011_read_wd-bounds.patch

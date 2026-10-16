@@ -8,7 +8,7 @@ name: Build extract tools (arm64 Android)
 #   liblz4.so     lz4 1.10.0 CLI         LZ4 frame + legacy (.lz4)      GPL-2.0-or-later (lib: BSD-2)
 #   libunecm.so   ecm-tools 1.0.3        ECM CD images (.ecm)           GPL-3.0-or-later
 #   libunalz.so   unalz 0.65 + libiconv  ALZip .alz                     zlib (+ bzip2 / LGPL iconv)
-#   libunace.so   unace 1.2b (Debian)    ACE 1.x (.ace)                 GPL-2.0-or-later
+#   libunace.so   unace 1.2b (Debian+2)  ACE 1.x (.ace)                 GPL-2.0-or-later
 #   liblzx.so     amiga-lzx 0.1.5 `lzx`  Amiga LZX (.lzx)               WTFPL
 # The C/C++ tools are linked fully static (no NEEDED libraries); lzx (Rust) is a PIE linked only
 # against bionic system libraries. Every source is pinned by version + SHA-256, and the Debian /
@@ -218,7 +218,10 @@ jobs:
         while read -r p; do [ -n "$p" ] && patch -p1 < "$GITHUB_WORKSPACE/native/patches/unace/$p"; done \
           < "$GITHUB_WORKSPACE/native/patches/unace/series"
         # bionic has no legacy S_IREAD/S_IWRITE; they are the owner read/write bits.
-        "$CC" -O2 -Wall -DUNIX -DCASEINSENSE -DLO_HI_BYTE_ORDER -DS_IREAD=S_IRUSR -DS_IWRITE=S_IWUSR -static -o unace \
+        # -include limits.h: bionic's stdio/fcntl pull in PATH_MAX (4096) for unace.c, while
+        # globals.c only sees acestruc.h's fallback 512 — the same global arrays would get two
+        # sizes (aname overflowed on device). Forcing <limits.h> everywhere makes them agree.
+        "$CC" -O2 -Wall -include limits.h -DUNIX -DCASEINSENSE -DLO_HI_BYTE_ORDER -DS_IREAD=S_IRUSR -DS_IWRITE=S_IWUSR -static -o unace \
           globals.c uac_comm.c uac_crc.c uac_crt.c uac_dcpr.c uac_sys.c unace.c
         install -m 755 unace "$DIST/libunace.so"
 
