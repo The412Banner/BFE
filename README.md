@@ -5,7 +5,8 @@ bundled native engines. In one app: a dual-pane "commander" layout; **extraction
 images, GOG/InnoSetup installers and FreeArc repacks; **compression** to zip/7z/tar/tzst and Winlator
 `.wcp` packs; **browsing storage normal file managers can't reach** — other apps' SAF document
 providers and, on a rooted device, **any installed app's private data**; an **APK cloner + signer**;
-and a **video converter** (game FMVs → MP4) powered by a bundled ffmpeg.
+a **video converter** (game FMVs → MP4) powered by a bundled ffmpeg; and **Access from network** — a
+local Wi-Fi file server that other devices reach with a web browser or an FTP client.
 
 It is lifted from the in-app File Manager + archive subsystem of the
 [Bannerlator](https://github.com/The412Banner/Bannerlator) emulator (Winlator lineage), with all of
@@ -142,11 +143,54 @@ build in BFE installs straight into Bannerlator.
 - **Bink 2 (`.bk2`) is proprietary** — there's no open decoder, so BFE says so up front instead of
   failing. Encoding is software x264 (no hardware encoder): quick for 480p/720p cutscenes, slow for 4K.
 
+### Access from network — share files over Wi-Fi (browser + FTP)
+Open other devices onto this phone's files: a PC, Mac, TV, tablet or another phone on the **same Wi-Fi**,
+or connected to **this phone's hotspot**. Everything runs on the phone — no internet, no account, no
+cloud. (Until the Home screen lands it lives at ⋮ → **Settings → Access from network**.)
+- **Two servers, each with its own big Start / Stop**: a **web server** (HTTP, default port 8080) and an
+  **FTP server** (default 2121). The screen shows the address to type (`http://192.168.x.x:8080/`,
+  `ftp://192.168.x.x:2121/`) with a copy button and a **QR code**; with Wi-Fi and hotspot both up you
+  pick which address. A "devices connected" card lists who's active and the last things they did.
+- **What's shared:** the **whole internal storage**, or **only chosen folders** (several at once, each
+  shown to clients as its own top-level folder; same-named folders get "(2)"). Add folders with the
+  system folder picker, or whole drives (**SD card**, USB) with one tap. Each is **Read-only** or
+  **Read & write**. Clients can never step outside what's shared: `..` is refused and symlinks that
+  point elsewhere are invisible.
+- **Who can connect:** a **user name + password** (a random password is generated and shown; edit it or
+  roll a new one), used by both the browser (Basic auth) and FTP — or **no password**, with a warning
+  when anything is writable. Changes to shares and the password apply to running servers immediately.
+- **In the browser:** a clean page for phones and desktops — folder listing with **sorting** (name,
+  size, date), **filter**, show/hide hidden files, **download**, **video / audio streaming** (seeking
+  works, via HTTP Range), an **image viewer** (arrows / swipe through the folder), **upload** (several
+  files, a whole folder, or **drag & drop**, with per-file progress and a replace prompt), **new folder,
+  rename, delete**, and **download a folder or a selection as .zip** — streamed while it's built, so
+  nothing is staged on the phone, and files over 4 GB work (ZIP64). Light and dark themes.
+- **FTP:** passive mode (data ports from a configurable range, default 50000–50050), active mode,
+  UTF-8 names, MLSD listings, resume (REST). Meant for FileZilla, WinSCP, Windows Explorer, Android
+  file managers and macOS Finder (read-only there — Finder never writes over FTP). Read-only folders
+  refuse every write command.
+- **Runs in the background** as a foreground service: the notification shows the address and a
+  **Stop** button. BFE holds a Wi-Fi lock while sharing and, with **Keep running with the screen off**
+  (on by default), a partial wake lock so transfers don't stall. Options to **start the web and/or FTP
+  server when BFE opens**.
+- **Wi-Fi only, never mobile data:** the servers bind only to Wi-Fi, hotspot (and Ethernet adapter)
+  addresses. BFE re-checks every few seconds: a new address rebinds, and losing Wi-Fi **pauses**
+  sharing (the notification says so) until a network is back.
+- **Safety details:** wrong passwords lock that device out for a minute after 10 tries; changes from
+  the web page need a header other websites can't send, so a page you visit can't use your login;
+  shared `.html` / `.svg` files open sandboxed; without a password, requests must use the IP address
+  (blocks DNS-rebinding tricks).
+- **Engines:** [NanoHTTPD](https://github.com/NanoHttpd/nanohttpd) 2.3.1 (BSD-3) for HTTP,
+  [Apache FtpServer](https://mina.apache.org/ftpserver-project/) 1.2.1 + Apache MINA 2.2.4
+  (Apache-2.0) for FTP, SLF4J (MIT) for its logging, and Nayuki's
+  [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT). The web page is
+  BFE's own HTML/CSS/JS, bundled in the APK.
+
 ### Settings & About
 ⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
-**dynamic color** on Android 12+), default apps, and About — version, source code link, release notes,
-BFE's license and every bundled **open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264 and
-the Java libraries), readable in-app.
+**dynamic color** on Android 12+), default apps, Access from network, and About — version, source
+code link, release notes, BFE's license and every bundled **open-source license** (7-Zip, innoextract,
+unarc, FFmpeg, x264, NanoHTTPD, Apache FtpServer/MINA and the Java libraries), readable in-app.
 
 ---
 
@@ -235,11 +279,16 @@ app/src/main/java/com/the412banner/bfe/
 ├─ pack/       archive creation (7zz, tar+zstd, Winlator .wcp), PackService (compression job)
 ├─ apk/        APK cloner/editor/signer (ARSCLib rewrite, apksig, keys), ApkJobService
 ├─ video/      ffmpeg wrapper + ConvertService (video → MP4 job)
+├─ server/     Access from network: VirtualFs (shared namespace + sandbox), HttpFileServer + HttpPages
+│              (NanoHTTPD), FtpFileServer + FtpVirtualFs (Apache FtpServer), ServerHost, ServerService
+│              (foreground service), LanAddresses, ServerSettings — the server core is plain JVM code
 ├─ storage/    StorageBackend abstraction: File / SAF / Root backends, cross-backend transfer, pins, item counts
 ├─ update/     UpdateManager (update.json check, download, SHA-256 check, install)
 ├─ util/       snackbars, default apps, favourites
-├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), Open with sheet, Settings, Unpack screen, dialogs
+├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), Open with sheet, Settings, Unpack screen, dialogs,
+│              server/ (ServerScreen + QR code)
 └─ ui/         progress pills, update dialogs, theme, components
+app/src/main/resources/…/server/web/  the Access-from-network web page's app.css + app.js
 app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure
 keystore/bfe-test.jks             the (public) BFE signing key
 licenses/                         license and notice texts, also shown in Settings
@@ -258,6 +307,10 @@ scripts/check-signing.sh          CI guard: the APK must carry the BFE certifica
 - APK clones of apps that verify their own signature, are Play-licensed, or are bound to
   Google-services/Firebase may not run; that's inherent to cloning.
 - No predictive-back animation (targetSdk 28).
+- Access from network: plain HTTP and FTP (no HTTPS / FTPS) — meant for a home network or your own
+  hotspot, not public Wi-Fi. No WebDAV yet (so no Windows "Map network drive"; Explorer's FTP view and
+  the browser work). Browser uploads need JavaScript; a hand-typed URL with a literal `+` in a file
+  name must use `%2B` (the page's own links already do).
 
 ## License
 BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)), inherited

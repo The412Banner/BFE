@@ -26,6 +26,47 @@ where it stands*.
   exercised once a release newer than 1.0 exists. The older device-test backlog (SAF/root, compression,
   cloner, converter, toolbar) still stands.
 
+## In flight: `feat/local-server` — Access from network (2026-10-16)
+Not merged, not released. Branch off `ca38ed6` (1.0.1). Owner ask: host a local HTTP or FTP file
+server so devices on the same Wi-Fi can reach the phone's files (or chosen folders), offline.
+- **Entry point:** `ui/screens/server/ServerScreen(onBack)` — for the Home dashboard's "Access from
+  network" tile. Until Home lands: ⋮ → Settings → Files → **Access from network** (SettingsScreen
+  `page = "server"`, which hands the whole page to ServerScreen and its own app bar).
+- **Libraries:** NanoHTTPD 2.3.1 (BSD-3), Apache FtpServer 1.2.1 + MINA 2.2.4 (Apache-2.0),
+  slf4j-android 1.7.36 (MIT), Nayuki qrcodegen 1.8.0 (MIT; chosen over zxing: 38 KB vs ~550 KB). No
+  native code. Notices: `licenses/NOTICE_NANOHTTPD.txt`, `NOTICE_APACHE_FTPSERVER.txt`, SLF4J + QR MIT
+  texts appended to `THIRD_PARTY_LIBRARIES.txt`; all listed in Settings → Open-source licenses.
+- **Manifest:** `ServerService` (dataSync FGS), `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`.
+  `MainActivity.onCreate` gained one line (`ServerService.startOnLaunch`).
+- **Proof level (2026-10-16):** the server core (`server/` minus the Android files) was compiled
+  with kotlinc 2.0.21 and run on the JVM (aarch64 sandbox, 127.0.0.1) against a fixture tree: RW
+  share, RO share, a duplicate share name, UTF-8 / space / `+` names, dotfiles, a symlink escaping the
+  share (dir + file), a symlink inside it, and a 5 GB sparse file.
+  - HTTP, 78/78 curl checks: auth 401/200, Basic challenge, 10-failure lockout (429), listing JSON +
+    HTML, gzip pages, slash redirect, full download md5, Range 100-199 / suffix / past 4 GB / 416,
+    HEAD without body, ETag 304, If-Range, UTF-8 + `+` + space names, Content-Disposition `filename*`,
+    `..` / `%2e%2e` / `..%2f` → 400, symlink escapes → 404 and hidden from listings, PUT upload
+    (md5, mtime kept, no temp left, `mkdirs`, 403 without the CSRF header, 403 in RO, keep-alive
+    intact after a refused upload), mkdir / rename / delete incl. RO and share-root refusals, delete
+    never follows a link out, folder / selection (GET and POST form) / top-level zips verified with
+    Python `zipfile`, and a **ZIP64** download of the 5 GB entry streamed and CRC-verified, nosniff,
+    `CSP: sandbox` on shared HTML.
+  - FTP, 43/43 Python `ftplib` + 11/11 curl checks: anonymous and wrong password refused, FEAT
+    (UTF8, MLST, no AUTH TLS), OPTS UTF8, EPSV + forced PASV + active PORT, MLSD (sizes, types, escapes
+    hidden), CWD `..` clamped at `/`, backslash paths, RETR md5, REST resume incl. past 4 GB, SIZE of
+    5 GB, STOR / APPE / UTF-8 STOR / MKD / RNFR+RNTO / DELE / RMD, and RO refusals for STOR, APPE, STOU,
+    DELE, MKD, RNTO-into, RNFR-out-of, MFMT, plus top-level STOR and share-root RMD.
+  - Modes, 13/13: whole storage at `/` (no escape to siblings, root undeletable), anonymous HTTP +
+    FTP (any user/password), DNS-rebinding Host check (IP / `.local` allowed, names refused).
+  - Web page, 28 checks in headless Chromium over CDP: sort, filter, hidden toggle, upload via the
+    file picker (bytes verified) with replace prompt, **folder drag & drop**, new folder / rename /
+    delete through the native dialogs, multi-select delete, selection zip download (valid, UTF-8
+    names), image viewer + Escape, navigation, RO page hides write actions; screenshots at desktop,
+    412 px phone and dark mode.
+  - Android layer (ServerService, LanAddresses, ServerSettings, ServerScreen, QR): **compile-only
+    (CI)**. Not run on a device: Wi-Fi / hotspot detection, the notification, locks, Windows Explorer /
+    FileZilla / Finder / Android FTP clients and phone browsers are the device-test list below.
+
 ## Release pipeline (how every version is cut)
 **From 1.0:** `gh workflow run release.yml -f version=X.Y -f release_notes="..."` does steps 1-3 below
 in one job (version bump/validation, build, certificate + aapt check, release `vX.Y` with
@@ -84,7 +125,10 @@ app/src/main/java/com/the412banner/bfe/
 ├─ storage/    StorageBackend (Loc = FileLoc|SafLoc|RootLoc) · RootBackend (libsu, fixOwnership) · StorageTransfer · AppStorage (pins)
 ├─ apk/        ApkRewriter (ARSCLib rename+fixups) · ApkSigning (apksig, zipalign) · SigningKeys · ApkJobService · ApkModels
 ├─ video/      Ffmpeg (exec libffmpeg.so, -progress parsing) · ConvertService · ConvertModels
-├─ ui/screens/ FileManagerScreen (PaneState, BrowserPane, SharedToolbar, dual-pane) · UnpackArchiveScreen · CompressDialog · ConvertDialog · ApkToolsDialogs
+├─ server/     Access from network. Pure JVM core: VirtualFs (namespace + sandbox) · HttpFileServer/HttpPages
+│              (NanoHTTPD + page) · FtpFileServer/FtpVirtualFs (Apache FtpServer) · ServerHost · ServerActivity
+│              · MimeTypes. Android: ServerService (FGS, locks, 3 s network re-check) · LanAddresses · ServerSettings
+├─ ui/screens/ FileManagerScreen (PaneState, BrowserPane, SharedToolbar, dual-pane) · UnpackArchiveScreen · CompressDialog · ConvertDialog · ApkToolsDialogs · server/ServerScreen + QrCodeImage
 └─ ui/         UnpackProgressPill (+ pack/convert pills) · theme · CollapsibleRail
 app/src/main/jniLibs/arm64-v8a/  lib7zz · libinnoextract (+boost/lzma/iconv/z/bz2 closure) · libunarc · libc++_shared · libffmpeg
 .github/workflows/  build.yml (signed release APK, gradle caching) · build-ffmpeg.yml (static NDK ffmpeg+x264)
@@ -116,6 +160,16 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
   wrong key can never reach a release.
 - The build agent and coordinator share one checkout: always check `git rev-list origin/main..HEAD`
   before pushing docs so you don't ship half-done work early.
+- **Kotlin `apply {}` scope shadows outer properties.** `ListenerFactory().apply { setPort(port) }`
+  read the factory's own `getPort()` (21), not the class field — the FTP server quietly bound port 21
+  (EACCES on a phone). Use plain locals / explicit assignments when a builder has a same-named getter.
+  Caught only because the server core runs on the JVM; keep it Android-free so that stays possible.
+- NanoHTTPD 2.3.1: HEAD on a fixed-length response sends the body (answer HEAD with an empty stream +
+  the real length); an unread request body corrupts the next keep-alive request (close the
+  connection); it gzips every `text/...` response, which breaks Range on text files (gzip only
+  generated pages); URL decoding turns `+` into a space (links encode `+` as `%2B`).
+- CSS grid + `display:none` children: a hidden grid item leaves the flow and every later cell shifts
+  a column. Give list cells explicit `grid-column`s.
 
 ## Known limitations (as of 1.0)
 SAF only reaches DocumentsProvider apps; extracting
@@ -126,6 +180,13 @@ predictive-back animation (targetSdk 28); imported keystore passwords stored in 
 plain text.
 
 ## Backlog / next
+- **Access from network device test** (feat/local-server): Start HTTP + FTP on Wi-Fi and on the
+  phone's hotspot (check the hotspot address shows and binds); open from a PC browser (list, stream a
+  big video with seeking, drag-drop upload of a folder, zip a folder > 4 GB) and a phone browser; FTP
+  from FileZilla, Windows Explorer (`ftp://ip:2121`), macOS Finder (read-only) and an Android FTP
+  client; RO folder refuses writes; screen off with "keep running" on (transfer continues); Wi-Fi off →
+  "paused" notification → back on → resumes on the new address; notification Stop; "start when BFE
+  opens"; process kill → service restarts what was running. Confirm nothing listens on rmnet/cellular.
 - **Device-test pass** (the real gate): SAF pin + browse; root pin, copy *into* an emulator app's
   sandbox and confirm the app still reads it; Create WCP from a DXVK folder and install it in
   Bannerlator; Clone & Install a simple app, then an installed split app; convert a `.bik`/`.wmv`

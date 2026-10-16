@@ -75,7 +75,9 @@ class ServerService : Service() {
 
         /** Switch HTTP and/or FTP on or off (null = leave as is) and bring the service in line. */
         fun setRunning(ctx: Context, http: Boolean? = null, ftp: Boolean? = null) {
-            ServerPrefs.setWanted(ctx, http, ftp)
+            // With nothing running, "leave as is" means off: a flag left over from a process the system
+            // killed without restarting must not bring the other server back along with this one.
+            if (alive) ServerPrefs.setWanted(ctx, http, ftp) else ServerPrefs.setWanted(ctx, http ?: false, ftp ?: false)
             val wantHttp = ServerPrefs.wantHttp(ctx)
             val wantFtp = ServerPrefs.wantFtp(ctx)
             ServerManager.update {
