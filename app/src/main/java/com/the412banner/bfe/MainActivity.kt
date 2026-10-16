@@ -46,12 +46,24 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.launch
+import java.io.File
 import com.the412banner.bfe.ui.ApkJobPill
 import com.the412banner.bfe.ui.ConvertProgressPill
 import com.the412banner.bfe.ui.PackProgressPill
 import com.the412banner.bfe.ui.UnpackProgressPill
 import com.the412banner.bfe.ui.screens.FileManagerScreen
 import com.the412banner.bfe.ui.screens.SettingsScreen
+import com.the412banner.bfe.ui.screens.apps.AppsScreen
+import com.the412banner.bfe.ui.screens.categories.CategoryScreen
+import com.the412banner.bfe.ui.screens.categories.MediaCategory
+import com.the412banner.bfe.ui.screens.home.AppRoute
+import com.the412banner.bfe.ui.screens.home.BackScope
+import com.the412banner.bfe.ui.screens.home.CloudPlaceholder
+import com.the412banner.bfe.ui.screens.home.FmLocationRequest
+import com.the412banner.bfe.ui.screens.home.HomePrefs
+import com.the412banner.bfe.ui.screens.home.HomeScreen
+import com.the412banner.bfe.ui.screens.home.RemotePlaceholder
+import com.the412banner.bfe.ui.screens.home.ServerPlaceholder
 import com.the412banner.bfe.ui.update.UpdateHost
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.util.AppSnackbar
@@ -64,26 +76,67 @@ import com.the412banner.bfe.ui.theme.BfeTheme
  * On first run it asks for All-Files-Access (MANAGE_EXTERNAL_STORAGE): the bundled native extractors
  * write directly to the filesystem and cannot go through SAF, so extraction simply does not work
  * without it. The gate re-checks on resume, so returning from Settings unlocks the app immediately.
+ *
+ * Launched (or re-delivered via onNewIntent) with [EXTRA_OPEN_PATH] naming a readable folder, it skips
+ * Home and opens the file manager there — e.g. an "Open folder" button on a finished-extraction
+ * notification.
  */
 class MainActivity : ComponentActivity() {
+
+    /** A folder asked for by an incoming intent; each one is a new request object. */
+    private val openPathRequest = mutableStateOf<FmLocationRequest?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Silent, throttled update check (no-op when turned off in Settings or checked recently).
-        if (savedInstanceState == null) UpdateManager.checkOnLaunch(this)
+        if (savedInstanceState == null) {
+            UpdateManager.checkOnLaunch(this)
+            openPathRequest.value = folderRequestFrom(intent)
+        }
         setContent {
             BfeTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    AppRoot()
+                    AppRoot(openPathRequest.value)
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        folderRequestFrom(intent)?.let { openPathRequest.value = it }
+    }
+
+    companion object {
+        /** String extra: an absolute path of a folder to open in the file manager instead of Home. */
+        const val EXTRA_OPEN_PATH = "com.the412banner.bfe.extra.OPEN_PATH"
+
+        private fun folderRequestFrom(intent: Intent?): FmLocationRequest? {
+            val path = intent?.getStringExtra(EXTRA_OPEN_PATH) ?: return null
+            val dir = File(path)
+            return if (dir.isDirectory && dir.canRead()) FmLocationRequest.folder(dir) else null
         }
     }
 }
 
 @Composable
-private fun AppRoot() {
+private fun AppRoot(externalRequest: FmLocationRequest?) {
+    val context = LocalContext.current
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    // Top-level screen. BFE opens on Home unless Settings → Start on says "Last folder" (or an
+    // intent asked for a folder); the file manager itself is always composed underneath.
+    val startOnLast = remember { HomePrefs.startOn(context) == HomePrefs.START_LAST_FOLDER }
+    var route by rememberSaveable { mutableStateOf(if (externalRequest != null || startOnLast) AppRoute.FILES else AppRoute.HOME) }
+    var category by rememberSaveable { mutableStateOf(MediaCategory.IMAGES) }
+    var fmRequest by remember {
+        mutableStateOf(if (startOnLast) HomePrefs.lastFolder(context)?.let { FmLocationRequest.folder(it) } else null)
+    }
+    val goHome: () -> Unit = { route = AppRoute.HOME }
+    val openFiles: (FmLocationRequest?) -> Unit = { req -> if (req != null) fmRequest = req; route = AppRoute.FILES }
+    LaunchedEffect(externalRequest) {
+        if (externalRequest != null) { showSettings = false; openFiles(externalRequest) }
+    }
     val snackbarHost = remember { SnackbarHostState() }
     // App-wide messages (AppSnackbar) land here while the screen is visible; when BFE is in the
     // background nothing collects, so messages fall back to a Toast instead of an unseen snackbar.
@@ -107,9 +160,43 @@ private fun AppRoot() {
         Column(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 PermissionGate {
-                    // The file manager stays composed under Settings so both panes keep their place.
+                    // The file manager stays composed under Home and Settings so both panes keep their
+                    // place; while another screen covers it, its Back handling is switched off.
                     Box(modifier = Modifier.fillMaxSize()) {
-                        FileManagerScreen(onOpenSettings = { showSettings = true })
+                        BackScope(active = route == AppRoute.FILES) {
+                            FileManagerScreen(
+                                onOpenSettings = { showSettings = true },
+                                openRequest = fmRequest,
+                                onHome = goHome,
+                                onBackAtRoot = goHome,
+                            )
+                        }
+                        if (route != AppRoute.FILES) {
+                            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                                when (route) {
+                                    AppRoute.HOME -> HomeScreen(
+                                        onOpenFolder = { openFiles(it) },
+                                        onOpenFiles = { openFiles(null) },
+                                        onOpenCategory = { category = it; route = AppRoute.CATEGORY },
+                                        onOpenApps = { route = AppRoute.APPS },
+                                        onOpenCloud = { route = AppRoute.CLOUD },
+                                        onOpenRemote = { route = AppRoute.REMOTE },
+                                        onOpenServer = { route = AppRoute.SERVER },
+                                        onOpenSettings = { showSettings = true },
+                                    )
+                                    AppRoute.CATEGORY -> CategoryScreen(
+                                        category = category,
+                                        onBack = goHome,
+                                        onShowInFolder = { dir -> openFiles(FmLocationRequest.folder(dir)) },
+                                    )
+                                    AppRoute.APPS -> AppsScreen(onBack = goHome, onBrowseData = { openFiles(it) })
+                                    AppRoute.CLOUD -> CloudPlaceholder(onBack = goHome)
+                                    AppRoute.REMOTE -> RemotePlaceholder(onBack = goHome)
+                                    AppRoute.SERVER -> ServerPlaceholder(onBack = goHome)
+                                    AppRoute.FILES -> Unit
+                                }
+                            }
+                        }
                         if (showSettings) {
                             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                                 SettingsScreen(onBack = { showSettings = false })

@@ -52,6 +52,44 @@ rebased onto `main` = 1.0.1 (`ca38ed6`). **Not merged, not released, not device-
   exercised once a release newer than 1.0 exists. The older device-test backlog (SAF/root, compression,
   cloner, converter, toolbar) still stands.
 
+## In flight: Home dashboard (`feat/home-dashboard`, 2026-10-16)
+Owner ask (File Manager+ home grid as reference): the first screen shows the same options plus cloud
+management. Branch off `main` `ca38ed6` (1.0.1); not merged, no release.
+- **What:** BFE now opens on a Home grid (4 cols portrait, 5-10 landscape) of tiles with live stats:
+  Main storage (StorageStatsManager total/free = Settings' numbers, decimal units, usage bar), one tile
+  per removable volume (StorageRoots + StatFs), System (`/` via RootBackend when root is granted or
+  granted on tap, else File read-only), Downloads (walkFileTree: size + top-level item count), Images /
+  Audio / Videos / Documents / New files (MediaStore "external" = all volumes; size + count), Apps,
+  Cloud / Remote / Access from network (placeholders), then a Favorites row. ⋮ = Refresh, Settings,
+  Check for updates, About.
+- **Category browser** (`ui/screens/categories/`): MediaStore list → list/grid (Coil for images,
+  `loadThumbnail` for video/audio), sort name/size/date, search, multi-select Share / Copy to… / Move
+  to… (BFE's own folder picker = FileManagerScreen pick-dir mode, so Download/ and roots are pickable)
+  / Delete (+ MediaScanner rescan); tap = Open with sheet with Show in folder / Install / Extract to….
+- **Apps** (`ui/screens/apps/`): PackageManager list, User/System/All, search, sort; sizes via
+  StorageStatsManager (Usage access) or one root `du` pass, else APK size + grant banner; sheet with
+  Open, App info, Uninstall, Back up APK (`<label>_<version>.apk`, split → `.apks` zip of base+splits,
+  default `Download/BFE Backups`, folder choosable), Share APK (named copy in cache), Clone… (the
+  existing ApkEditorDialog + ApkJobService, output in the backup folder), Browse app data (root).
+- **Navigation:** `AppRoute` in MainActivity's AppRoot. FileManagerScreen stays composed under every
+  other screen (panes keep folder, selection, clipboard); while hidden its BackHandlers are pointed at a
+  detached OnBackPressedDispatcher (`BackScope`) so Back on Home exits instead of climbing an invisible
+  pane. FileManagerScreen got 3 optional params (`openRequest`, `onHome`, `onBackAtRoot`), a toolbar
+  Home button, a Back-at-root handler and a last-folder pref write — nothing else in it changed.
+- **Settings → Start on:** Home (default) / Last folder (active pane's File path, saved on navigation).
+- **Intent:** `MainActivity.EXTRA_OPEN_PATH` (String, absolute folder path) skips Home and opens the
+  file manager there (onCreate + onNewIntent); for the extraction notification's "Open folder".
+- **Permissions:** `PACKAGE_USAGE_STATS` (lists BFE under Usage access; user-granted) and
+  `REQUEST_DELETE_PACKAGES` (required at targetSdk 28 to hand a package to the uninstall dialog).
+- **Verification:** CI compile only (no device run, no JVM tests). `build.yml` on the branch:
+  run 38977484101 green on `8eab222` (feature); follow-up fixes (backup dialog steps aside for its
+  folder picker; comparator) re-built on the next commit.
+- **Owner to confirm:** decimal units on the storage tiles only (matches Settings / the box; file
+  sizes elsewhere stay binary); the Cloud / Remote / Network stats lines ("Cloud storage",
+  "SFTP · SMB · WebDAV", "HTTP · FTP"); Documents + New files skip dot-folders; New files = last 7 days
+  by date added; copies in the category browser never overwrite (" (1)"); clones from Apps land in the
+  backup folder; Back at a storage root goes Home (also after "Show in folder").
+
 ## Release pipeline (how every version is cut)
 **From 1.0:** `gh workflow run release.yml -f version=X.Y -f release_notes="..."` does steps 1-3 below
 in one job (version bump/validation, build, certificate + aapt check, release `vX.Y` with

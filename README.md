@@ -20,6 +20,32 @@ browse / extract / manage core turned into its own app. GPL-3.0.
 
 ## Features
 
+### Home dashboard
+BFE opens on a **Home** screen: a grid of rounded tiles (4 columns in portrait, more in landscape),
+each with an icon, a name and a live stats line, measured in the background and refreshed whenever
+you come back to it.
+- **Main storage** (used / total, as Android's Settings reports it, with a usage bar), one tile per
+  **SD card / USB drive** (hidden when none is mounted), **System** (browses `/` — through root when
+  BFE has it, otherwise read-only) and **Downloads** (size + item count). Each opens the file manager
+  right there.
+- **Images, Audio, Videos, Documents** and **New files** (added in the last 7 days) — size + count of
+  every matching file on every volume (from Android's media library). Each opens a **category
+  browser**: list or grid (photo/video thumbnails), sort by name / size / date, search, and
+  multi-select with **Share / Copy to… / Move to… / Delete**. Tapping a file opens BFE's Open with
+  sheet (with **Show in folder**); copies never overwrite (a clash gets " (1)"). Documents covers PDF,
+  Word/Excel/PowerPoint, OpenDocument, txt, rtf, md, csv/tsv, EPUB and other e-book formats.
+- **Apps** — every installed app with icon, version, size and install/update date; **User / System /
+  All** filter, search, sort. Tap an app for **Open, App info, Uninstall, Back up APK** (to
+  `Download/BFE Backups` or any folder you choose; split installs are saved as one **`.apks`** bundle
+  of base + splits), **Share APK**, **Clone…** (the APK cloner below) and, with root, **Browse app
+  data**. Full sizes (app + data + cache) need **Usage access**, which the screen offers to open, or
+  root; without either it shows each app's APK size.
+- **Cloud**, **Remote** and **Access from network** tiles (screens in progress).
+- A **Favorites** row under the grid (your starred folders).
+- The ⋮ menu has Refresh, Settings, Check for updates and About; the folder icon jumps into the file
+  manager where you left it. In the file manager, the toolbar's **Home** button — or Back at a storage
+  root — returns here. Prefer the old behaviour? **Settings → Start on → Last folder**.
+
 ### Browsing & file management
 - Browse internal storage, SD cards and USB drives. **Landscape** shows a collapsible **side rail** of
   locations; **portrait** uses a storage dropdown in the toolbar. Both list your pinned app storages.
@@ -169,7 +195,7 @@ build in BFE installs straight into Bannerlator.
 
 ### Settings & About
 ⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
-**dynamic color** on Android 12+), default apps, and About — version, source code link, release notes,
+**dynamic color** on Android 12+), **Start on** (Home or the last folder), default apps, and About — version, source code link, release notes,
 BFE's license and every bundled **open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264 and
 the Java libraries), readable in-app.
 
@@ -212,6 +238,8 @@ app's private folder in one operation.
 - **All-Files-Access** (`MANAGE_EXTERNAL_STORAGE`) — requested on first run. The native engines write
   real files and can't go through the scoped-storage picker, so this is required for extraction and
   compression.
+- **Usage access — optional**, only so Home → Apps can show each app's full size (Settings → Usage
+  access → BFE). Declaring it grants nothing; the Apps screen opens the right Settings page.
 - **Root (Magisk) — optional**, only for the "All apps (root)" features. The first root action triggers
   a Magisk prompt; grant BFE root there. Without root everything else works — the root section simply
   stays unavailable (a one-line notice, no crash).
@@ -265,6 +293,9 @@ app/src/main/java/com/the412banner/bfe/
 ├─ update/     UpdateManager (update.json check, download, SHA-256 check, install)
 ├─ util/       snackbars, default apps, favourites
 ├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), archive pane (ArchivePane), Open with sheet, Settings, Unpack screen, dialogs
+│  ├─ home/       Home dashboard (tiles, stats, navigation, folder picker, Cloud/Remote/Server placeholders)
+│  ├─ categories/ category browser + MediaStore queries (Images / Audio / Videos / Documents / New files)
+│  └─ apps/       installed apps list, sizes (Usage access / root), APK backup + share
 └─ ui/         progress pills, update dialogs, theme, components
 app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure
 keystore/bfe-test.jks             the (public) BFE signing key
@@ -288,6 +319,10 @@ scripts/check-signing.sh          CI guard: the APK must carry the BFE certifica
 - APK clones of apps that verify their own signature, are Play-licensed, or are bound to
   Google-services/Firebase may not run; that's inherent to cloning.
 - No predictive-back animation (targetSdk 28).
+- The Home category tiles and browser read Android's media library, so they only see files it has
+  indexed: not folders marked `.nomedia`, and on Android 10 and older not files written straight to
+  storage (e.g. by an extraction) until the system scans them. Documents and New files skip hidden
+  (dot) folders.
 
 ## License
 BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)), inherited
