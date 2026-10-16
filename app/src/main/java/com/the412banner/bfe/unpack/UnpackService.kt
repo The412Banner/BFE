@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import com.the412banner.bfe.MainActivity
 import com.the412banner.bfe.UnpackArchiveActivity
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.util.IncomingFile
@@ -697,8 +698,20 @@ class UnpackService : Service() {
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(tap)
+            .apply { if (s.phase == UnpackPhase.DONE && s.destPath.isNotEmpty()) addAction(openFolderAction(id, s.destPath)) }
             .build()
         nm.notify(id, n)
+    }
+
+    /** "Open folder": BFE's file manager on the extracted folder (SINGLE_TOP keeps a running BFE's panes). */
+    private fun openFolderAction(id: Int, folder: String): Notification.Action {
+        val open = Intent(this, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_OPEN_PATH, folder)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = PendingIntent.getActivity(
+            this, id or 0x10000, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return Notification.Action.Builder(null, "Open folder", pi).build()
     }
 
     /** A dismissible one-off notice (a request that couldn't run); tapping opens the Unpack screen for [path]. */
