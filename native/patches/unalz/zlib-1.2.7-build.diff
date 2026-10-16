@@ -1,0 +1,21 @@
+Description: Fix FTBFS with zlib 1.2.7 and gcc 4.7
+ Introduction of z_crc_t type on zlib 1.2.7 causes a type error on gcc
+ 4.7.
+ .
+ The upstream uses the internal version of old zlib.
+Forwarded: not-needed
+Bug-Debian: http://bugs.debian.org/672001
+Author: Changwoo Ryu <cwryu@debian.org>
+Last-Update: 2013-02-02
+
+--- a/UnAlz.cpp
++++ b/UnAlz.cpp
+@@ -1907,7 +1907,7 @@ void CUnAlz::DecryptingData(int nSize, BYTE* data)
+ ////////////////////////////////////////////////////////////////////////////////////////////////////
+ UINT32 CUnAlz::CRC32(UINT32 l, BYTE c)
+ {
+-	const unsigned long *CRC_TABLE = get_crc_table();
++	const z_crc_t *CRC_TABLE = get_crc_table();
+ 	return CRC_TABLE[(l ^ c) & 0xff] ^ (l >> 8);
+ }
+ 

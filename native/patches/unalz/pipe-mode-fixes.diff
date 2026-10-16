@@ -1,0 +1,20 @@
+Description: Correct pipe mode
+ Don't do close() or utime() in pipe mode. The file stream is stdout.
+Forwarded: not-needed
+Bug-Debian: http://bugs.debian.org/775233
+Author: Changwoo Ryu <cwryu@debian.org>
+Last-Update: 2015-02-03
+
+diff --git a/UnAlz.cpp b/UnAlz.cpp
+index ab675dd..c12c037 100755
+--- a/UnAlz.cpp
++++ b/UnAlz.cpp
+@@ -794,7 +794,7 @@ BOOL CUnAlz::ExtractCurrentFile(const char* szDestPathName, const char* szDestFi
+ 	if(m_pFuncCallBack) m_pFuncCallBack(m_posCur->fileName, 0,m_posCur->uncompressedSize,m_pCallbackParam, NULL);
+ 
+ 	ret = ExtractTo(&dest);
+-	if(dest.fp!=NULL)
++	if(!m_bPipeMode && dest.fp!=NULL)
+ 	{
+ 		fclose(dest.fp);
+ 		// file time setting - from unalz_wcx_01i.zip

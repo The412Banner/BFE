@@ -1,0 +1,20 @@
+Description: Fix file offset overflow on incomplete files
+Author: Changwoo Ryu <cwryu@debian.org>
+Bug-Debian: https://bugs.debian.org/871722
+Forwarded: not-needed
+
+--- a/UnAlz.cpp
++++ b/UnAlz.cpp
+@@ -1634,7 +1634,11 @@
+ 
+ 	while(dwRemain)
+ 	{
+-		dwRead = (UINT32)min(dwRemain, (m_files[m_nCurFile].nFileSize-m_nCurFilePos-m_files[m_nCurFile].nMultivolTailSize));
++		INT64 remain = m_files[m_nCurFile].nFileSize - m_nCurFilePos - m_files[m_nCurFile].nMultivolTailSize;
++		if (remain <= 0) {
++			m_bIsEOF = TRUE; return FALSE;
++		}
++		dwRead = (UINT32)min(dwRemain, remain);
+ 		if(dwRead==0) {
+ 			m_bIsEOF = TRUE;return FALSE;
+ 		}

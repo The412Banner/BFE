@@ -1,0 +1,23 @@
+Description: Check filename length
+ Check if a filename length field is invalid
+Forwarded: not-needed
+Bug-Debian: http://bugs.debian.org/775237
+Author: Changwoo Ryu <cwryu@debian.org>
+Last-Update: 2015-02-03
+
+diff --git a/UnAlz.cpp b/UnAlz.cpp
+index ab675dd..42b7506 100755
+--- a/UnAlz.cpp
++++ b/UnAlz.cpp
+@@ -431,6 +431,11 @@ BOOL CUnAlz::ReadLocalFileheader()
+     zipHeader.uncompressedSize      =   unalz_le64toh(zipHeader.uncompressedSize); 
+ 
+ 	// FILE NAME
++	if(zipHeader.head.fileNameLength<=0)
++	{
++		m_nErr = ERR_INVALID_FILENAME_LENGTH;
++		return FALSE;
++	}
+ 	zipHeader.fileName = (char*)malloc(zipHeader.head.fileNameLength+sizeof(char));
+ 	if(zipHeader.fileName==NULL)
+ 	{

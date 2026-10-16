@@ -1,0 +1,33 @@
+Description: Make the program 64 bit clean, by using <stdint.h> to typedef
+ the data types independently of the target system.
+Author: Guillem Jover <guillem@hadrons.org>
+Origin: vendor
+Forwarded: not-needed
+Bug-Debian: https://bugs.debian.org/431380
+
+
+Index: b/declare.h
+===================================================================
+--- a/declare.h
++++ b/declare.h
+@@ -15,12 +15,14 @@
+ 
+ #else /* AMIGA */
+ 
+-typedef unsigned short USHORT;
+-typedef short          SHORT ;
+-typedef unsigned short UWORD ;
+-typedef short          WORD  ;
+-typedef unsigned long  ULONG ;
+-typedef long           LONG  ;
++#include <stdint.h>
++
++typedef uint16_t       USHORT;
++typedef int16_t        SHORT ;
++typedef uint16_t       UWORD ;
++typedef int16_t        WORD  ;
++typedef uint32_t       ULONG ;
++typedef int32_t        LONG  ;
+ 
+ #endif  /* !AMIGA */
+ 

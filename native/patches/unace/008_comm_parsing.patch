@@ -1,0 +1,23 @@
+Description: Fixes comment parsing
+ We need to honor the header comment buffer maximum size and not try to write
+ or read out-of-bounds.
+Author: Guillem Jover <guillem@debian.org>
+Origin: vendor
+Forwarded: not-needed
+Last-Update: 2022-08-18
+
+---
+ uac_dcpr.c |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+--- a/uac_dcpr.c
++++ b/uac_dcpr.c
+@@ -191,7 +191,7 @@ void dcpr_comm(INT comm_size)
+             {
+                c -= 256;
+                c += 2;
+-               while (c--)
++               while (c-- && dpos < comm_cpr_size && pos < comm_cpr_size)
+                   comm[dpos++] = comm[pos++];
+             }
+             else
