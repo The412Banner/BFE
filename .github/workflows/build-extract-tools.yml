@@ -65,10 +65,12 @@ jobs:
         sudo apt-get install -y -q --no-install-recommends make patch xz-utils file curl unzip autotools-dev
 
     - name: Provision NDK (sdkmanager, fallback to r29 zip)
+      timeout-minutes: 25
       run: |
         set -euo pipefail
         NDK=""
-        if yes | sdkmanager --install "$NDK_PKG" >/tmp/sdkmanager.log 2>&1; then
+        # Bounded: a stalled sdkmanager or mirror falls through to the next source instead of hanging.
+        if timeout 600 bash -c 'yes | sdkmanager --install "$NDK_PKG"' >/tmp/sdkmanager.log 2>&1; then
           NDK="$ANDROID_SDK_ROOT/ndk/${NDK_PKG#ndk;}"
           echo "sdkmanager installed $NDK_PKG"
         else
@@ -76,7 +78,7 @@ jobs:
         fi
         if [ -z "$NDK" ] || [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" ]; then
           echo "Downloading fallback NDK from $NDK_FALLBACK_URL"
-          curl -sSL -o /tmp/ndk.zip "$NDK_FALLBACK_URL"
+          curl -sSL --connect-timeout 30 --max-time 900 --retry 3 -o /tmp/ndk.zip "$NDK_FALLBACK_URL"
           unzip -q /tmp/ndk.zip -d "$HOME"
           NDK="$(ls -d "$HOME"/android-ndk-r29* | head -1)"
         fi
