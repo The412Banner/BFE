@@ -83,6 +83,7 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("innoextract", "zlib License, with Boost / liblzma / libiconv", "NOTICE_INNOEXTRACT.txt"),
     LicenseDoc("unarc (FreeArc)", "License and source notice", "NOTICE_UNARC.txt"),
     LicenseDoc("FFmpeg + x264", "GNU GPL v2 or later", "NOTICE_FFMPEG.txt"),
+    LicenseDoc("rclone", "MIT; downloaded on first use of Cloud / Remote", "NOTICE_RCLONE.txt"),
     LicenseDoc("Libraries", "AndroidX, Coil, libsu, Commons Compress, zstd-jni, ARSCLib, apksig, Bouncy Castle", "THIRD_PARTY_LIBRARIES.txt"),
 )
 
