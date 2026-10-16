@@ -56,13 +56,13 @@ import com.the412banner.bfe.ui.screens.SettingsScreen
 import com.the412banner.bfe.ui.screens.apps.AppsScreen
 import com.the412banner.bfe.ui.screens.categories.CategoryScreen
 import com.the412banner.bfe.ui.screens.categories.MediaCategory
+import com.the412banner.bfe.ui.screens.cloud.CloudScreen
+import com.the412banner.bfe.ui.screens.cloud.RemoteScreen
 import com.the412banner.bfe.ui.screens.home.AppRoute
 import com.the412banner.bfe.ui.screens.home.BackScope
-import com.the412banner.bfe.ui.screens.home.CloudPlaceholder
 import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.ui.screens.home.HomePrefs
 import com.the412banner.bfe.ui.screens.home.HomeScreen
-import com.the412banner.bfe.ui.screens.home.RemotePlaceholder
 import com.the412banner.bfe.ui.screens.server.ServerScreen
 import com.the412banner.bfe.ui.update.UpdateHost
 import com.the412banner.bfe.server.ServerService
@@ -193,8 +193,8 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
                                         onShowInFolder = { dir -> openFiles(FmLocationRequest.folder(dir)) },
                                     )
                                     AppRoute.APPS -> AppsScreen(onBack = goHome, onBrowseData = { openFiles(it) })
-                                    AppRoute.CLOUD -> CloudPlaceholder(onBack = goHome)
-                                    AppRoute.REMOTE -> RemotePlaceholder(onBack = goHome)
+                                    AppRoute.CLOUD -> CloudScreen(onBack = goHome)
+                                    AppRoute.REMOTE -> RemoteScreen(onBack = goHome)
                                     AppRoute.SERVER -> ServerScreen(onBack = goHome)
                                     AppRoute.FILES -> Unit
                                 }

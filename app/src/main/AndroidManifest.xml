@@ -341,6 +341,29 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- Cloud / Remote uploads and downloads (rclone), same lifecycle as the jobs above. -->
+        <service
+            android:name="com.the412banner.bfe.cloud.CloudTransferService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- "Return to BFE" on the page rclone shows after a browser sign-in (bfe-auth://done):
+             only brings BFE's task back to the front. -->
+        <activity
+            android:name="com.the412banner.bfe.cloud.AuthReturnActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="bfe-auth" android:host="done" />
+            </intent-filter>
+        </activity>
+
         <!-- FileProvider for "Open with" content:// hand-off of files inside the file manager. -->
         <provider
             android:name="androidx.core.content.FileProvider"

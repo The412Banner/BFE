@@ -5,8 +5,9 @@ bundled native engines. In one app: a dual-pane "commander" layout; **extraction
 images, GOG/InnoSetup installers and FreeArc repacks; **compression** to zip/7z/tar/tzst and Winlator
 `.wcp` packs; **browsing storage normal file managers can't reach** — other apps' SAF document
 providers and, on a rooted device, **any installed app's private data**; an **APK cloner + signer**;
-a **video converter** (game FMVs → MP4) powered by a bundled ffmpeg; and **Access from network** — a
-local Wi-Fi file server that other devices reach with a web browser or an FTP client.
+a **video converter** (game FMVs → MP4) powered by a bundled ffmpeg; **Access from network** — a
+local Wi-Fi file server that other devices reach with a web browser or an FTP client; and **cloud storage +
+remote connections** (Google Drive, OneDrive, Dropbox, MEGA, S3, SFTP, SMB, WebDAV and more) through rclone.
 
 It is lifted from the in-app File Manager + archive subsystem of the
 [Bannerlator](https://github.com/The412Banner/Bannerlator) emulator (Winlator lineage), with all of
@@ -237,11 +238,43 @@ cloud. (Until the Home screen lands it lives at ⋮ → **Settings → Access fr
   [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT). The web page is
   BFE's own HTML/CSS/JS, bundled in the APK.
 
+### Cloud storage & Remote connections (rclone)
+- **Cloud** (Home → Cloud): Google Drive, OneDrive, Dropbox, Box, pCloud, Yandex Disk (browser sign-in),
+  MEGA, Proton Drive, Nextcloud, ownCloud, Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, MinIO and any
+  S3-compatible service (forms). **Remote** (Home → Remote): SFTP, FTP/FTPS, SMB (Windows shares, NAS)
+  and WebDAV servers, plus read-only HTTP folders. **More services…** sets up any backend in the build
+  with a form generated from rclone's own option list.
+- **Accounts:** each shows its service, quota (used / total, where the service reports it) and a menu
+  to rename, sign in again or remove. Sign-ins use rclone's built-in OAuth apps by default; every OAuth
+  service also takes **your own client ID/secret** (recommended for Google Drive: rclone's shared Drive
+  client ID is being retired during 2026).
+- **Browser sign-in:** BFE opens the provider's page in your browser (Google blocks embedded WebViews);
+  rclone receives the result on `127.0.0.1:53682`, and its "done" page has a **Return to BFE** button.
+  Follow-up questions (e.g. OneDrive drive, Drive shared drive) are rclone's own, shown as dialogs, and
+  the common ones are answered automatically. Every new account is test-listed before it's called done.
+- **Browse a remote:** folders and files with sizes and dates, clickable breadcrumb, sort by
+  name / size / date, in-folder search, multi-select. **Open** a file = download to cache, then BFE's
+  **Open with** sheet (with *Save to Download* / *Download to…*). **Download** files or whole folders to
+  a local folder, **upload** files (system picker, multi-select) or a file/folder chosen in BFE's own
+  browser, **new folder**, **rename**, **delete**.
+- **Transfers** run in a background service with a notification (progress, speed, ETA, *Cancel all*),
+  a pill on the Cloud/Remote screens and a transfers sheet with per-item cancel. Nothing is overwritten:
+  an existing name gets " (1)"; folders merge.
+- **The engine is downloaded on first use, not bundled.** The first visit explains it and offers a
+  one-time **15 MB** download (48 MB installed) of a trimmed rclone v1.75.2 build from this repository's
+  release `rclone-v1.75.2-android-arm64`; it is checked against a SHA-256 pinned in the app before it
+  runs, and can be removed again from the Cloud/Remote menu. (A copy of the `.gz` in `Download/` is
+  offered for offline installs.)
+- **How it runs:** one `rclone rcd` (remote-control daemon) per app session on a random `127.0.0.1`
+  port behind a random password, driven through its JSON API; stopped after 90 s unused. Accounts,
+  tokens and (obscured) passwords live in BFE's private storage (`files/rclone/rclone.conf`); Android
+  backups are off, so they never leave the device.
+
 ### Settings & About
 ⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
 **dynamic color** on Android 12+), **Start on** (Home or the last folder), default apps, Access from
 network, and About — version, source code link, release notes, BFE's license and every bundled
-**open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264, NanoHTTPD, Apache FtpServer/MINA and
+**open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264, NanoHTTPD, Apache FtpServer/MINA, rclone and
 the Java libraries), readable in-app.
 
 ---
@@ -314,6 +347,15 @@ a private release key can be added via a CI secret if tamper-resistance is ever 
 ./gradlew testReleaseUnitTest # JVM unit tests (archive-listing parser vs. real 7zz output); CI runs them too
 ```
 
+### The rclone engine
+`.github/workflows/build-rclone.yml` (manual, or on changes to `rclone/`) builds `rclone/main.go`
+inside a checkout of rclone at the pinned tag with Go + the NDK (`GOOS=android GOARCH=arm64
+CGO_ENABLED=1`, API 26, so it links against bionic; a static Linux build trips Android's seccomp
+filter and has no working DNS) and uploads the binary, the `.gz` the app downloads, `SHA256SUMS`, build
+info and `rclone-licenses.txt` (every linked module's licence). Builds are reproducible (two runs gave
+identical files). To ship a new engine: run it, publish the `.gz` (and `rclone-licenses.txt`) as a
+release `rclone-vX.Y.Z-android-arm64`, then update the constants in `cloud/RcloneManager.kt`.
+
 ### Cutting a release
 ```bash
 gh workflow run release.yml -f version=1.1 -f release_notes="$(cat notes.txt)"
@@ -339,15 +381,19 @@ app/src/main/java/com/the412banner/bfe/
 │              (foreground service), LanAddresses, ServerSettings — the server core is plain JVM code
 ├─ storage/    StorageBackend abstraction: File / SAF / Root / Archive (read-only) backends, `7zz l -slt` parser, cross-backend transfer, pins, item counts
 ├─ update/     UpdateManager (update.json check, download, SHA-256 check, install)
+├─ cloud/      rclone: RcClient (rcd API) · RcloneApi · RcloneDaemon/RcdProcess · RcloneManager (first-use download)
+│              · CloudSetup (add / sign-in flow) · CloudServices (catalog) · CloudTransferService (queue)
 ├─ util/       snackbars, default apps, favourites
 ├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), archive pane (ArchivePane), Open with sheet, Settings, Unpack screen, dialogs
 │  ├─ home/       Home dashboard (tiles, stats, navigation, folder picker)
 │  ├─ categories/ category browser + MediaStore queries (Images / Audio / Videos / Documents / New files)
 │  ├─ apps/       installed apps list, sizes (Usage access / root), APK backup + share
-│  └─ server/     Access from network screen (ServerScreen + QR code)
+│  ├─ server/     Access from network screen (ServerScreen + QR code)
+│  └─ cloud/      CloudScreen / RemoteScreen, accounts, add-account forms, remote browser, transfers UI
 └─ ui/         progress pills, update dialogs, theme, components
 app/src/main/resources/…/server/web/  the Access-from-network web page's app.css + app.js
 app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure
+rclone/main.go                    the trimmed rclone entry point (which commands + backends are built)
 keystore/bfe-test.jks             the (public) BFE signing key
 licenses/                         license and notice texts, also shown in Settings
 scripts/check-signing.sh          CI guard: the APK must carry the BFE certificate
@@ -377,10 +423,16 @@ scripts/check-signing.sh          CI guard: the APK must carry the BFE certifica
   hotspot, not public Wi-Fi. No WebDAV yet (so no Windows "Map network drive"; Explorer's FTP view and
   the browser work). Browser uploads need JavaScript; a hand-typed URL with a literal `+` in a file
   name must use `%2B` (the page's own links already do).
+- Cloud/Remote: remotes aren't yet a location inside the dual-pane file manager (the browser is its own
+  screen); files are opened as downloaded copies (edits don't sync back); on object storage (S3, B2…)
+  an empty folder disappears until it holds a file. After a browser sign-in you return to BFE yourself
+  (the page's *Return to BFE* button, or the app switcher).
 
 ## License
 BFE is licensed under the **GNU General Public License v3.0** (see [`LICENSE`](LICENSE)), inherited
 from its Winlator/Bannerlator lineage. Bundled third-party components keep their own notices, in
 [`licenses/`](licenses) and in the app under Settings → Open-source licenses: `NOTICE_7ZIP.txt`,
 `License_7zip.txt`, `NOTICE_INNOEXTRACT.txt`, `NOTICE_UNARC.txt`, `NOTICE_FFMPEG.txt` (FFmpeg + x264,
-GPL v2+, built with `--enable-gpl --enable-libx264`) and `THIRD_PARTY_LIBRARIES.txt`.
+GPL v2+, built with `--enable-gpl --enable-libx264`), `NOTICE_RCLONE.txt` (rclone, MIT, by Nick
+Craig-Wood and contributors, plus the licence of every Go module in the downloaded build) and
+`THIRD_PARTY_LIBRARIES.txt`.

@@ -89,6 +89,7 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("FFmpeg + x264", "GNU GPL v2 or later", "NOTICE_FFMPEG.txt"),
     LicenseDoc("NanoHTTPD", "BSD 3-Clause License", "NOTICE_NANOHTTPD.txt"),
     LicenseDoc("Apache FtpServer + MINA", "Apache License 2.0", "NOTICE_APACHE_FTPSERVER.txt"),
+    LicenseDoc("rclone", "MIT; downloaded on first use of Cloud / Remote", "NOTICE_RCLONE.txt"),
     LicenseDoc("Libraries", "AndroidX, Coil, libsu, Commons Compress, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
 )
 
