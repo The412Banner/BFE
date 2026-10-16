@@ -39,6 +39,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
 
     steps:
     - name: Clone repository
@@ -104,13 +105,16 @@ jobs:
 
     - name: Fetch sources (pinned SHA-256)
       working-directory: build/src
+      timeout-minutes: 15
       run: |
         set -euo pipefail
         # fetch <out> <sha256> <url> [fallback url...]
         fetch() {
           local out=$1 sha=$2; shift 2
           for u in "$@"; do
-            if curl -fsSL --retry 4 --retry-delay 5 -o "$out" "$u" && echo "$sha  $out" | sha256sum -c --quiet -; then
+            # A mirror that stalls mid-transfer must not hang the job: bounded connect + total time.
+            if curl -fsSL --connect-timeout 20 --max-time 300 --retry 4 --retry-delay 5 -o "$out" "$u" &&
+               echo "$sha  $out" | sha256sum -c --quiet -; then
               echo "ok  $out  <- $u"; return 0
             fi
             echo "::warning::download failed or SHA-256 mismatch: $u"
