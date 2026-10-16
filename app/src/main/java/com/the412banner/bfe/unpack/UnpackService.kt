@@ -15,6 +15,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.the412banner.bfe.UnpackArchiveActivity
 import com.the412banner.bfe.core.StringUtils
+import com.the412banner.bfe.util.IncomingFile
 import java.io.File
 
 /**
@@ -413,6 +414,11 @@ class UnpackService : Service() {
             }
             UnpackManager.set(terminal)
             postTerminalNotification(terminal)
+            // A file another app streamed in (no real path to it) was copied to app storage just for this
+            // job; once it's extracted the copy is dead weight. Kept after an error/cancel so a retry works.
+            if (terminal.phase == UnpackPhase.DONE &&
+                archive.absolutePath.startsWith(IncomingFile.incomingDir(this).absolutePath + "/")
+            ) archive.delete()
             stopForeground(Service.STOP_FOREGROUND_DETACH)
             } finally {
                 // Balanced release on EVERY exit path (success, error, cancel, process death).

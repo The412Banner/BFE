@@ -200,11 +200,13 @@ fun UnpackArchiveScreen(
 
     // Content pre-flight (not extension): a plain file is judged by whether `7zz l` could open it as
     // an archive / disc image. No recognisable container (e.g. raw .bin data) → nothing to unpack.
-    val notAnArchive = !isInno && !typeLoading && detectedType == null
+    // A plain program (`Type = PE`/ELF…) opens in 7-Zip too, but only as its code sections — not a payload.
+    val isProgram = !isInno && !typeLoading && detectedType in SevenZip.EXECUTABLE_TYPES
+    val notAnArchive = !isInno && !typeLoading && (detectedType == null || isProgram)
     // Are we still deciding what this file is? (InnoSetup pre-flight, or the plain content-sniff.)
     val checking = if (isInno) innoClassifying else typeLoading
     // The 7-Zip extract path is for plain (non-Inno) archives only, once the sniff confirms it opens.
-    val sevenZipAllowed = !isInno && !typeLoading && detectedType != null
+    val sevenZipAllowed = !isInno && !typeLoading && detectedType != null && !isProgram
     val engineMissingInno = innoExtract && !Innoextract.isAvailable(context)
 
     // Battery-optimisation exemption, refreshed on resume so returning from Settings re-checks it.
@@ -503,7 +505,9 @@ fun UnpackArchiveScreen(
                     Text("Nothing to unpack", color = MaterialTheme.colorScheme.error, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "This file isn't a recognized archive or disc image — it looks like raw data, " +
+                        if (isProgram) "This is a program, not an installer or self-extracting archive — " +
+                            "there's no packed content inside it to unpack."
+                        else "This file isn't a recognized archive or disc image — it looks like raw data, " +
                             "nothing to unpack.",
                         color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp,
                     )

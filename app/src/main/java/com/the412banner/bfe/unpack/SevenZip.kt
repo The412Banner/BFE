@@ -60,7 +60,16 @@ object SevenZip {
         ".gz", ".xz", ".bz2", ".zst", ".tgz", ".txz", ".tbz2", ".tzst",
         // Winlator Component Package = a tar.zst; 7-Zip opens it as zstd.
         ".wcp",
+        // Everything else the bundled 7-Zip decodes (`7zz i`), matching what ZArchiver / MT Manager open:
+        // zip-based packages, old compressors, Unix/Mac packages, help files, installers, VM/disk images.
+        ".zipx", ".jar", ".xapk", ".apks", ".apkm", ".mtz", ".z01",
+        ".lzma", ".z", ".taz", ".tbz", ".tpz", ".lzh", ".lha", ".arj",
+        ".cpio", ".deb", ".udeb", ".rpm", ".xar", ".chm", ".msi", ".esd", ".swm",
+        ".squashfs", ".cramfs", ".vmdk", ".vdi", ".qcow", ".qcow2", ".simg",
     )
+
+    /** `7zz l` types that are just a program, not a container: opening one would only dump its sections. */
+    val EXECUTABLE_TYPES = setOf("PE", "ELF", "MachO", "COFF", "TE", "Mub")
 
     /** True when [file]'s extension marks it as something the 7-Zip engine can be pointed at. */
     fun isSupported(file: File): Boolean {
@@ -102,7 +111,18 @@ object SevenZip {
                         sig(head, 0x50, 0x4B, 0x05, 0x06) ||             // zip (empty)
                         sig(head, 0x50, 0x4B, 0x07, 0x08) ||             // zip (spanned)
                         sig(head, 0x52, 0x61, 0x72, 0x21) ||             // rar
-                        sig(head, 0x42, 0x5A, 0x68)                      // bzip2
+                        sig(head, 0x42, 0x5A, 0x68) ||                   // bzip2
+                        sig(head, 0x4D, 0x53, 0x43, 0x46) ||             // cab "MSCF"
+                        sig(head, 0x49, 0x54, 0x53, 0x46) ||             // chm "ITSF"
+                        sig(head, 0xED, 0xAB, 0xEE, 0xDB) ||             // rpm
+                        sig(head, 0x21, 0x3C, 0x61, 0x72, 0x63, 0x68, 0x3E) || // ar/deb "!<arch>"
+                        sig(head, 0x78, 0x61, 0x72, 0x21) ||             // xar "xar!"
+                        sig(head, 0x4D, 0x53, 0x57, 0x49, 0x4D, 0x00) || // wim "MSWIM"
+                        sig(head, 0x68, 0x73, 0x71, 0x73) ||             // squashfs "hsqs"
+                        sig(head, 0x30, 0x37, 0x30, 0x37, 0x30) ||       // cpio "07070"
+                        sig(head, 0x1F, 0x9D) ||                         // Unix compress (.Z)
+                        (n >= 7 && head[2] == '-'.code.toByte() && head[3] == 'l'.code.toByte() &&
+                            head[6] == '-'.code.toByte())                // lzh/lha "-lh5-"
                     )
                 ) return true
                 // tar: "ustar" at offset 257
@@ -304,7 +324,7 @@ object SevenZip {
         val name = archive.name
         val lower = name.lowercase()
         // Handle multi-part markers so "Game.part1.rar" -> "Game", "disc.001" -> "disc".
-        for (suffix in listOf(".part1.rar", ".part01.rar", ".tar.gz", ".tar.xz", ".tar.bz2")) {
+        for (suffix in listOf(".part1.rar", ".part01.rar", ".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tar.lzma", ".tar.z")) {
             if (lower.endsWith(suffix)) return name.dropLast(suffix.length).ifBlank { name }
         }
         val dot = name.lastIndexOf('.')
