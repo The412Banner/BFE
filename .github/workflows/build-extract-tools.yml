@@ -187,11 +187,8 @@ jobs:
         set -euo pipefail
         ./configure --host=aarch64-linux-android --prefix="$PREFIX" --disable-shared --enable-static --disable-nls \
           CC="$CC" CFLAGS="-O2"
-        make -j"$(nproc)" -C libcharset
-        make -j"$(nproc)" -C lib
-        make -C libcharset install
-        make -C lib install
-        make -C include install 2>/dev/null || cp include/iconv.h "$PREFIX/include/"
+        make -j"$(nproc)"
+        make install
         ls -la "$PREFIX/lib" "$PREFIX/include"
 
     - name: Build unalz 0.65 (Debian patch set)
