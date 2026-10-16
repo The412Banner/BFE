@@ -14,7 +14,7 @@ import java.io.RandomAccessFile
  *
  * Two kinds of engine sit behind it:
  *  - small single-purpose native tools, vendored like 7zz as bionic `lib<name>.so` executables
- *    (built by `.github/workflows/build-extract-tools.yml`, see licenses/NOTICE_EXTRACT_TOOLS.txt):
+ *    (built by `.github/workflows/build-extract-tools.yml`; licences in licenses/NOTICE_<tool>.txt):
  *    lunzip, lzop, lz4, unecm, unalz, unace and amiga-lzx's `lzx`;
  *  - in-app Kotlin decoders: [EggArchive] (with [AzoDecoder]) and [OtaPayload].
  *
@@ -209,9 +209,10 @@ object ExtraFormats {
             ALZ_TOTAL.find(line)?.let { total = it.groupValues[1].toLong(); count = it.groupValues[2].toInt() }
                 ?: ALZ_ROW.find(line)?.let { if (unsafe(it.groupValues[2].trim())) bad = true }
         }
+        // "It's corrupted file." alone is only a warning: unalz still recovers the intact entries.
         val problem = when {
-            out.contains("file open error") || out.contains("corrupted file") ->
-                "This ALZ archive couldn't be opened: " + out.lineSequence().firstOrNull { it.contains("err") || it.contains("corrupt") }.orEmpty().trim()
+            out.contains("file open error") ->
+                "This ALZ archive couldn't be opened: " + out.lineSequence().firstOrNull { it.startsWith("err code") }.orEmpty().trim()
             bad -> "This archive contains paths that point outside the folder it would be extracted to, so BFE won't unpack it."
             else -> null
         }
@@ -465,7 +466,7 @@ object ExtraFormats {
         // unalz exits 0 whatever happens; its output is the only verdict.
         val ok = when (format) {
             Format.ALZ -> exit == 0 && out.contains("done.") && !out.contains("failed.") &&
-                !out.contains("file open error") && !out.contains("Enter Password")
+                !out.contains("err code(") && !out.contains("file open error") && !out.contains("Enter Password")
             else -> exit == 0
         }
         if (ok) { sink.onBytes(tot, tot); return Result(0, out, added) }

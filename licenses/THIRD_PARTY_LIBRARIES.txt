@@ -2,8 +2,8 @@ BFE — third-party libraries
 ===========================
 
 BFE is free software under the GNU General Public License v3.0 (see LICENSE_BFE_GPL-3.0.txt).
-Besides the bundled native tools (7-Zip, innoextract, unarc, FFmpeg + x264 — see their own
-notices), the app includes these libraries. All of them are under licences compatible with the
+Besides the bundled native tools (7-Zip, innoextract, unarc, FFmpeg + x264, lunzip, lzop, lz4,
+unecm, unalz, unace, lzx — see their own notices), the app includes these libraries. All of them are under licences compatible with the
 GPL-3.0.
 
 Android Jetpack / AndroidX (Compose, Activity, Lifecycle, Navigation, Core, AppCompat, Preference)
@@ -18,6 +18,8 @@ libsu 6.0.0 by topjohnwu (root storage backend)
   https://github.com/topjohnwu/libsu — Apache License 2.0
 Apache Commons Compress 1.20 (tar for .tzst / .wcp)
   https://commons.apache.org/proper/commons-compress/ — Apache License 2.0
+XZ for Java 1.9 (LZMA for ALZip .egg, xz for OTA payload.bin)
+  https://tukaani.org/xz/java.html — public domain
 zstd-jni 1.5.2-3 (Zstandard for .tzst / .wcp)
   https://github.com/luben/zstd-jni — BSD 2-Clause License; bundles Zstandard, BSD License
 ARSCLib 1.4.0 by REAndroid (APK manifest/resources editing)
