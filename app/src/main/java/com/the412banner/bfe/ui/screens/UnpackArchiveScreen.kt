@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.the412banner.bfe.core.StringUtils
+import com.the412banner.bfe.unpack.ExtraFormats
 import com.the412banner.bfe.unpack.Innoextract
 import com.the412banner.bfe.unpack.PowerMode
 import com.the412banner.bfe.unpack.ReadBuffer
@@ -83,6 +84,8 @@ import java.io.File
 /**
  * The "Unpack Archive" screen: point the bundled 7-Zip engine at a disc image / archive and extract
  * it to a chosen folder, with a foreground service doing the work so it survives backgrounding.
+ * InnoSetup installers go to innoextract / unarc, and the formats 7-Zip can't open (lzip, lzop, LZ4,
+ * ECM, ALZ/EGG, ACE, Amiga LZX, OTA payload.bin) to [ExtraFormats].
  *
  * Reached from the File Manager's ⋮ menu (hosted by [com.the412banner.bfe.UnpackArchiveActivity]).
  */
@@ -131,6 +134,11 @@ fun UnpackArchiveScreen(
     // reveals the "also extract DLC" toggle below. Default the toggle on — auto-batch is the ask.
     var dlcInstallers by remember(archivePath) { mutableStateOf<List<File>>(emptyList()) }
     var alsoExtractDlc by remember(archivePath) { mutableStateOf(true) }
+    // lzip / lzop / LZ4 / ECM / ALZ / EGG / ACE / Amiga LZX / OTA payload: recognised by header and handled
+    // by ExtraFormats instead of 7-Zip (which can't open them, so `7zz l` would say "nothing to unpack").
+    var extraProbe by remember(archivePath) { mutableStateOf<ExtraFormats.Probe?>(null) }
+    // OTA payload: the partitions to write out — every one that can be extracted, until the user narrows it.
+    var chosenParts by remember(archivePath) { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(archivePath) {
         typeLoading = true
         if (isInno) {
@@ -139,8 +147,15 @@ fun UnpackArchiveScreen(
                 dlcInstallers = withContext(Dispatchers.IO) { SevenZip.siblingInnoInstallers(archive) }
             }
         } else {
-            val info = withContext(Dispatchers.IO) { SevenZip.list(context, archive) }
-            detectedType = info?.type
+            val probe = withContext(Dispatchers.IO) { ExtraFormats.probe(context, archive) }
+            if (probe != null) {
+                extraProbe = probe
+                detectedType = probe.typeLabel
+                chosenParts = probe.partitions.filter { !it.incremental }.map { it.name }.toSet()
+            } else {
+                val info = withContext(Dispatchers.IO) { SevenZip.list(context, archive) }
+                detectedType = info?.type
+            }
         }
         typeLoading = false
     }
@@ -205,12 +220,17 @@ fun UnpackArchiveScreen(
     // Content pre-flight (not extension): a plain file is judged by whether `7zz l` could open it as
     // an archive / disc image. No recognisable container (e.g. raw .bin data) → nothing to unpack.
     // A plain program (`Type = PE`/ELF…) opens in 7-Zip too, but only as its code sections — not a payload.
-    val isProgram = !isInno && !typeLoading && detectedType in SevenZip.EXECUTABLE_TYPES
-    val notAnArchive = !isInno && !typeLoading && (detectedType == null || isProgram)
+    // ExtraFormats files are judged by their own probe instead (it explains anything it can't do).
+    val isExtra = !isInno && extraProbe != null
+    val extraProblem = extraProbe?.problem
+    val extraAllowed = isExtra && !typeLoading && extraProblem == null
+    val isPayload = extraProbe?.format == ExtraFormats.Format.PAYLOAD
+    val isProgram = !isInno && !isExtra && !typeLoading && detectedType in SevenZip.EXECUTABLE_TYPES
+    val notAnArchive = !isInno && !isExtra && !typeLoading && (detectedType == null || isProgram)
     // Are we still deciding what this file is? (InnoSetup pre-flight, or the plain content-sniff.)
     val checking = if (isInno) innoClassifying else typeLoading
     // The 7-Zip extract path is for plain (non-Inno) archives only, once the sniff confirms it opens.
-    val sevenZipAllowed = !isInno && !typeLoading && detectedType != null && !isProgram
+    val sevenZipAllowed = !isInno && !isExtra && !typeLoading && detectedType != null && !isProgram
     val engineMissingInno = innoExtract && !Innoextract.isAvailable(context)
 
     // The primary action per route — shared by the buttons below and by [autoStart].
@@ -235,6 +255,13 @@ fun UnpackArchiveScreen(
         val mmt = UnpackManager.mmtFor(powerMode, manualCores)
         UnpackService.start(context, archive.absolutePath, destPath, mmt, buffer.bytes, false, sourceSize)
     }
+    val canExtra = extraAllowed && !gatedByPermission && archive.isFile && !otherJobRunning &&
+        (!isPayload || chosenParts.isNotEmpty())
+    val startExtra = {
+        UnpackManager.clearIfTerminal()
+        val parts = if (isPayload) extraProbe?.partitions?.map { it.name }?.filter { it in chosenParts } else null
+        UnpackService.start(context, archive.absolutePath, destPath, 1, buffer.bytes, false, sourceSize, ExtraFormats.ENGINE, parts)
+    }
 
     // typeLoading flips false only after the whole pre-flight (incl. the DLC scan). Fires at most once:
     // if nothing can start (not an archive, container-only repack, All-Files access missing, another job
@@ -247,6 +274,7 @@ fun UnpackArchiveScreen(
             canUnarc -> startUnarc()
             canInno -> startInno()
             canSevenZip -> startSevenZip()
+            canExtra -> startExtra()
         }
     }
 
@@ -331,13 +359,17 @@ fun UnpackArchiveScreen(
                         fontSize = 11.sp,
                     )
                 }
+                if (extraAllowed) extraProbe?.engineNote?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                }
             }
 
             Spacer(Modifier.height(12.dp))
 
             // Destination applies to the 7-Zip, innoextract AND FreeArc/unarc paths; Power (below) is
             // 7-Zip-only. All hidden while still deciding, for the container-only route, and non-archives.
-            if (sevenZipAllowed || innoExtract || innoFreeArc) {
+            if (sevenZipAllowed || innoExtract || innoFreeArc || extraAllowed) {
             // ── Destination ──
             SectionCard {
                 Text("Extract to", style = sectionTitle())
@@ -430,7 +462,7 @@ fun UnpackArchiveScreen(
             } // end Destination + Power block
 
             // ── Permission gate ──
-            if (gatedByPermission && sevenZipAllowed) {
+            if (gatedByPermission && (sevenZipAllowed || extraAllowed)) {
                 WarnCard {
                     Text(
                         "All Files Access is off. Extraction writes directly to storage and can't use the " +
@@ -450,7 +482,7 @@ fun UnpackArchiveScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
-            if (engineMissing && !isInno) {
+            if (engineMissing && !isInno && !isExtra) {
                 WarnCard {
                     Text(
                         "The 7-Zip engine (lib7zz.so) isn't executable on this build. Extraction is unavailable.",
@@ -536,6 +568,16 @@ fun UnpackArchiveScreen(
                     )
                     Spacer(Modifier.height(8.dp))
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            // ── A format BFE knows but can't unpack this time (ACE 2.0, encrypted EGG, incremental OTA…) ──
+            if (!running && isExtra && !typeLoading && extraProblem != null) {
+                WarnCard {
+                    Text("Can't extract this file", color = MaterialTheme.colorScheme.error, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    Text(extraProblem, color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp)
                 }
                 Spacer(Modifier.height(12.dp))
             }
@@ -635,6 +677,57 @@ fun UnpackArchiveScreen(
                             fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         )
                     }
+                }
+            }
+
+            // ── ExtraFormats (lzip/lzop/LZ4/ECM/ALZ/EGG/ACE/LZX/OTA payload) ──
+            if (!running && extraAllowed) {
+                val probe = extraProbe
+                if (isPayload && probe != null) {
+                    SectionCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Partitions", style = sectionTitle(), modifier = Modifier.weight(1f))
+                            val extractable = probe.partitions.filter { !it.incremental }.map { it.name }.toSet()
+                            OutlinedButton(
+                                onClick = { chosenParts = if (chosenParts.size == extractable.size) emptySet() else extractable },
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            ) {
+                                Text(if (chosenParts.size == extractable.size) "None" else "All", color = MaterialTheme.colorScheme.onBackground)
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        for (part in probe.partitions) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Checkbox(
+                                    checked = part.name in chosenParts,
+                                    enabled = !part.incremental,
+                                    onCheckedChange = { on -> chosenParts = if (on) chosenParts + part.name else chosenParts - part.name },
+                                )
+                                Text(
+                                    "${part.name}.img",
+                                    color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    if (part.incremental) "incremental — needs the phone's image" else StringUtils.formatBytes(part.size),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                Button(
+                    onClick = startExtra,
+                    enabled = canExtra,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                ) {
+                    Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (isPayload) "Extract ${chosenParts.size} partition image${if (chosenParts.size == 1) "" else "s"}" else "Extract",
+                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
 

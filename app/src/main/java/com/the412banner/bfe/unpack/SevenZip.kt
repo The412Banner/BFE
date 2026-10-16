@@ -71,11 +71,14 @@ object SevenZip {
     /** `7zz l` types that are just a program, not a container: opening one would only dump its sections. */
     val EXECUTABLE_TYPES = setOf("PE", "ELF", "MachO", "COFF", "TE", "Mub")
 
-    /** True when [file]'s extension marks it as something the 7-Zip engine can be pointed at. */
+    /**
+     * True when [file]'s extension marks it as something the Unpack screen can be pointed at: 7-Zip's
+     * formats plus the ones [ExtraFormats] handles (lzip, lzop, LZ4, ECM, ALZ/EGG, ACE, Amiga LZX).
+     */
     fun isSupported(file: File): Boolean {
         if (file.isDirectory) return false
         val name = file.name.lowercase()
-        return SUPPORTED.any { name.endsWith(it) }
+        return SUPPORTED.any { name.endsWith(it) } || ExtraFormats.hasExtension(name)
     }
 
     /**
@@ -122,7 +125,9 @@ object SevenZip {
                         sig(head, 0x30, 0x37, 0x30, 0x37, 0x30) ||       // cpio "07070"
                         sig(head, 0x1F, 0x9D) ||                         // Unix compress (.Z)
                         (n >= 7 && head[2] == '-'.code.toByte() && head[3] == 'l'.code.toByte() &&
-                            head[6] == '-'.code.toByte())                // lzh/lha "-lh5-"
+                            head[6] == '-'.code.toByte()) ||             // lzh/lha "-lh5-"
+                        // lzip, lzop, LZ4, ECM, ALZ, EGG, ACE, Amiga LZX, OTA payload (non-7-Zip engines)
+                        ExtraFormats.detect(head, n) != null
                     )
                 ) return true
                 // tar: "ustar" at offset 257
@@ -324,7 +329,10 @@ object SevenZip {
         val name = archive.name
         val lower = name.lowercase()
         // Handle multi-part markers so "Game.part1.rar" -> "Game", "disc.001" -> "disc".
-        for (suffix in listOf(".part1.rar", ".part01.rar", ".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tar.lzma", ".tar.z")) {
+        for (suffix in listOf(
+            ".part1.rar", ".part01.rar", ".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tar.lzma", ".tar.z",
+            ".tar.lz", ".tar.lzo", ".tar.lz4", ".bin.ecm", ".img.ecm", ".iso.ecm",
+        )) {
             if (lower.endsWith(suffix)) return name.dropLast(suffix.length).ifBlank { name }
         }
         val dot = name.lastIndexOf('.')

@@ -53,7 +53,9 @@ class UnpackService : Service() {
         const val EXTRA_BUFFER = "buffer"
         const val EXTRA_IS_INNO = "isInno"
         const val EXTRA_TOTAL_SIZE = "totalSize"
-        const val EXTRA_ENGINE = "engine"   // "7z" | "inno" | "unarc"
+        const val EXTRA_ENGINE = "engine"   // "7z" | "inno" | "unarc" | "extra" (ExtraFormats)
+        // OTA payload.bin: the partitions to write out (engine "extra"); absent = every extractable one.
+        const val EXTRA_PARTS = "parts"
 
         // Process-static so the notification's Cancel action can reach the running process even if
         // onStartCommand hasn't re-published `instance` yet.
@@ -71,10 +73,11 @@ class UnpackService : Service() {
         // Each finished / failed / refused job keeps its own notification; the ongoing one moves on.
         private val terminalIds = java.util.concurrent.atomic.AtomicInteger(9100)
 
-        // Pause = SIGSTOP the engine process (7zz / innoextract / unarc), resume = SIGCONT.
+        // Pause = SIGSTOP the engine process (7zz / innoextract / unarc / the ExtraFormats tools),
+        // resume = SIGCONT. The in-app EGG / OTA decoders wait on [paused] instead.
         private const val SIGCONT = 18
         private const val SIGSTOP = 19
-        private val ENGINE_BINARIES = listOf("lib7zz.so", "libinnoextract.so", "libunarc.so")
+        private val ENGINE_BINARIES = listOf("lib7zz.so", "libinnoextract.so", "libunarc.so") + ExtraFormats.TOOL_BINARIES
 
         fun isBusy(): Boolean = busy
 
@@ -92,7 +95,10 @@ class UnpackService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i) else ctx.startService(i)
         }
 
-        fun start(ctx: Context, archive: String, dest: String, mmt: Int, bufferBytes: Int, isInno: Boolean, totalSize: Long, engine: String = "7z") {
+        fun start(
+            ctx: Context, archive: String, dest: String, mmt: Int, bufferBytes: Int, isInno: Boolean, totalSize: Long,
+            engine: String = "7z", parts: List<String>? = null,
+        ) {
             val app = ctx.applicationContext
             val i = Intent(app, UnpackService::class.java).apply {
                 action = ACTION_START
@@ -103,6 +109,7 @@ class UnpackService : Service() {
                 putExtra(EXTRA_IS_INNO, isInno)
                 putExtra(EXTRA_TOTAL_SIZE, totalSize)
                 putExtra(EXTRA_ENGINE, engine)
+                parts?.let { putStringArrayListExtra(EXTRA_PARTS, ArrayList(it)) }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(i) else app.startService(i)
         }
@@ -246,6 +253,7 @@ class UnpackService : Service() {
                 val isInno = intent.getBooleanExtra(EXTRA_IS_INNO, false)
                 val totalSize = intent.getLongExtra(EXTRA_TOTAL_SIZE, 0L)
                 val engine = intent.getStringExtra(EXTRA_ENGINE) ?: "7z"
+                val parts = intent.getStringArrayListExtra(EXTRA_PARTS)
                 // A GOG DLC batch arrives as EXTRA_ARCHIVES (base first); a normal job as EXTRA_ARCHIVE.
                 val archives = intent.getStringArrayListExtra(EXTRA_ARCHIVES)
                     ?.map { File(it) }?.takeIf { it.isNotEmpty() }
@@ -262,14 +270,17 @@ class UnpackService : Service() {
                 startForegroundCompat(buildNotification(UnpackManager.current.copy(
                     phase = UnpackPhase.LISTING, archiveName = archives.first().name,
                 )))
-                runExtraction(archives, File(dest), mmt, buffer, isInno, totalSize, engine)
+                runExtraction(archives, File(dest), mmt, buffer, isInno, totalSize, engine, parts)
                 return START_STICKY
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun runExtraction(archives: List<File>, destDir: File, mmt: Int, buffer: Int, isInno: Boolean, totalSize: Long, engine: String) {
+    private fun runExtraction(
+        archives: List<File>, destDir: File, mmt: Int, buffer: Int, isInno: Boolean, totalSize: Long, engine: String,
+        parts: List<String>? = null,
+    ) {
         cancelled = false
         paused = false
         val ctx = applicationContext
@@ -299,14 +310,18 @@ class UnpackService : Service() {
             )
             refresh()
 
-            // engine: "unarc" = FreeArc native, "inno" = innoextract (standard-Inno/GOG), else 7-Zip.
-            val info = if (isInno) null else SevenZip.list(ctx, archive)
+            // engine: "unarc" = FreeArc native, "inno" = innoextract (standard-Inno/GOG), "extra" = the
+            // ExtraFormats engines (lzip/lzop/LZ4/ECM/ALZ/EGG/ACE/LZX/OTA payload), else 7-Zip.
+            val isExtra = engine == ExtraFormats.ENGINE
+            val extraProbe = if (isExtra) ExtraFormats.probe(ctx, archive) else null
+            val info = if (isInno || isExtra) null else SevenZip.list(ctx, archive)
             UnpackManager.update {
                 it.copy(
                     phase = UnpackPhase.EXTRACTING,
                     archiveType = when {
                         engine == "unarc" -> "FreeArc repack"
                         isInno -> "InnoSetup installer"
+                        isExtra -> extraProbe?.typeLabel
                         else -> info?.type
                     },
                 )
@@ -338,6 +353,37 @@ class UnpackService : Service() {
                         currentFile = currentFile ?: it.currentFile,
                         bytesProcessed = bytes, speedBps = emaBps, etaSeconds = eta,
                         elapsedMs = now - startMs, filesExtracted = files,
+                    )
+                }
+                refresh()
+            }
+
+            // The ExtraFormats engines report bytes against their own total (input bytes for the
+            // single-stream tools, output bytes for EGG / the destination pollers, payload bytes for an
+            // OTA); they can fire per chunk and from a poller thread, so repaint only when the percent
+            // moves or every 500 ms.
+            val byteLock = Any()
+            var lastPaint = 0L
+            var lastPct = -1
+            fun pushBytes(done: Long, total: Long) = synchronized(byteLock) {
+                val now = SystemClock.elapsedRealtime()
+                val tot = total.coerceAtLeast(1L)
+                val bytes = done.coerceIn(0L, tot)
+                val pct = (bytes * 100 / tot).toInt()
+                if (pct == lastPct && now - lastPaint < 500) return@synchronized
+                if (now - lastTick >= 500) {
+                    val inst = ((bytes - lastBytes) * 1000 / (now - lastTick).coerceAtLeast(1)).coerceAtLeast(0)
+                    emaBps = if (emaBps == 0L) inst else (emaBps * 2 + inst) / 3
+                    lastTick = now
+                    lastBytes = bytes
+                }
+                lastPct = pct
+                lastPaint = now
+                val eta = if (emaBps > 0) (tot - bytes) / emaBps else -1L
+                UnpackManager.update {
+                    it.copy(
+                        phase = UnpackPhase.EXTRACTING, percent = pct, bytesProcessed = bytes,
+                        speedBps = emaBps, etaSeconds = eta, elapsedMs = now - startMs,
                     )
                 }
                 refresh()
@@ -384,7 +430,23 @@ class UnpackService : Service() {
             fun addedFiles(poll: DestPoll): Int = (measureDir(destDir).first - poll.baseCount).coerceAtLeast(0)
 
             val result = runCatching {
-                if (engine == "unarc") {
+                if (isExtra) {
+                    val r = ExtraFormats.extract(
+                        ctx, archive, destDir, parts?.toSet(), extraProbe?.totalBytes ?: 0L,
+                        object : ExtractSink {
+                            override fun onBytes(done: Long, total: Long) = pushBytes(done, total)
+                            override fun onFile(name: String) { UnpackManager.update { it.copy(currentFile = name) } }
+                        },
+                        onProcess = { proc = it },
+                        // The in-app decoders poll this between chunks: it holds them while paused.
+                        cancelled = {
+                            while (paused && !cancelled) Thread.sleep(200)
+                            cancelled
+                        },
+                    )
+                    files = r.files
+                    SevenZip.Result(if (r.exitCode == 0) 0 else 2, r.tail)
+                } else if (engine == "unarc") {
                     // FreeArc: unarc block-buffers stdout, so drive progress by POLLING the destination
                     // size against the total from `unarc l` (140 GB-class). Speed/ETA from the byte delta.
                     val unarcTotal = Unarc.list(ctx, archive)?.totalBytes?.takeIf { it > 0 } ?: dataSize

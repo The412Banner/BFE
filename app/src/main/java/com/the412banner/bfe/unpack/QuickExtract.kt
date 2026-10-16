@@ -68,6 +68,13 @@ object QuickExtract {
     }
 
     private fun planArchive(context: Context, file: File, destBase: File?): Plan {
+        // lzip / lzop / LZ4 / ECM / ALZ / EGG / ACE / Amiga LZX / OTA payload: not 7-Zip's, see ExtraFormats.
+        // An OTA payload gets every partition it can extract.
+        ExtraFormats.probe(context, file)?.let { probe ->
+            probe.problem?.let { return Plan.Refuse(it) }
+            val dest = File(destBase ?: file.parentFile, SevenZip.suggestedTargetName(file)).absolutePath
+            return Plan.Run(UnpackJob(listOf(file.absolutePath), dest, 1, ReadBuffer.MB1.bytes, false, file.length(), ExtraFormats.ENGINE))
+        }
         if (!SevenZip.isAvailable(context)) return Plan.Refuse("The 7-Zip engine isn't available in this build.")
         val type = SevenZip.list(context, file)?.type
             ?: return Plan.Refuse("${file.name} isn't a recognized archive or disc image.")
