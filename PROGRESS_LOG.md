@@ -55,7 +55,14 @@ management. Branch off `main` `ca38ed6` (1.0.1); not merged, no release.
   file manager there (onCreate + onNewIntent); for the extraction notification's "Open folder".
 - **Permissions:** `PACKAGE_USAGE_STATS` (lists BFE under Usage access; user-granted) and
   `REQUEST_DELETE_PACKAGES` (required at targetSdk 28 to hand a package to the uninstall dialog).
-- **Verification:** CI compile only (no device run, no JVM tests). CI: pending.
+- **Verification:** CI compile only (no device run, no JVM tests). `build.yml` on the branch:
+  run 38977484101 green on `8eab222` (feature); follow-up fixes (backup dialog steps aside for its
+  folder picker; comparator) re-built on the next commit.
+- **Owner to confirm:** decimal units on the storage tiles only (matches Settings / the box; file
+  sizes elsewhere stay binary); the Cloud / Remote / Network stats lines ("Cloud storage",
+  "SFTP · SMB · WebDAV", "HTTP · FTP"); Documents + New files skip dot-folders; New files = last 7 days
+  by date added; copies in the category browser never overwrite (" (1)"); clones from Apps land in the
+  backup folder; Back at a storage root goes Home (also after "Show in folder").
 
 ## Release pipeline (how every version is cut)
 **From 1.0:** `gh workflow run release.yml -f version=X.Y -f release_notes="..."` does steps 1-3 below

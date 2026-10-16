@@ -283,8 +283,9 @@ fun AppsScreen(onBack: () -> Unit, onBrowseData: (FmLocationRequest) -> Unit) {
         ApkResultDialog(report = report, onInstall = { cloneResult = null; installApk(context, File(report.outputPath)) }, onDismiss = { cloneResult = null })
     }
 
-    // ── Back up APK: where to (default Download/BFE Backups), then go ──
-    backupFor?.let { app ->
+    // ── Back up APK: where to (default Download/BFE Backups), then go. The dialog steps aside while
+    // its folder picker is open (a dialog window would otherwise sit on top of the picker). ──
+    backupFor?.takeIf { !pickBackupDir }?.let { app ->
         OutlinedAlertDialog(
             onDismissRequest = { backupFor = null },
             icon = { Icon(Icons.Filled.Backup, null) },

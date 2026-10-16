@@ -231,7 +231,7 @@ fun CategoryScreen(
         val cmp: Comparator<MediaItem> = when (sortBy) {
             "name" -> compareBy { it.name.lowercase() }
             "size" -> compareBy { it.size }
-            else -> compareBy(dateOf)
+            else -> compareBy { dateOf(it) }
         }
         base.sortedWith(if (sortDesc) cmp.reversed() else cmp)
     }
