@@ -26,6 +26,48 @@ where it stands*.
   exercised once a release newer than 1.0 exists. The older device-test backlog (SAF/root, compression,
   cloner, converter, toolbar) still stands.
 
+## Cloud + Remote via rclone (branch `feat/cloud-rclone`, 2026-10-16, not merged)
+
+Owner ask: "cloud management for various cloud storage services" + Remote connections, reached from the
+new Home screen's **Cloud** and **Remote** tiles (`CloudScreen(onBack)` / `RemoteScreen(onBack)` in
+`ui/screens/cloud/CloudScreens.kt`; the Home branch wires them).
+
+- **Engine = rclone v1.75.2, trimmed** (`rclone/main.go`: rcd, lsjson, copy/copyto/move/moveto,
+  delete/deletefile/purge/mkdir/rmdir, about, config, authorize, version, rc, obscure, … + backends
+  drive, onedrive, dropbox, box, pcloud, mega, yandex, protondrive, webdav, s3, b2, sftp, ftp, smb,
+  http, local, crypt, combine, union). Built by `build-rclone.yml`: Go 1.26.9 + NDK r29, android/arm64,
+  cgo/bionic, API 26. **47,616,352 B binary / 14,998,988 B .gz** (upstream full android build:
+  88,817,560 B / 27,940,918 B gz). Runs 38976010135 and 38976867583 produced **bit-identical** files.
+- **Not bundled.** `RcloneManager` downloads `rclone-v1.75.2-android-arm64.gz` from release tag
+  `rclone-v1.75.2-android-arm64` on first open (explains it + size first), checks the pinned SHA-256
+  (gz `259868b5…d34b`, binary `19015133…c6c2`), gunzips to `filesDir/bin/rclone`, runs `rclone version`
+  once. A copy of the .gz in `Download/` can be installed offline. The release is published by the
+  maintainer, not by CI.
+- **Runtime:** `RcloneDaemon` keeps one `rclone rcd` (127.0.0.1, random port, random basic-auth password
+  via env, `--rc-serve`, cwd `/`) shared by screens + the transfer service, idle-stopped after 90 s.
+  Config `filesDir/rclone/rclone.conf` (app-private; backups off). `RcClient`/`RcloneApi` are plain JVM.
+- **Accounts:** add via `config/create` with `nonInteractive`, then answer rclone's own questions
+  (`CloudSetup`): auto-answers per service + single-choice lists; the rest as dialogs. **OAuth:** answer
+  `config_is_local=true` as an async job, read `config/oauthstatus` (new in 1.7x) for the
+  `127.0.0.1:53682/auth` URL, open it in the browser, `config/oauthstop` cancels; `config_template`
+  swaps rclone's done page for one with a `bfe-auth://done` "Return to BFE" link (`AuthReturnActivity`).
+  New accounts are test-listed. Rename = edit the INI section header (rc has no rename; rcd reloads the
+  file when its mtime/size change). Own client ID/secret per OAuth service.
+- **Browser + transfers:** see README. Transfers = rclone jobs (`operations/copyfile`, `sync/copy`)
+  polled via `job/status` + `core/stats group=job/<id>`, cancel = `job/stop` (rclone removes the partial).
+- **Proof so far:** device (Pocket FIT, Android 14) as root via the bridge: `rclone version`, local
+  `lsjson`, `lsjson :http: --http-url https://downloads.rclone.org` (DNS + TLS OK), rcd + `curl rc/noop`
+  (device curl and from the sandbox; 401 without auth), Drive OAuth up to Google's consent page (307
+  from the auth URL), custom done page renders, a job's stats + stop (partial file removed). JVM test of
+  RcClient/RcloneApi/RcdProcess/RcloneConfigFile against the CI binary in the PRoot sandbox: 29/29.
+  **Not yet run inside the app on a device**; no real account signed in.
+- **Finding:** rclone's shared Google Drive client ID "is being retired and will stop working during
+  2026" (rclone asks `config_shared_client_id`). The Drive form says so and links rclone's guide to a
+  personal client ID; BFE answers "continue with the shared one" only when no ID was given.
+- Licences: `licenses/NOTICE_RCLONE.txt` (MIT text + all 142 linked modules: 59 Apache-2.0, 44 MIT,
+  31 BSD, 5 MPL-2.0, ISC, CC0, and `cloudsoda/sddl` LGPL-3.0 via the SMB backend); full texts are the
+  workflow's `rclone-licenses.txt`, to be attached to the release.
+
 ## Release pipeline (how every version is cut)
 **From 1.0:** `gh workflow run release.yml -f version=X.Y -f release_notes="..."` does steps 1-3 below
 in one job (version bump/validation, build, certificate + aapt check, release `vX.Y` with
@@ -84,10 +126,11 @@ app/src/main/java/com/the412banner/bfe/
 ├─ storage/    StorageBackend (Loc = FileLoc|SafLoc|RootLoc) · RootBackend (libsu, fixOwnership) · StorageTransfer · AppStorage (pins)
 ├─ apk/        ApkRewriter (ARSCLib rename+fixups) · ApkSigning (apksig, zipalign) · SigningKeys · ApkJobService · ApkModels
 ├─ video/      Ffmpeg (exec libffmpeg.so, -progress parsing) · ConvertService · ConvertModels
+├─ cloud/      RcClient · RcloneApi · RcdProcess · RcloneDaemon · RcloneManager · CloudSetup · CloudServices · CloudTransfers/Service
 ├─ ui/screens/ FileManagerScreen (PaneState, BrowserPane, SharedToolbar, dual-pane) · UnpackArchiveScreen · CompressDialog · ConvertDialog · ApkToolsDialogs
 └─ ui/         UnpackProgressPill (+ pack/convert pills) · theme · CollapsibleRail
 app/src/main/jniLibs/arm64-v8a/  lib7zz · libinnoextract (+boost/lzma/iconv/z/bz2 closure) · libunarc · libc++_shared · libffmpeg
-.github/workflows/  build.yml (signed release APK, gradle caching) · build-ffmpeg.yml (static NDK ffmpeg+x264)
+.github/workflows/  build.yml (signed release APK, gradle caching) · build-ffmpeg.yml (static NDK ffmpeg+x264) · build-rclone.yml (trimmed rclone, cgo/bionic)
 ```
 Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`), which is why
 `android:extractNativeLibs="true"` is mandatory.
@@ -114,6 +157,10 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
   import it.
 - The updater depends on signature continuity: CI checks the certificate digest on every build so a
   wrong key can never reach a release.
+- rclone's `local` backend resolves a remote's relative paths against the process working directory;
+  rcd runs with cwd `/` so they match the `/` fs used for local paths.
+- `gh workflow run build-rclone.yml --ref feat/cloud-rclone` works even while the workflow file exists
+  only on that branch (run 38979307335); build-rclone.yml also runs on pushes that touch its inputs.
 - The build agent and coordinator share one checkout: always check `git rev-list origin/main..HEAD`
   before pushing docs so you don't ship half-done work early.
 

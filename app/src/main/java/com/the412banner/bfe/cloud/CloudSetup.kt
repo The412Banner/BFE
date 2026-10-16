@@ -174,6 +174,8 @@ object CloudSetup {
             val opt = step.option
             val error = step.error.ifBlank { null }
             step = when {
+                // An error with nothing to answer can't be retried from here.
+                opt == null && error != null -> throw IllegalStateException(error)
                 opt == null -> api.continueConfig(name, step.state, step.result, HINTS)
                 opt.name == "config_is_local" -> browserSignIn(api, name, step)
                 // Reconnect = replace the stored sign-in; never ask.
@@ -196,7 +198,9 @@ object CloudSetup {
                 }
             }
         }
-        if (step.error.isNotBlank()) throw IllegalStateException(step.error)
+        // A closing message (e.g. Drive's "No Shared Drives found") doesn't undo a finished setup;
+        // the connection test below decides.
+        if (step.error.isNotBlank()) Log.i(TAG, "setup of $name ended with: ${step.error}")
 
         // Prove it works before calling it done: list the starting folder once.
         setPhase(Phase.Working("Checking the connection…"))

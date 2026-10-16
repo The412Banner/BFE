@@ -145,8 +145,10 @@ internal fun uniqueName(base: String, taken: Collection<String>): String {
 @Composable
 private fun RcloneSection(section: CloudSection, onBack: () -> Unit) {
     val context = LocalContext.current
+    // Settle installed / not installed before the first frame (two file checks), so an installed
+    // engine never flashes the download page.
+    remember { RcloneManager.refresh(context) }
     val install by RcloneManager.state.collectAsState()
-    LaunchedEffect(Unit) { RcloneManager.refresh(context) }
     val holder = remember { "screen-${section.name}-${System.nanoTime()}" }
     DisposableEffect(holder) {
         RcloneDaemon.retain(holder)
