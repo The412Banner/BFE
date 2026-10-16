@@ -205,7 +205,8 @@ jobs:
           "$CC" $FLAGS -std=gnu99 -c "$f" -o "obj/$(basename "${f%.c}").o"
         done
         for f in main.cpp UnAlz.cpp UnAlzUtils.cpp UnAlzBzip2.cpp; do
-          "$CXX" $FLAGS -c "$f" -o "obj/${f%.cpp}.o"
+          # 2009 code: uses the `register` keyword that C++17 removed.
+          "$CXX" $FLAGS -std=gnu++14 -c "$f" -o "obj/${f%.cpp}.o"
         done
         "$CXX" -static -o unalz obj/*.o "$PREFIX/lib/libiconv.a" -lz
         install -m 755 unalz "$DIST/libunalz.so"
