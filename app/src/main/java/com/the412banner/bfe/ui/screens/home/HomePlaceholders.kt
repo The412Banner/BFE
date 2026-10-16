@@ -49,14 +49,6 @@ fun RemotePlaceholder(onBack: () -> Unit) = ComingSoon(
 )
 
 @Composable
-fun ServerPlaceholder(onBack: () -> Unit) = ComingSoon(
-    title = "Access from network",
-    style = HomeTileStyles.Network,
-    detail = "Share this device's storage over Wi-Fi with a built-in HTTP / FTP server.",
-    onBack = onBack,
-)
-
-@Composable
 private fun ComingSoon(title: String, style: TileStyle, detail: String, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     Column(modifier = Modifier.fillMaxSize()) {

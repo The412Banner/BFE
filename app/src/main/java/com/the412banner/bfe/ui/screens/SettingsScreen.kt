@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.BuildConfig
 import com.the412banner.bfe.ui.screens.home.HomePrefs
+import com.the412banner.bfe.ui.screens.server.ServerScreen
 import com.the412banner.bfe.ui.theme.ThemeSettings
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.CheckState
@@ -85,7 +87,9 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("innoextract", "zlib License, with Boost / liblzma / libiconv", "NOTICE_INNOEXTRACT.txt"),
     LicenseDoc("unarc (FreeArc)", "License and source notice", "NOTICE_UNARC.txt"),
     LicenseDoc("FFmpeg + x264", "GNU GPL v2 or later", "NOTICE_FFMPEG.txt"),
-    LicenseDoc("Libraries", "AndroidX, Coil, libsu, Commons Compress, zstd-jni, ARSCLib, apksig, Bouncy Castle", "THIRD_PARTY_LIBRARIES.txt"),
+    LicenseDoc("NanoHTTPD", "BSD 3-Clause License", "NOTICE_NANOHTTPD.txt"),
+    LicenseDoc("Apache FtpServer + MINA", "Apache License 2.0", "NOTICE_APACHE_FTPSERVER.txt"),
+    LicenseDoc("Libraries", "AndroidX, Coil, libsu, Commons Compress, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
 )
 
 /**
@@ -98,6 +102,12 @@ private val LICENSE_DOCS = listOf(
 fun SettingsScreen(onBack: () -> Unit) {
     var page by rememberSaveable { mutableStateOf("main") }
     var licenseAsset by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // "Access from network" lives here until the Home dashboard links to it; it has its own app bar.
+    if (page == "server") {
+        ServerScreen(onBack = { page = "main" })
+        return
+    }
 
     BackHandler {
         when {
@@ -137,6 +147,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     onOpenLicenses = { page = "licenses" },
                     onOpenDefaults = { page = "defaults" },
                     onOpenLicense = { licenseAsset = it },
+                    onOpenServer = { page = "server" },
                 )
             }
         }
@@ -149,6 +160,7 @@ private fun MainSettings(
     onOpenLicenses: () -> Unit,
     onOpenDefaults: () -> Unit,
     onOpenLicense: (String) -> Unit,
+    onOpenServer: () -> Unit,
 ) {
     val context = LocalContext.current
     val check by UpdateManager.check.collectAsState()
@@ -248,6 +260,13 @@ private fun MainSettings(
             onClick = onOpenDefaults,
             trailing = { Icon(Icons.Filled.ChevronRight, null) },
         )
+        SettingRow(
+            icon = Icons.Filled.Wifi,
+            title = "Access from network",
+            subtitle = "Share files with other devices on your Wi-Fi through a browser or FTP.",
+            onClick = onOpenServer,
+            trailing = { Icon(Icons.Filled.ChevronRight, null) },
+        )
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         // ── About ──
@@ -281,7 +300,7 @@ private fun MainSettings(
         SettingRow(
             icon = Icons.Filled.Gavel,
             title = "Open-source licenses",
-            subtitle = "7-Zip, innoextract, unarc, FFmpeg, x264 and libraries",
+            subtitle = "7-Zip, innoextract, unarc, FFmpeg, x264, NanoHTTPD, Apache FtpServer and libraries",
             onClick = onOpenLicenses,
             trailing = { Icon(Icons.Filled.ChevronRight, null) },
         )

@@ -19,7 +19,8 @@
     <!-- Lets "Open with" hand off an extracted installer/APK to the package installer, and lets the
          in-app updater install a new BFE release. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- The in-app updater: reads update.json and downloads the release APK from GitHub. -->
+    <!-- The in-app updater: reads update.json and downloads the release APK from GitHub. Also lets
+         "Access from network" open its listening sockets. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Home → Apps: lists BFE under Settings → Usage access so the user can allow it; only then does
          StorageStatsManager report other apps' sizes. Nothing is granted by declaring it. -->
@@ -29,6 +30,10 @@
     <!-- Home → Apps → Uninstall: apps targeting API 28+ need this (normal) permission to hand a package
          to the system uninstall dialog; the user still confirms every uninstall there. -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- "Access from network": find the Wi-Fi / hotspot addresses to bind to (never mobile data) and
+         hold a Wi-Fi lock while files are being shared. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- The Open with sheet lists every app that can VIEW a file. Not needed at targetSdk 28, but
          declared so the list keeps working if targetSdk is raised past 29 (package visibility). -->
@@ -327,6 +332,12 @@
         <!-- Video conversion (bundled ffmpeg), same lifecycle. -->
         <service
             android:name="com.the412banner.bfe.video.ConvertService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- "Access from network": the local Wi-Fi HTTP / FTP file server, same lifecycle shape. -->
+        <service
+            android:name="com.the412banner.bfe.server.ServerService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 

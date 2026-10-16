@@ -63,8 +63,9 @@ import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.ui.screens.home.HomePrefs
 import com.the412banner.bfe.ui.screens.home.HomeScreen
 import com.the412banner.bfe.ui.screens.home.RemotePlaceholder
-import com.the412banner.bfe.ui.screens.home.ServerPlaceholder
+import com.the412banner.bfe.ui.screens.server.ServerScreen
 import com.the412banner.bfe.ui.update.UpdateHost
+import com.the412banner.bfe.server.ServerService
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.ui.theme.BfeTheme
@@ -92,6 +93,8 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             UpdateManager.checkOnLaunch(this)
             openPathRequest.value = folderRequestFrom(intent)
+            // "Access from network": start the servers the user chose to start with BFE (no-op otherwise).
+            ServerService.startOnLaunch(this)
         }
         setContent {
             BfeTheme {
@@ -192,7 +195,7 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
                                     AppRoute.APPS -> AppsScreen(onBack = goHome, onBrowseData = { openFiles(it) })
                                     AppRoute.CLOUD -> CloudPlaceholder(onBack = goHome)
                                     AppRoute.REMOTE -> RemotePlaceholder(onBack = goHome)
-                                    AppRoute.SERVER -> ServerPlaceholder(onBack = goHome)
+                                    AppRoute.SERVER -> ServerScreen(onBack = goHome)
                                     AppRoute.FILES -> Unit
                                 }
                             }

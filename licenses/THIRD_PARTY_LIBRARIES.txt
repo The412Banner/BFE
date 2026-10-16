@@ -26,5 +26,62 @@ apksig 8.8.0 (APK signing and verification)
   https://android.googlesource.com/platform/tools/apksig — Apache License 2.0
 Bouncy Castle bcpkix / bcprov 1.78.1 (signing certificates)
   https://www.bouncycastle.org — Bouncy Castle Licence (MIT style)
+NanoHTTPD 2.3.1 (Access from network: web-browser file server)
+  https://github.com/NanoHttpd/nanohttpd — BSD 3-Clause License (see NOTICE_NANOHTTPD.txt)
+Apache FtpServer 1.2.1 + Apache MINA 2.2.4 (Access from network: FTP server)
+  https://mina.apache.org/ftpserver-project/ — Apache License 2.0 (see NOTICE_APACHE_FTPSERVER.txt)
+SLF4J API + slf4j-android 1.7.36 (FtpServer logging to logcat)
+  https://www.slf4j.org — MIT License (text below)
+QR Code generator library 1.8.0 by Project Nayuki (the address QR code)
+  https://www.nayuki.io/page/qr-code-generator-library — MIT License (text below)
+Material icons used by the web page and notification (Apache License 2.0)
+  https://github.com/google/material-design-icons
 
 Apache License 2.0 text: https://www.apache.org/licenses/LICENSE-2.0
+
+
+SLF4J — MIT License
+-------------------
+Copyright (c) 2004-2022 QOS.ch Sarl (Switzerland)
+All rights reserved.
+
+Permission is hereby granted, free  of charge, to any person obtaining
+a  copy  of this  software  and  associated  documentation files  (the
+"Software"), to  deal in  the Software without  restriction, including
+without limitation  the rights to  use, copy, modify,  merge, publish,
+distribute,  sublicense, and/or sell  copies of  the Software,  and to
+permit persons to whom the Software  is furnished to do so, subject to
+the following conditions:
+
+The  above  copyright  notice  and  this permission  notice  shall  be
+included in all copies or substantial portions of the Software.
+
+THE  SOFTWARE IS  PROVIDED  "AS  IS", WITHOUT  WARRANTY  OF ANY  KIND,
+EXPRESS OR  IMPLIED, INCLUDING  BUT NOT LIMITED  TO THE  WARRANTIES OF
+MERCHANTABILITY,    FITNESS    FOR    A   PARTICULAR    PURPOSE    AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE,  ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+QR Code generator library (Java) — MIT License
+----------------------------------------------
+Copyright (c) Project Nayuki. (MIT License)
+https://www.nayuki.io/page/qr-code-generator-library
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+- The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+- The Software is provided "as is", without warranty of any kind, express or
+  implied, including but not limited to the warranties of merchantability,
+  fitness for a particular purpose and noninfringement. In no event shall the
+  authors or copyright holders be liable for any claim, damages or other
+  liability, whether in an action of contract, tort or otherwise, arising from,
+  out of or in connection with the Software or the use or other dealings in the
+  Software.
