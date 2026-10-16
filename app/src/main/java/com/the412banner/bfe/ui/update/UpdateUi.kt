@@ -29,6 +29,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.the412banner.bfe.BuildConfig
 import com.the412banner.bfe.core.StringUtils
+import com.the412banner.bfe.ui.components.BRAND_NAME
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.DownloadState
@@ -57,7 +58,7 @@ fun UpdateHost() {
         OutlinedAlertDialog(
             onDismissRequest = { UpdateManager.later() },
             icon = { Icon(Icons.Filled.SystemUpdate, null) },
-            title = { Text("BFE ${info.versionName} is available") },
+            title = { Text("$BRAND_NAME ${info.versionName} is available") },
             text = {
                 Column {
                     Text(
@@ -107,7 +108,7 @@ fun UpdateHost() {
             OutlinedAlertDialog(
                 onDismissRequest = {},
                 properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-                title = { Text("Downloading BFE ${info.versionName}") },
+                title = { Text("Downloading $BRAND_NAME ${info.versionName}") },
                 text = {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         if (d is DownloadState.Downloading && d.total > 0) {
@@ -141,7 +142,7 @@ fun UpdateHost() {
             title = { Text("Allow BFE to install updates") },
             text = {
                 Text(
-                    "BFE ${d.info.versionName} is downloaded and verified. Android needs your OK before " +
+                    "$BRAND_NAME ${d.info.versionName} is downloaded and verified. Android needs your OK before " +
                         "BFE can install it: turn on “Allow from this source”, then come back here.",
                 )
             },

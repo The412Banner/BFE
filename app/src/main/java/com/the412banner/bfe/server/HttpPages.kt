@@ -114,7 +114,7 @@ internal object HttpPages {
         sb.append("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">")
             .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
             .append("<meta name=\"color-scheme\" content=\"light dark\"><meta name=\"referrer\" content=\"no-referrer\">")
-            .append("<title>").append(esc(title)).append(" · BFE</title>")
+            .append("<title>").append(esc(title)).append(" · Banners File Explorer</title>")
             .append("<link rel=\"icon\" href=\"data:,\">")
             .append("<link rel=\"stylesheet\" href=\"").append(ASSET_PREFIX).append("app.css?v=").append(assetVersion).append("\">")
             .append("<script>document.documentElement.className='js'</script>")
@@ -194,7 +194,7 @@ internal object HttpPages {
             append(" · ").append(files).append(if (files == 1) " file" else " files")
             if (files > 0) append(" · ").append(formatSize(total))
         }
-        sb.append("<footer class=\"foot\"><span id=\"summary\">").append(summary).append("</span><span>Shared from BFE</span></footer>\n")
+        sb.append("<footer class=\"foot\"><span id=\"summary\">").append(summary).append("</span><span>Shared from Banners File Explorer</span></footer>\n")
             .append("<input type=\"file\" id=\"pick\" multiple hidden><input type=\"file\" id=\"pick-dir\" webkitdirectory multiple hidden>")
             .append("<div id=\"selbar\" class=\"selbar\" hidden></div><section id=\"uploads\" class=\"uploads\" hidden></section>")
             .append("<div id=\"drop\" class=\"drop\" hidden><div>Drop to upload to <b>").append(esc(title)).append("</b></div></div>")
@@ -223,7 +223,7 @@ internal object HttpPages {
     fun message(title: String, body: String, assetVersion: String): String =
         "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">" +
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><meta name=\"color-scheme\" content=\"light dark\">" +
-            "<title>" + esc(title) + " · BFE</title><link rel=\"icon\" href=\"data:,\">" +
+            "<title>" + esc(title) + " · Banners File Explorer</title><link rel=\"icon\" href=\"data:,\">" +
             "<link rel=\"stylesheet\" href=\"" + ASSET_PREFIX + "app.css?v=" + assetVersion + "\"></head>" +
             "<body class=\"msg\"><main class=\"msgbox\"><h1>" + esc(title) + "</h1><p>" + esc(body) + "</p>" +
             "<p><a class=\"btn\" href=\"/\">Back to shared folders</a></p></main></body></html>\n"

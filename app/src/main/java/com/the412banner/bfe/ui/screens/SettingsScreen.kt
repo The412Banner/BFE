@@ -66,6 +66,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.BuildConfig
+import com.the412banner.bfe.ui.components.BRAND_NAME
 import com.the412banner.bfe.ui.screens.home.HomePrefs
 import com.the412banner.bfe.ui.screens.server.ServerScreen
 import com.the412banner.bfe.ui.theme.ThemeSettings
@@ -81,7 +82,7 @@ import java.util.Date
 private data class LicenseDoc(val title: String, val subtitle: String, val asset: String)
 
 private val LICENSE_DOCS = listOf(
-    LicenseDoc("BFE", "GNU General Public License v3.0", "LICENSE_BFE_GPL-3.0.txt"),
+    LicenseDoc(BRAND_NAME, "GNU General Public License v3.0", "LICENSE_BFE_GPL-3.0.txt"),
     LicenseDoc("7-Zip", "GNU LGPL v2.1+ with unRAR restriction", "NOTICE_7ZIP.txt"),
     LicenseDoc("7-Zip license", "Full license text", "License_7zip.txt"),
     LicenseDoc("innoextract", "zlib License, with Boost / liblzma / libiconv", "NOTICE_INNOEXTRACT.txt"),
@@ -190,7 +191,7 @@ private fun MainSettings(
         val status = when (val c = check) {
             CheckState.Checking -> "Checking…"
             is CheckState.UpToDate -> "You're up to date."
-            is CheckState.Available -> "BFE ${c.info.versionName} is available."
+            is CheckState.Available -> "$BRAND_NAME ${c.info.versionName} is available."
             CheckState.Failed -> "Couldn't reach GitHub. Check your connection."
             CheckState.Idle -> if (last > 0) "Last checked ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(last))}." else "Not checked yet."
         }
@@ -283,7 +284,7 @@ private fun MainSettings(
         SectionHeader("About")
         SettingRow(
             icon = Icons.Filled.Description,
-            title = "BFE ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            title = "$BRAND_NAME ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             subtitle = "A file manager and archive tool for Android. Free software under the GPL-3.0.",
         )
         SettingRow(

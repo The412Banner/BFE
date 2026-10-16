@@ -92,6 +92,8 @@ import com.the412banner.bfe.BuildConfig
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.storage.RootAccess
 import com.the412banner.bfe.storage.RootBackend
+import com.the412banner.bfe.ui.components.BRAND_NAME
+import com.the412banner.bfe.ui.components.BrandWordmark
 import com.the412banner.bfe.ui.screens.MenuItemDivider
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.ui.screens.categories.CountSize
@@ -239,7 +241,7 @@ fun HomeScreen(
 
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-            val columns = if (landscape) (maxWidth / 120.dp).toInt().coerceIn(5, 10)
+            val columns = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12)
             else (maxWidth / 96.dp).toInt().coerceIn(4, 6)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
@@ -273,7 +275,7 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onOpenSettings: () -> Unit, onRe
     LaunchedEffect(check, checkAsked) {
         if (!checkAsked) return@LaunchedEffect
         when (check) {
-            is UpdateManager.CheckState.UpToDate -> { checkAsked = false; AppSnackbar.show(context, "BFE ${BuildConfig.VERSION_NAME} is the latest version") }
+            is UpdateManager.CheckState.UpToDate -> { checkAsked = false; AppSnackbar.show(context, "$BRAND_NAME ${BuildConfig.VERSION_NAME} is the latest version") }
             UpdateManager.CheckState.Failed -> { checkAsked = false; AppSnackbar.show(context, "Couldn't reach GitHub. Check your connection.") }
             is UpdateManager.CheckState.Available -> checkAsked = false
             else -> Unit
@@ -281,7 +283,7 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onOpenSettings: () -> Unit, onRe
     }
 
     TopAppBar(
-        title = { Text("BFE", fontWeight = FontWeight.SemiBold) },
+        title = { BrandWordmark() },
         actions = {
             IconButton(onClick = onOpenFiles) {
                 Icon(Icons.Filled.FolderOpen, "Browse files", tint = MaterialTheme.colorScheme.primary)
@@ -322,7 +324,7 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onOpenSettings: () -> Unit, onRe
         OutlinedAlertDialog(
             onDismissRequest = { showAbout = false },
             icon = { Icon(Icons.Filled.Info, null) },
-            title = { Text("BFE ${BuildConfig.VERSION_NAME}") },
+            title = { Text("$BRAND_NAME ${BuildConfig.VERSION_NAME}") },
             text = {
                 Text(
                     "A file manager and archive tool for Android. Free software under the GPL-3.0.\n\n" +
@@ -346,22 +348,22 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onOpenSettings: () -> Unit, onRe
 @Composable
 private fun HomeTileCard(tile: HomeTile) {
     Card(
-        modifier = Modifier.fillMaxWidth().height(134.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = tile.onClick),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().height(107.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = tile.onClick),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 8.dp),
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(44.dp).clip(CircleShape).background(tile.style.color.copy(alpha = 0.16f)),
+                modifier = Modifier.size(36.dp).clip(CircleShape).background(tile.style.color.copy(alpha = 0.16f)),
             ) {
-                Icon(tile.style.icon, null, tint = tile.style.color, modifier = Modifier.size(24.dp))
+                Icon(tile.style.icon, null, tint = tile.style.color, modifier = Modifier.size(20.dp))
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 tile.label,
                 color = MaterialTheme.colorScheme.onSurface,

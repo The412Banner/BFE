@@ -1,6 +1,6 @@
-# BFE
+# Banners File Explorer (BFE)
 
-**BFE** is a standalone, **sideload-only** Android file manager and explorer built around a set of
+**Banners File Explorer** (BFE for short) is a standalone, **sideload-only** Android file manager and explorer built around a set of
 bundled native engines. In one app: a dual-pane "commander" layout; **extraction** of archives, disc
 images, GOG/InnoSetup installers and FreeArc repacks; **compression** to zip/7z/tar/tzst and Winlator
 `.wcp` packs; **browsing storage normal file managers can't reach** — other apps' SAF document
