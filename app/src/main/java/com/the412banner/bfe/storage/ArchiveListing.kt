@@ -339,7 +339,10 @@ sealed class SltOutcome {
                 if ("cannot open the file as" in err || "is not archive" in err) return NotArchive("Not an archive 7-Zip can open")
                 return Failed(lastMessage(stderr) ?: listing.headerMessages.lastOrNull() ?: "7-Zip couldn't list it (exit $exitCode)")
             }
-            val warn = (listing.headerMessages + listOfNotNull(if (exitCode != 0) lastMessage(stderr) else null))
+            // Only a failing exit is worth a warning (a damaged tail); informational header notes on a
+            // clean listing (data after the end of an APK's zip, …) stay quiet.
+            if (exitCode == 0) return Ok(null)
+            val warn = (listing.headerMessages + listOfNotNull(lastMessage(stderr)))
                 .distinct().joinToString("; ").ifEmpty { null }
             return Ok(warn)
         }

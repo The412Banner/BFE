@@ -152,7 +152,8 @@ object ArchiveIndexCache {
      */
     suspend fun load(context: Context, archive: File, stage: Stage = Stage { _, _ -> }): ArchiveIndex {
         peek(archive)?.let { return it }
-        return loadLock.withLock { peek(archive) ?: build(context, archive, stage).also(::put) }
+        // Built on IO: the tree of a 100k-entry archive takes ~50-100 ms, too long for the main thread.
+        return loadLock.withLock { peek(archive) ?: withContext(Dispatchers.IO) { build(context, archive, stage) }.also(::put) }
     }
 
     /** Blocking [load] for the plain [StorageBackend] calls; run it off the main thread. */
@@ -278,7 +279,7 @@ object ArchiveExtract {
      * Folder names extract their whole subtree. Suspends until done; cancelling kills 7zz.
      * @throws ArchiveException.PasswordNeeded when the password is missing or wrong.
      */
-    suspend fun run(context: Context, archive: File, names: List<String>?, outDir: File, password: String, onPercent: (Int) -> Unit) {
+    suspend fun run(context: Context, archive: File, names: List<String>?, outDir: File, password: String, onPercent: (Int) -> Unit) = withContext(Dispatchers.IO) {
         outDir.mkdirs()
         val args = mutableListOf("x", "-o${outDir.absolutePath}", "-y", "-p$password", "-spd", "-sccUTF-8", "-scsUTF-8", "-bsp1")
         var listFile: File? = null
@@ -313,6 +314,7 @@ object ArchiveExtract {
         val text = synchronized(err) { err.toString() }
         if (text.contains("wrong password", ignoreCase = true)) throw ArchiveException.PasswordNeeded(wrong = password.isNotEmpty())
         if (exit >= 2) throw ArchiveException.Failed(SltOutcome.lastMessage(text) ?: "7-Zip stopped with exit code $exit")
+        Unit
     }
 
     /** Where [e] landed under [outDir] after [run] + [normaliseLayout]. */
@@ -349,7 +351,7 @@ object ArchiveExtract {
      * an earlier copy of the same size. This is what a tap on a file inside an archive opens, shares or
      * (for a nested archive) browses.
      */
-    suspend fun toViewCache(context: Context, index: ArchiveIndex, entries: List<ArchiveEntry>, password: String, onPercent: (Int) -> Unit): List<File> {
+    suspend fun toViewCache(context: Context, index: ArchiveIndex, entries: List<ArchiveEntry>, password: String, onPercent: (Int) -> Unit): List<File> = withContext(Dispatchers.IO) {
         ArchiveCache.trimViews(context)
         val viewDir = ArchiveCache.viewDir(context, index.source).apply { mkdirs(); setLastModified(System.currentTimeMillis()) }
         val result = arrayOfNulls<File>(entries.size)
@@ -377,7 +379,7 @@ object ArchiveExtract {
                 tmp.deleteRecursively()
             }
         }
-        return result.map { it!! }
+        result.map { it!! }
     }
 
     /** One entry to extract into a destination folder, under [targetName]; [replace] = overwrite/merge. */
@@ -398,8 +400,8 @@ object ArchiveExtract {
         dest: Loc,
         password: String,
         onStage: (String, Float?) -> Unit,
-    ): Int {
-        if (items.isEmpty()) return 0
+    ): Int = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) return@withContext 0
         val tree = index.tree
         val entries = items.map { it.entry }
         val need = entries.sumOf { tree.sizeOf(it) }
@@ -416,27 +418,25 @@ object ArchiveExtract {
         var failed = 0
         try {
             run(context, index.backing, tree.extractNames(entries), stage, password) { onStage(label, it / 100f) }
-            if (direct) return 0
+            if (direct) return@withContext 0
             normaliseLayout(stage, subtree(tree, entries))
             for (p in items) {
                 val got = produced(stage, p.entry)
                 if (got == null) { failed++; continue }
-                val ok = withContext(Dispatchers.IO) {
-                    if (destFile != null) {
-                        val target = File(destFile, p.targetName)
-                        if (p.replace && target.isFile && got.isFile) target.delete()
-                        FileUtils.moveWithProgress(got, target, null)
-                    } else {
-                        onStage("Copying ${p.targetName} into ${dest.name}…", null)
-                        StorageTransfer.copyInto(context, Loc.FileLoc(got), dest, p.targetName)
-                    }
+                val ok = if (destFile != null) {
+                    val target = File(destFile, p.targetName)
+                    if (p.replace && target.isFile && got.isFile) target.delete()
+                    FileUtils.moveWithProgress(got, target, null)
+                } else {
+                    onStage("Copying ${p.targetName} into ${dest.name}…", null)
+                    StorageTransfer.copyInto(context, Loc.FileLoc(got), dest, p.targetName)
                 }
                 if (!ok) failed++
             }
         } finally {
-            if (!direct) withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { stage.deleteRecursively() }
+            if (!direct) withContext(kotlinx.coroutines.NonCancellable) { stage.deleteRecursively() }
         }
-        return failed
+        failed
     }
 }
 

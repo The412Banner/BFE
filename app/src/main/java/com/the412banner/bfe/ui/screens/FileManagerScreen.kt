@@ -2112,7 +2112,9 @@ fun BrowserPane(
         }
         val base = File(info.sourceDir)
         val splits = info.splitSourceDirs?.map { File(it) }?.filter { it.isFile } ?: emptyList()
-        openApkEditor(base, splits, com.the412banner.bfe.apk.ApkJobKind.CLONE, currentLoc, null)
+        // An archive pane is read-only: the clone lands in the folder the archive sits in.
+        val dest = if (currentLoc is Loc.ArchiveLoc) Loc.FileLoc(File(paneState.path)) else currentLoc
+        openApkEditor(base, splits, com.the412banner.bfe.apk.ApkJobKind.CLONE, dest, null)
     }
 
     fun openSign(loc: Loc) {
@@ -2759,7 +2761,7 @@ fun BrowserPane(
                         ) { Text("Move →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
                     }
                     OutlinedButton(
-                        enabled = selectedIds.any { p -> entries.any { it.id == p && !it.isDir } },
+                        enabled = entries.any { !it.isDir && it.id in selectedIds },
                         onClick = {
                             shareFiles(entries.filter { it.id in selectedIds })
                         },
