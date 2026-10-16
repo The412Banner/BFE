@@ -217,7 +217,8 @@ jobs:
         set -euo pipefail
         while read -r p; do [ -n "$p" ] && patch -p1 < "$GITHUB_WORKSPACE/native/patches/unace/$p"; done \
           < "$GITHUB_WORKSPACE/native/patches/unace/series"
-        "$CC" -O2 -Wall -DUNIX -DCASEINSENSE -DLO_HI_BYTE_ORDER -static -o unace \
+        # bionic has no legacy S_IREAD/S_IWRITE; they are the owner read/write bits.
+        "$CC" -O2 -Wall -DUNIX -DCASEINSENSE -DLO_HI_BYTE_ORDER -DS_IREAD=S_IRUSR -DS_IWRITE=S_IWUSR -static -o unace \
           globals.c uac_comm.c uac_crc.c uac_crt.c uac_dcpr.c uac_sys.c unace.c
         install -m 755 unace "$DIST/libunace.so"
 
