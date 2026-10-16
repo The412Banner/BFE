@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.unpack.Innoextract
 import com.the412banner.bfe.unpack.PowerMode
@@ -92,6 +93,9 @@ fun UnpackArchiveScreen(
     // Optional starting extract destination (BFE dual-pane: the other pane's directory). When set,
     // "Extract to" seeds a subfolder inside it instead of a sibling of the archive; still overridable.
     initialDestPath: String? = null,
+    // One-tap "Extract to ./<Archive name>/" from another app's Open with sheet: once the pre-flight
+    // settles, press the primary action automatically (same engine, same default folder) — once only.
+    autoStart: Boolean = false,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -208,6 +212,43 @@ fun UnpackArchiveScreen(
     // The 7-Zip extract path is for plain (non-Inno) archives only, once the sniff confirms it opens.
     val sevenZipAllowed = !isInno && !typeLoading && detectedType != null && !isProgram
     val engineMissingInno = innoExtract && !Innoextract.isAvailable(context)
+
+    // The primary action per route — shared by the buttons below and by [autoStart].
+    val canUnarc = innoFreeArc && !gatedByPermission && jobArchive.isFile && !otherJobRunning
+    val startUnarc = {
+        UnpackManager.clearIfTerminal()
+        UnpackService.start(context, jobArchive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize, "unarc")
+    }
+    val canInno = innoExtract && !engineMissingInno && !gatedByPermission && archive.isFile && !otherJobRunning
+    val startInno = {
+        UnpackManager.clearIfTerminal()
+        // isInno=true selects the innoextract engine in the service.
+        if (alsoExtractDlc && dlcInstallers.size > 1) {
+            UnpackService.startBatch(context, dlcInstallers.map { it.absolutePath }, destPath, sourceSize)
+        } else {
+            UnpackService.start(context, archive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize)
+        }
+    }
+    val canSevenZip = sevenZipAllowed && !gatedByPermission && !engineMissing && archive.isFile && !otherJobRunning
+    val startSevenZip = {
+        UnpackManager.clearIfTerminal()
+        val mmt = UnpackManager.mmtFor(powerMode, manualCores)
+        UnpackService.start(context, archive.absolutePath, destPath, mmt, buffer.bytes, false, sourceSize)
+    }
+
+    // typeLoading flips false only after the whole pre-flight (incl. the DLC scan). Fires at most once:
+    // if nothing can start (not an archive, container-only repack, All-Files access missing, another job
+    // running) the screen simply stays put and already explains why.
+    var autoStarted by rememberSaveable(archivePath) { mutableStateOf(false) }
+    LaunchedEffect(autoStart, typeLoading) {
+        if (!autoStart || autoStarted || typeLoading || running) return@LaunchedEffect
+        autoStarted = true
+        when {
+            canUnarc -> startUnarc()
+            canInno -> startInno()
+            canSevenZip -> startSevenZip()
+        }
+    }
 
     // Battery-optimisation exemption, refreshed on resume so returning from Settings re-checks it.
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -527,11 +568,8 @@ fun UnpackArchiveScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Button(
-                    onClick = {
-                        UnpackManager.clearIfTerminal()
-                        UnpackService.start(context, jobArchive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize, "unarc")
-                    },
-                    enabled = !gatedByPermission && jobArchive.isFile && !otherJobRunning,
+                    onClick = startUnarc,
+                    enabled = canUnarc,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(20.dp))
@@ -586,16 +624,8 @@ fun UnpackArchiveScreen(
                         }
                     }
                     Button(
-                        onClick = {
-                            UnpackManager.clearIfTerminal()
-                            // isInno=true selects the innoextract engine in the service.
-                            if (batchDlc) {
-                                UnpackService.startBatch(context, dlcInstallers.map { it.absolutePath }, destPath, sourceSize)
-                            } else {
-                                UnpackService.start(context, archive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize)
-                            }
-                        },
-                        enabled = !gatedByPermission && archive.isFile && !otherJobRunning,
+                        onClick = startInno,
+                        enabled = canInno,
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                     ) {
                         Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(20.dp))
@@ -611,12 +641,8 @@ fun UnpackArchiveScreen(
             // ── Extract button (plain, non-Inno archives) ──
             if (!running && sevenZipAllowed) {
                 Button(
-                    onClick = {
-                        UnpackManager.clearIfTerminal()
-                        val mmt = UnpackManager.mmtFor(powerMode, manualCores)
-                        UnpackService.start(context, archive.absolutePath, destPath, mmt, buffer.bytes, false, sourceSize)
-                    },
-                    enabled = !gatedByPermission && !engineMissing && archive.isFile && !otherJobRunning,
+                    onClick = startSevenZip,
+                    enabled = canSevenZip,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(20.dp))

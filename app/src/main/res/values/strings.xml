@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BFE</string>
+    <!-- Second entry in other apps' Open with sheet: one-tap extract into a folder named after the archive. -->
+    <string name="quick_extract_label">Extract to ./&lt;Archive name&gt;/</string>
 </resources>
