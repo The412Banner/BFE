@@ -213,6 +213,7 @@ internal fun HomeTileFrame(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     dashed: Boolean = false,
+    wide: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
@@ -228,9 +229,9 @@ internal fun HomeTileFrame(
         border = BorderStroke(1.dp, if (dashed) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline),
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = if (dashed) Arrangement.Center else Arrangement.Top,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 8.dp),
+            horizontalAlignment = if (wide) Alignment.Start else Alignment.CenterHorizontally,
+            verticalArrangement = if (dashed || wide) Arrangement.Center else Arrangement.Top,
+            modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 12.dp else 4.dp, vertical = 8.dp),
         ) { content() }
     }
 }

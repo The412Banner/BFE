@@ -248,8 +248,11 @@ fun HomeScreen(
 
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-            val columns = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12)
-            else (maxWidth / 76.dp).toInt().coerceIn(5, 7)
+            // Cells are sized for the small app-storage tiles; dashboard tiles take two cells, so the
+            // count stays even (no half-empty rows).
+            val cells = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12)
+            else (maxWidth / 76.dp).toInt().coerceIn(4, 8)
+            val columns = cells - cells % 2
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 contentPadding = PaddingValues(12.dp),
@@ -257,7 +260,7 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(tiles, key = { it.key }) { tile -> HomeTileCard(tile) }
+                items(tiles, key = { it.key }, span = { GridItemSpan(2) }) { tile -> HomeTileCard(tile) }
 
                 // Other apps' storage pinned to Home, then a ＋ tile to add another.
                 item(key = "appstorage-header", span = { GridItemSpan(maxLineSpan) }) {
@@ -375,24 +378,45 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onAddAppStorage: () -> Unit, onO
 /** A rounded tile: icon in a tinted circle, label, a two-line stats line and (storage) a usage bar. */
 @Composable
 private fun HomeTileCard(tile: HomeTile) {
-    HomeTileFrame(onClick = tile.onClick, onLongClick = null) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(32.dp).clip(CircleShape).background(tile.style.color.copy(alpha = 0.16f)),
-        ) {
-            Icon(tile.style.icon, null, tint = tile.style.color, modifier = Modifier.size(18.dp))
+    HomeTileFrame(onClick = tile.onClick, onLongClick = null, wide = true) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(44.dp).clip(CircleShape).background(tile.style.color.copy(alpha = 0.16f)),
+            ) {
+                Icon(tile.style.icon, null, tint = tile.style.color, modifier = Modifier.size(24.dp))
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    tile.label,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    // One line where it fits: "2.22 GB · 5,342 files".
+                    tile.stats?.replace("
+", " · ") ?: "…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Spacer(Modifier.height(4.dp))
-        HomeTileLabel(tile.label)
-        Spacer(Modifier.height(2.dp))
-        HomeTileStats(tile.stats ?: "…")
         tile.fraction?.let { f ->
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(10.dp))
             LinearProgressIndicator(
                 progress = { f },
                 color = tile.style.color,
                 trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                modifier = Modifier.fillMaxWidth(0.8f).height(3.dp).clip(RoundedCornerShape(2.dp)),
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
             )
         }
     }
