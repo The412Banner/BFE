@@ -43,6 +43,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.the412banner.bfe.ui.theme.BfeTheme
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import com.the412banner.bfe.ui.theme.LocalGlass
+import com.the412banner.bfe.ui.theme.grainBrush
+import com.the412banner.bfe.ui.theme.isAurora
+import com.the412banner.bfe.ui.theme.rimBrush
 
 /** Shapes of the media screens' frosted-glass panels. */
 internal object Glass {
@@ -55,9 +61,26 @@ internal object Glass {
  * Aurora-glass panel over a photo or video: a translucent dark surface with a 1 dp light hairline
  * and rounded corners, all from the theme's colour roles. [strong] is the denser fill for panels that
  * carry a lot of text (the effects sheet, details).
+ *
+ * In the Aurora Glass look the same panel takes the app's glass recipe: the palette's dark ground at
+ * the same densities (legible over any picture), a top sheen, the grain and a rim whose top edge
+ * catches the light. Nothing is blurred here, so photos and video are never re-drawn.
  */
 @Composable
 internal fun Modifier.glass(shape: Shape = Glass.Panel, strong: Boolean = false): Modifier {
+    if (isAurora) {
+        val g = LocalGlass.current
+        val fill = g.palette.base.copy(alpha = if (strong) 0.86f else 0.56f)
+        val rim = g.rimBrush(Color.White.copy(alpha = 0.16f))
+        return this
+            .clip(shape)
+            .drawBehind {
+                drawRect(fill)
+                drawRect(Brush.verticalGradient(0f to Color.White.copy(alpha = 0.06f), 0.5f to Color.Transparent))
+                drawRect(grainBrush, alpha = g.noiseAlpha)
+            }
+            .border(1.dp, rim, shape)
+    }
     val cs = MaterialTheme.colorScheme
     return this
         .clip(shape)

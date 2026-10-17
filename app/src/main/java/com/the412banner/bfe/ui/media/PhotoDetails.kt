@@ -43,6 +43,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import com.the412banner.bfe.ui.theme.LocalGlass
+import com.the412banner.bfe.ui.theme.WindowBlurBehind
+import com.the412banner.bfe.ui.theme.isAurora
+import com.the412banner.bfe.ui.theme.rememberWindowBlurAvailable
+import com.the412banner.bfe.ui.theme.rimBrush
 
 /** Name, folder, size, resolution, dates, camera and exposure for one photo, in a glass sheet. */
 @Composable
@@ -52,13 +59,23 @@ internal fun PhotoDetailsSheet(item: MediaRef, onDismiss: () -> Unit) {
         value = withContext(Dispatchers.IO) { runCatching { photoDetails(context, item) }.getOrDefault(emptyList()) }
     }
     val shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    // Aurora Glass: the palette's dark glass with the rim hairline; the system blurs the photo behind
+    // the sheet on Android 12+ (and the fill stays dense when it can't).
+    val aurora = isAurora
+    val g = LocalGlass.current
+    val blur = rememberWindowBlurAvailable()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = shape,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.94f),
-        modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f), shape),
+        containerColor = if (aurora) g.palette.base.copy(alpha = if (blur) 0.82f else 0.94f) else MaterialTheme.colorScheme.surfaceContainerLowest.copy(alpha = 0.94f),
+        modifier = Modifier.border(
+            1.dp,
+            if (aurora) g.rimBrush(Color.White.copy(alpha = 0.16f)) else SolidColor(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f)),
+            shape,
+        ),
     ) {
+        if (aurora) WindowBlurBehind(enabled = blur, radius = 24.dp, dimAmount = 0f)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
