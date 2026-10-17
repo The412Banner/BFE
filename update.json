@@ -1,11 +1,11 @@
 {
-  "versionCode": 14,
-  "versionName": "1.1.0",
-  "notes": "BFE is now Banners File Explorer — a big update.\n\nNew look: Aurora Glass (frosted glass, calm neutral colours, smooth animations) with palettes in Settings, and the previous design kept as \"Classic\" (Settings → Look). New app icon (squircle) with more icons to choose from in Settings → App icon, and BFE's own folder and file icons throughout.\n\nHome screen: storage, Downloads, Images, Audio, Videos, Documents, Apps (backup / share / clone), New files, Cloud, Remote and Access from network — plus your own App storage tiles (tap + to add another app's storage).\n\nBuilt-in players: a photo viewer (swipe, zoom, slideshow) and a VLC-powered video and music player that plays almost any format, with picture, effects, equalizer and subtitle controls, gestures, resume and picture-in-picture. Also a built-in HTML viewer.\n\nArchives: browse inside archives like folders; one-tap \"Extract to ./<Archive name>/\" from any app's Open with list, running in the background with Pause / Cancel and a queue in the notification; new formats lzip, lzop, LZ4, ECM, ALZ, EGG, ACE, Amiga LZX and OTA payload.bin.\n\nCloud & network: Google Drive, OneDrive, Dropbox, MEGA, S3, SFTP, SMB, WebDAV and more (engine downloads on first use), and a Wi-Fi file server (web + FTP) so other devices can reach your files.\n\nAlso: video thumbnails, folders A→Z then newest files first, dates with times, outlined menus, lists refresh in place when you come back, and many fixes.\n\nNote: if the home-screen shortcut disappears after updating, add Banners File Explorer again from the app drawer (the launcher icon changed).",
-  "apkName": "BFE-1.1.0.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.1.0/BFE-1.1.0.apk",
-  "sha256": "613fe86f3f4d72593024a5fbb5f798cddd63cfc75baafacaaaffc4b3ce04275d",
-  "size": 53068132,
+  "versionCode": 15,
+  "versionName": "1.1.1",
+  "notes": "## What's new\n- **Document viewer** — PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), OpenDocument (.odt / .ods / .odp), EPUB, Markdown, RTF, CSV and text files open right inside BFE, offline\n- **Tap opens files in BFE** — photos, videos, music, documents, web pages, archives and APKs open in BFE's own viewers, player, archive browser or installer; anything else shows the Open with list, which stays in every file's ⋮ menu\n- **Hardware-encrypted sign-ins** — cloud and remote logins, the network server password and your APK signing-key passwords are now locked with your phone's security chip (StrongBox or TEE); existing ones are converted automatically\n- **New Home tiles** — four across, with the name on top, the icon under it and the details below, sized to fit any screen and font size\n\n## Improved\n- **Dual pane** — list and compact views only, so full file names fit; both panes always use the same view\n- **Google Drive sign-in** fixed\n- BFE is now signed with its own release key; it still installs over 1.1.0 as usual",
+  "apkName": "BFE-1.1.1.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.1.1/BFE-1.1.1.apk",
+  "sha256": "bf6838a4033a998cde809ae0950f06dfa47befed42cbe91fad575ca53323b1f8",
+  "size": 53356340,
   "publishedAt": "2026-10-17",
   "minSupported": 1
 }
