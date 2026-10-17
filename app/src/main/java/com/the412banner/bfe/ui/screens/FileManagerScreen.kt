@@ -3421,6 +3421,7 @@ private fun FileItemRow(
     val modified = file.lastModified
     val dateLabel = if (modified > 0) DateText.dateTime(context, modified) else ""
     val dateOnlyLabel = if (modified > 0) DateText.date(context, modified) else ""
+    val timeLabel = if (modified > 0) DateText.time(context, modified) else ""
     // Folders show how many entries they hold. Counted lazily for the rows actually composed, off the
     // main thread and cached by path + mtime (see ChildCount); blank until ready, date-only when the
     // folder can't be read.
@@ -3617,25 +3618,31 @@ private fun FileItemRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // Detail line: item count (folders) or size (files) on the left, date on the right.
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                // Detail line: item count (folders) or size (files).
+                Text(
+                    text = detailLabel,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // Date over time, right-aligned beside the name and detail lines.
+            if (dateOnlyLabel.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = detailLabel,
+                        text = dateOnlyLabel,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
                     )
-                    if (dateLabel.isNotEmpty()) {
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = dateLabel,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                        )
-                    }
+                    Text(
+                        text = timeLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                    )
                 }
             }
             if (showActions) Box {
