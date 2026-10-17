@@ -1,11 +1,11 @@
 {
-  "versionCode": 13,
-  "versionName": "1.0.1",
-  "notes": "BFE now shows up in other apps' \"Open with\" menus for every archive, disc image and installer it can extract — ISO, BIN, WCP, tar, gz, xz, bz2, zst, cab, dmg, deb, rpm, setup .exe and more. Files handed over from another app now open properly in the extractor; if that app hides where the file is stored, BFE copies it in first and removes the copy once it's extracted. Opening a plain program .exe now tells you there's nothing inside to unpack.",
-  "apkName": "BFE-1.0.1.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.0.1/BFE-1.0.1.apk",
-  "sha256": "1910d1ec38c4f3dc9a4e1b0411a67456b4d281c995d68df6a426085745144116",
-  "size": 27838286,
-  "publishedAt": "2026-10-16",
+  "versionCode": 14,
+  "versionName": "1.1.0",
+  "notes": "BFE is now Banners File Explorer — a big update.\n\nNew look: Aurora Glass (frosted glass, calm neutral colours, smooth animations) with palettes in Settings, and the previous design kept as \"Classic\" (Settings → Look). New app icon (squircle) with more icons to choose from in Settings → App icon, and BFE's own folder and file icons throughout.\n\nHome screen: storage, Downloads, Images, Audio, Videos, Documents, Apps (backup / share / clone), New files, Cloud, Remote and Access from network — plus your own App storage tiles (tap + to add another app's storage).\n\nBuilt-in players: a photo viewer (swipe, zoom, slideshow) and a VLC-powered video and music player that plays almost any format, with picture, effects, equalizer and subtitle controls, gestures, resume and picture-in-picture. Also a built-in HTML viewer.\n\nArchives: browse inside archives like folders; one-tap \"Extract to ./<Archive name>/\" from any app's Open with list, running in the background with Pause / Cancel and a queue in the notification; new formats lzip, lzop, LZ4, ECM, ALZ, EGG, ACE, Amiga LZX and OTA payload.bin.\n\nCloud & network: Google Drive, OneDrive, Dropbox, MEGA, S3, SFTP, SMB, WebDAV and more (engine downloads on first use), and a Wi-Fi file server (web + FTP) so other devices can reach your files.\n\nAlso: video thumbnails, folders A→Z then newest files first, dates with times, outlined menus, lists refresh in place when you come back, and many fixes.\n\nNote: if the home-screen shortcut disappears after updating, add Banners File Explorer again from the app drawer (the launcher icon changed).",
+  "apkName": "BFE-1.1.0.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.1.0/BFE-1.1.0.apk",
+  "sha256": "613fe86f3f4d72593024a5fbb5f798cddd63cfc75baafacaaaffc4b3ce04275d",
+  "size": 53068132,
+  "publishedAt": "2026-10-17",
   "minSupported": 1
 }
