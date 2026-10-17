@@ -52,7 +52,8 @@ both looks ship. **Not merged, not released, not device-run (CI-compiled only).*
   status bar.
 - **Home** (`HomeAurora.kt`): wordmark + storage summary + live "Sharing" chip; same tiles grouped
   Storage / Library / Connect / App storage / Favorites; tiles via the shared `HomeTileFrame` (glass
-  in Aurora, dashed accent rim for the + tile), 5 a row portrait; staggered entrance; pill: Home,
+  in Aurora, dashed accent rim for the + tile), Classic's grid (even cell count sized for the small
+  app-storage tiles, dashboard tiles 2 cells wide with the icon left / stats right / full usage bar); staggered entrance; pill: Home,
   Files, accent + (Add app storage), Settings, More (Open file manager, Refresh, Check for updates,
   About). First run: glass welcome card.
 - **File manager** (`FileManagerAurora.kt`): glass pane cards (active: brighter + accent rim + halo,
@@ -78,7 +79,10 @@ both looks ship. **Not merged, not released, not device-run (CI-compiled only).*
   sheet with blur behind on 12+; Classic keeps the viewer as merged.
 - **Proof:** CI green per stage — 1 foundation: run 38988770664 (`ff9889d`, pre-rebase); 2 Home:
   38989741389 (`5de92ab`); 3 file manager + Home app-storage carry-over: 38991064047 (`0d928da`);
-  4 overlays: 38991518372 (`c692107`); 5 screens + App icon + docs: RUN5. `@Preview`s: glass levels, backdrop, palette picker,
+  4 overlays: 38991518372 (`c692107`); 5 screens + App icon + docs: 38991976478 (`c9f4133`); after
+  the viewer / player merge + their chrome: 38992672863 (`91b7a3c`); rebased on `97af221` (two-cell
+  Home tiles): the branch head's run. (Each rebase rewrote the earlier shas; every listed run was on
+  the sha pushed at that time.) `@Preview`s: glass levels, backdrop, palette picker,
   pill + rail. Compose-1.6 APIs checked against the 1.6.1 / M3 1.2.0 sources jars. UI unverified on a
   device.
 
