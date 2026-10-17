@@ -138,6 +138,7 @@ import com.the412banner.bfe.media.CropMode
 import com.the412banner.bfe.media.GestureMath
 import com.the412banner.bfe.media.MediaPrefs
 import com.the412banner.bfe.media.MediaRef
+import com.the412banner.bfe.media.RenderMode
 import com.the412banner.bfe.media.VideoGeometry
 import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.screens.OpenWithSheet
@@ -277,6 +278,12 @@ internal fun VideoPlayerScreen(
                     zoom = if (state.inPip) 1f else pinchZoom ?: s.zoom,
                     rotation = s.rotation,
                 )
+            }
+        }
+        // On libVLC's GL output the view fills the screen and libVLC places the picture itself.
+        LaunchedEffect(engine.renderMode, s.aspect, containerSize, state.inPip) {
+            if (engine.renderMode == RenderMode.GL) {
+                engine.applyGlPlacement(if (state.inPip) AspectMode.BEST_FIT else s.aspect, containerSize.width, containerSize.height)
             }
         }
         AndroidView(

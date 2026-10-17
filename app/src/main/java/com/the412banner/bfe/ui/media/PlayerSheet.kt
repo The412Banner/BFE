@@ -231,7 +231,7 @@ private fun PictureTab(state: PlayerState) {
         FilterChip(selected = s.flipH, onClick = { state.update { it.copy(flipH = !it.flipH) } }, label = { Text("Mirror") })
         FilterChip(selected = s.flipV, onClick = { state.update { it.copy(flipV = !it.flipV) } }, label = { Text("Upside down") })
     }
-    Note("Turning or flipping the picture turns its subtitles with it.")
+    Note("Subtitles are part of the picture: they turn, flip and take the colours with it. Crop, zoom and a quarter turn may restart playback once at the same spot.")
 }
 
 // ── Effects ──

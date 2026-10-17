@@ -106,7 +106,7 @@ class VideoPlayerActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch {
-            snapshotFlow { Triple(state.engine.layout, state.settings.rotation, state.engine.hasVideo) }.collect { updatePipParams() }
+            snapshotFlow { listOf(state.engine.layout, state.settings.rotation, state.engine.hasVideo, state.engine.renderMode) }.collect { updatePipParams() }
         }
 
         setContent {
@@ -150,7 +150,7 @@ class VideoPlayerActivity : ComponentActivity() {
         val layout = state.engine.layout
         val aspect = layout?.let { l ->
             VideoGeometry.place(1000, 1000, l, AspectMode.BEST_FIT, rotation = state.settings.rotation)?.displayedAspect(state.settings.rotation)
-        } ?: (16.0 / 9.0)
+        } ?: state.engine.pictureAspect() ?: (16.0 / 9.0)
         val (w, h) = VideoGeometry.pipAspect(aspect)
         b.setAspectRatio(Rational(w, h))
         val actions = ArrayList<RemoteAction>()

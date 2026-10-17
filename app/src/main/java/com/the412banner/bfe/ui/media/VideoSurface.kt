@@ -34,16 +34,13 @@ import kotlin.random.Random
 
 /**
  * The player's surface: a full-screen holder that clips, a frame sized and turned by
- * [com.the412banner.bfe.media.VideoGeometry], and inside it the video TextureView with the subtitle
- * TextureView (transparent) on top, both laid out exactly alike as libVLC expects. A TextureView —
- * not a SurfaceView — so the picture can take a colour matrix (layer paint), a sharpen shader and
- * view transforms in real time.
+ * [com.the412banner.bfe.media.VideoGeometry], and inside it the one TextureView libVLC draws into
+ * (subtitles included — see [VlcEngine]). A TextureView, not a SurfaceView, so the picture can take a
+ * colour matrix (layer paint), a sharpen shader and view transforms in real time.
  */
 internal class VideoSurfaceView(context: Context) : FrameLayout(context), VlcEngine.SurfaceHost {
     private var videoView = TextureView(context)
-    private var subsView = newSubs()
     override val video: TextureView get() = videoView
-    override val subs: TextureView get() = subsView
     private val frame = FrameLayout(context).apply { clipChildren = true }
     private var lastMatrix: FloatArray? = null
     private var lastSharpen = -1f
@@ -51,27 +48,24 @@ internal class VideoSurfaceView(context: Context) : FrameLayout(context), VlcEng
     init {
         clipChildren = true
         frame.addView(videoView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        frame.addView(subsView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(frame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
     }
 
-    private fun newSubs() = TextureView(context).apply { isOpaque = false }
-
-    /** Fresh surfaces for a new libVLC instance, laid out and styled like the old ones. */
+    /** A fresh surface for a new libVLC instance, laid out and styled like the old one. */
     override fun renewSurfaces() {
         val vlp = video.layoutParams
-        val slp = subs.layoutParams
         frame.removeView(video)
-        frame.removeView(subs)
         videoView = TextureView(context)
-        subsView = newSubs()
         frame.addView(videoView, vlp)
-        frame.addView(subsView, slp)
         lastMatrix?.let { m -> video.setLayerPaint(Paint().apply { colorFilter = ColorMatrixColorFilter(m) }) }
         if (lastSharpen > 0f && Build.VERSION.SDK_INT >= 33) Sharpen.apply(video, lastSharpen)
     }
 
-    /** Applies a placement (null = fill, before the first video size arrives) and the turn / mirror. */
+    /**
+     * Applies a placement and the turn / mirror. null = fill the screen: before the first picture
+     * size arrives, and on libVLC's GL output, which fits the picture itself. A quarter turn needs
+     * the sized frame (turning a full-screen view would spill off the screen), so it waits for one.
+     */
     fun place(p: Placement?, rotation: Int, flipH: Boolean, flipV: Boolean) {
         val flp = if (p == null) LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER)
         else LayoutParams(p.frameW, p.frameH, Gravity.CENTER)
@@ -79,8 +73,8 @@ internal class VideoSurfaceView(context: Context) : FrameLayout(context), VlcEng
         val slp = if (p == null) LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         else LayoutParams(p.surfaceW, p.surfaceH).apply { leftMargin = p.surfaceX; topMargin = p.surfaceY }
         if (!sameLp(video.layoutParams as? LayoutParams, slp)) video.layoutParams = slp
-        if (!sameLp(subs.layoutParams as? LayoutParams, slp)) subs.layoutParams = LayoutParams(slp)
-        frame.rotation = (rotation % 360).toFloat()
+        val turn = ((rotation % 360) + 360) % 360
+        frame.rotation = if (p == null && turn % 180 != 0) 0f else turn.toFloat()
         frame.scaleX = if (flipH) -1f else 1f
         frame.scaleY = if (flipV) -1f else 1f
     }
@@ -89,7 +83,7 @@ internal class VideoSurfaceView(context: Context) : FrameLayout(context), VlcEng
         a != null && a.width == b.width && a.height == b.height && a.leftMargin == b.leftMargin &&
             a.topMargin == b.topMargin && a.gravity == b.gravity
 
-    /** The picture-tab colour matrix on the video layer only (subtitles keep their colours). */
+    /** The picture-tab colour matrix on the video layer (subtitles are drawn into the picture, so they take it too). */
     fun setColorMatrix(m: FloatArray?) {
         if (m == null && lastMatrix == null) return
         if (m != null && lastMatrix?.contentEquals(m) == true) return

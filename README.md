@@ -538,7 +538,11 @@ scripts/appicons/                 launcher-icon SVG masters, icons.json, build.p
   psychedelic, ripple and motion-blur filters, so Sharpen is BFE's own shader (Android 13+ only) and
   grain an overlay; posterize / mirror-split aren't offered. VLC's CPU filters (denoise, deinterlace
   modes, gradfun, postproc, the looks) restart playback when changed and make MediaCodec copy frames
-  out, so heavy ones can stutter on 4K. Turning or mirroring the picture turns its subtitles too. No
+  out, so heavy ones can stutter on 4K. Subtitles are drawn into the picture (a TextureView can't
+  carry libVLC's separate subtitles surface), so they take the picture's colour adjustments and turn /
+  mirror with it. With hardware frames libVLC draws through its OpenGL output, which places the
+  picture itself: aspect modes apply instantly there, but crop, zoom and a quarter turn re-open the
+  file once (same spot) with frames copied out. No
   volume normalisation beyond ReplayGain tags (libVLC's equalizer API owns the audio-filter chain).
   Music plays while the player is open (screen off is fine) but has no notification / background
   service. libVLC adds about 21 MB to the APK (arm64 only; ~43 MB once installed).

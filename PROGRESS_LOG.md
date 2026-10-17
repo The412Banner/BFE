@@ -6,6 +6,41 @@ where it stands*.
 
 ---
 
+## Fix: player crash "invalid state" on every play (branch `fix/vlc-subs-surface`, 2026-10-16)
+
+Owner: "I just tried to play a video but it crashed the app" (Aurora preview `91b7a3c`):
+`IllegalArgumentException: invalid state at org.videolan.libvlc.AWindow.onSurfaceCreated(AWindow.java:373)`
+from `SurfaceHelper$2.onSurfaceTextureAvailable` during TextureView.draw. Branched from `test/next`
+(`97af221`). **Not merged, not device-run** (CI-compiled + JVM tests).
+
+- **Cause (libvlc-all 3.6.5 sources):** `SurfaceHelper.isReady()` is `mSurfaceView == null || mSurface != null`
+  — always true for a TextureView. With a video AND a subtitles TextureView, the first SurfaceTexture
+  flips AWindow to READY; the second one reaches `onSurfaceCreated()` in READY → throws. libVLC's own
+  VideoHelper never gives a subtitles view in TextureView mode (subtitles views are SurfaceViews only).
+- **Fix:** only the video TextureView goes to the vout. Subtitles are drawn into the picture. libvlc.so
+  says what happens then: "cannot blend subtitles with an opaque surface, trying next vout" — with
+  MediaCodec direct rendering and no subtitles surface the Android display declines and libVLC uses its
+  OpenGL ES2 output (`gles2` + `glconv_android`, both in this build), which blends subtitles itself but
+  reports no picture size. So the engine now tells the two outputs apart (`RenderMode`: a layout
+  callback = Android display, a vout without one within 700 ms = GL) and:
+  - GL: the view fills the screen, aspect modes go through `MediaPlayer.setAspectRatio / setScale`
+    exactly as VideoHelper does for OpenGL vouts (`FramePolicy.coverScale` for Fit screen), PiP aspect
+    comes from the playing video track; crop / zoom / a quarter turn re-open the file once with
+    `:no-mediacodec-dr` so the size-reporting Android display takes over.
+  - Android display over hardware frames (if a device's libVLC ever picks it): a selected subtitle track
+    re-opens once with copy-out so it can be blended. The track (`wantSpu`) and any loaded external
+    subtitle / audio files (re-added as priority-4 slaves) come back after the re-open.
+  - Copy-out never turns off again for that file, so nothing can loop.
+- **State-machine audit:** `renewSurfaces()` swaps one view (old vout detached first, so its listener
+  is gone before the view is removed); `bindVout()` detaches a vout still bound to a replaced view
+  before binding (AWindow only accepts views in INIT); AWindow's own detach on a destroyed
+  SurfaceTexture is caught through `IVLCVout.Callback.onSurfacesDestroyed` plus an attach-state
+  watcher on the view, which re-bind and re-create the video output (`setVideoTrackEnabled(false/true)`,
+  as VideoHelper does); PiP only resizes (no detach). Photo viewer: no libVLC / SurfaceTexture, nothing
+  similar.
+- **Proof:** 30 JVM tests (5 new for `FramePolicy`), CI build below. Device test needed: plain video,
+  a video with embedded + sidecar subtitles, crop / zoom / 90° turn, PiP in and out.
+
 ## In flight: built-in photo viewer + video / music player (branch `feat/media-viewer`, 2026-10-16)
 
 Owner: "We also need a built-in photo and video player", then: "Video player needs to handle all codecs
