@@ -7,8 +7,8 @@
 <p align="center">
   <b>A full-featured, sideload-only file manager for Android</b><br>
   Dual-pane browsing, on-device extraction of archives, disc images and game installers, a VLC-powered
-  media player, cloud and network access, and a Wi-Fi file server — in one app with a modern
-  <b>Aurora Glass</b> interface.
+  media player, a document viewer, cloud and network access, hardware-encrypted sign-ins and a Wi-Fi
+  file server — in one app with a modern <b>Aurora Glass</b> interface.
 </p>
 
 <p align="center">
@@ -40,7 +40,9 @@ Tap any line for the details.
 <details>
 <summary><b>Home dashboard</b> — storage, media, apps, cloud and network at a glance</summary>
 
-- Wide tiles with live stats: **Main storage** (used / total with a usage bar), **SD card / USB**
+- Tiles with live stats, four across on a typical phone (three on narrow screens, more in landscape),
+  each with its name on top, its icon and the numbers below, sized to fit any screen and font size:
+  **Main storage** (used / total with a usage bar), **SD card / USB**
   drives, **System** (`/`, read-only without root), **Downloads**, **Images**, **Audio**, **Videos**,
   **Documents**, **New files** (last 7 days), **Apps**, **Cloud**, **Remote** and **Access from network**.
 - **Favorites** row, and *Settings → Start on* to open on Home or on the last folder.
@@ -59,7 +61,8 @@ Tap any line for the details.
 <details>
 <summary><b>Dual-pane file manager</b> — two panes side by side in portrait and landscape</summary>
 
-- Two independent panes split down the middle, each with its own folder, view, sort and selection.
+- Two independent panes split down the middle, each with its own folder, sort and selection; both
+  always show the same view (List or Compact), with slim rows and short dates so full names fit.
 - Draggable divider (snaps to ⅓ · ½ · ⅔, double-tap for 50/50), one-tap **Copy → / Move →** into the
   other pane, and extraction straight into the other pane's folder.
 
@@ -96,11 +99,22 @@ Tap any line for the details.
 </details>
 
 <details>
+<summary><b>Tap to open in BFE</b> — files open in BFE's own viewers whenever it has one</summary>
+
+- A tap opens photos, videos and music in the viewer and player, documents and text in the document
+  viewer, web pages in the HTML viewer, archives and disc images as folders, and APKs in the installer —
+  inside archives too.
+- Anything else shows the Open with sheet, and **⋮ → Open with** shows it for every file.
+
+</details>
+
+<details>
 <summary><b>Open with sheet</b> — BFE's actions first, then every app that can open the file</summary>
 
-- Every file tap shows BFE's own actions (View, Play, View page, Open as folder, Extract, Install,
-  Clone, Convert, Properties), then the installed apps, with *Open as* type chips.
-- *Always use for .ext* remembers a default per file type (managed in Settings); a tap still shows the sheet.
+- BFE's own actions for the file (View, Play, View page, Open as folder, Extract, Install, Clone,
+  Convert, Properties), then the installed apps, with *Open as* type chips.
+- *Always use for .ext* remembers a default per file type (managed in Settings); it's listed first and
+  marked, and the sheet still shows.
 
 </details>
 
@@ -277,6 +291,18 @@ starting.
 </details>
 
 <details>
+<summary><b>Hardware-encrypted sign-ins</b> — saved passwords locked with the phone's security chip</summary>
+
+- Cloud and Remote accounts (rclone's config is stored encrypted), the Access from network password
+  and APK signing-key passwords are encrypted with an AES-256 key held in the Android Keystore —
+  **StrongBox** when the phone has a separate security chip, otherwise the **Trusted Execution
+  Environment**.
+- The key never leaves that hardware and needs no PIN or fingerprint; sign-ins saved by earlier
+  versions are converted automatically. **Settings → Security** shows which hardware protects them.
+
+</details>
+
+<details>
 <summary><b>Root & app data</b> — browse any app's private data with root</summary>
 
 - With Magisk root, open any app's `/data/data/<pkg>` (and `Android/data/<pkg>`) with full management.
@@ -363,6 +389,8 @@ app/src/main/java/com/the412banner/bfe/
 ├─ media/       player and viewer logic (geometry, colour, settings, libVLC options, resume)
 ├─ cloud/       rclone engine manager, rc API client, account setup, transfer service
 ├─ server/      Wi-Fi HTTP (NanoHTTPD) and FTP (Apache FtpServer) servers and service
+├─ security/    credential vault: Android Keystore AES-256-GCM key (StrongBox / TEE) and the
+│               one-time conversion of passwords saved by earlier versions
 ├─ apk/         APK cloner, editor and signer
 ├─ docs/        document viewer converters: OpenDocument, Office Open XML, RTF, Markdown, EPUB,
 │               CSV and text indexing (pure Kotlin, unit-tested against real files)
@@ -395,6 +423,8 @@ app/src/main/java/com/the412banner/bfe/
 - **Storage:** apps without a document provider (and `Android/data`) need root to browse; the category
   tiles only see files Android's media library has indexed.
 - **APK clones** of apps that verify their own signature or rely on Google services may not run.
+- **Sign-ins:** the encryption key stays in this phone's hardware, so saved sign-ins don't carry over to
+  another phone through a backup — sign in again there (BFE says what to re-enter).
 
 ---
 
