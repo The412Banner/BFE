@@ -163,8 +163,10 @@ internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: St
     LaunchedEffect(uri, explicitPath) {
         val resolved = withContext(Dispatchers.IO) { runCatching { resolveSource(context, uri, explicitPath, nameHint) } }
         resolved.onSuccess { s ->
+            // Kind first, then the source, with no suspension between: the load below sees both at once.
+            val k = DocFormats.kindOf(s.name, mime) ?: withContext(Dispatchers.IO) { DocFormats.sniff(s.file) }
+            kind = k
             source = s
-            kind = DocFormats.kindOf(s.name, mime) ?: withContext(Dispatchers.IO) { DocFormats.sniff(s.file) }
         }.onFailure {
             state = DocState.Failed("Couldn't open the file", it.message ?: "The file couldn't be read.", false)
         }
