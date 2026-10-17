@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -137,6 +138,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.Dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -152,6 +154,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import com.the412banner.bfe.core.FileUtils
 import com.the412banner.bfe.core.ApkIconLoader
 import com.the412banner.bfe.core.PeIconExtractor
@@ -251,7 +255,10 @@ private fun comparatorFor(sortBy: String, desc: Boolean): Comparator<Loc> {
 }
 
 // Image extensions that get a real thumbnail (via Coil) instead of the generic file icon.
-private val IMAGE_THUMB_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif")
+private val IMAGE_THUMB_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "heic", "heif", "avif")
+// Videos get a frame grabbed by Coil's VideoFrameDecoder (Android's own media stack, so what it can't
+// decode simply keeps the video type icon).
+private val VIDEO_THUMB_EXTS = setOf("mp4", "m4v", "mkv", "webm", "3gp", "mov", "ts", "avi", "wmv", "flv", "mpg", "mpeg")
 
 // After "New file…", these get an immediate "Open with…" offer (a text editor is the obvious next step).
 private val TEXT_LIKE_EXTS = setOf("txt", "md", "ini", "cfg", "conf", "json", "xml", "yml", "yaml", "log", "csv", "bat", "sh", "reg", "properties", "toml", "html", "htm", "kt", "java", "py", "js", "css", "gradle", "lua")
@@ -3284,6 +3291,7 @@ private fun FileItemRow(
     // Image files show a real thumbnail instead of the generic file icon (handy when picking a
     // wallpaper/icon). Coil sizes the decode to the 36dp slot and caches it, so scrolling stays smooth.
     val isImage = !isDir && File(file.name).extension.lowercase() in IMAGE_THUMB_EXTS
+    val isVideo = !isDir && File(file.name).extension.lowercase() in VIDEO_THUMB_EXTS
 
     // For real PE executables, try to pull out the embedded application icon (async, off the main thread).
     var exeIcon by remember(file.id) { mutableStateOf<ImageBitmap?>(null) }
@@ -3332,14 +3340,7 @@ private fun FileItemRow(
                 }
                 when {
                     exeIcon != null -> Image(bitmap = exeIcon!!, contentDescription = null, modifier = Modifier.size(22.dp))
-                    isImage -> AsyncImage(
-                        model = thumbModel,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        placeholder = fileIconPainter(file.name, false),
-                        error = fileIconPainter(file.name, false),
-                        modifier = Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)),
-                    )
+                    isImage || isVideo -> FileThumb(file.name, thumbModel, isVideo, size = 22.dp, corner = 4.dp, badge = false)
                     else -> FileTypeIcon(file.name, isDir, size = 22.dp)
                 }
                 Spacer(Modifier.width(10.dp))
@@ -3453,17 +3454,8 @@ private fun FileItemRow(
                     contentDescription = null,
                     modifier = Modifier.size(if (compact) 24.dp else 36.dp),
                 )
-                // Real image preview. Falls back to the image type icon while loading or on decode failure.
-                isImage -> AsyncImage(
-                    model = thumbModel,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    placeholder = fileIconPainter(file.name, false),
-                    error = fileIconPainter(file.name, false),
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(6.dp)),
-                )
+                // Real image / video-frame preview. Falls back to the type icon while loading or on failure.
+                isImage || isVideo -> FileThumb(file.name, thumbModel, isVideo, size = 36.dp, corner = 6.dp, badge = !compact)
                 // BFE's folder / file-type artwork (special folders by name, files by extension).
                 else -> FileTypeIcon(file.name, isDir, size = if (compact) 24.dp else 36.dp)
             }
@@ -3699,6 +3691,41 @@ private fun FavoriteCard(
 }
 
 /**
+ * An image or video-frame preview in a [size] slot (video: the frame ~1 s in, plus a small play badge
+ * once it has loaded). BFE's type icon shows while it loads and stays if the file can't be decoded.
+ */
+@Composable
+private fun FileThumb(name: String, model: Any, video: Boolean, size: Dp, corner: Dp, badge: Boolean) {
+    val context = LocalContext.current
+    val request = remember(model, video) {
+        if (video) ImageRequest.Builder(context).data(model).videoFrameMillis(1_000).build() else model
+    }
+    var loaded by remember(model) { mutableStateOf(false) }
+    Box(modifier = Modifier.size(size), contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = request,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            placeholder = fileIconPainter(name, false),
+            error = fileIconPainter(name, false),
+            onSuccess = { loaded = true },
+            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(corner)),
+        )
+        if (video && badge && loaded) {
+            Icon(
+                Icons.Filled.PlayArrow, null,
+                tint = Color.White,
+                modifier = Modifier
+                    .size(size * 0.42f)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .padding(size * 0.05f),
+            )
+        }
+    }
+}
+
+/**
  * One entry in the File Manager's grid view: a big thumbnail with the name under it.
  *
  * Deliberately drops size and date — at this width they truncate to noise. The grid is for
@@ -3742,6 +3769,7 @@ private fun FileGridTile(
 ) {
     val isDir = file.isDir
     val isImage = !isDir && File(file.name).extension.lowercase() in IMAGE_THUMB_EXTS
+    val isVideo = !isDir && File(file.name).extension.lowercase() in VIDEO_THUMB_EXTS
     var exeIcon by remember(file.id) { mutableStateOf<ImageBitmap?>(null) }
     val exeFile = (file as? Loc.FileLoc)?.file
     if (exeFile != null && exeFile.name.lowercase().endsWith(".exe")) {
@@ -3785,14 +3813,7 @@ private fun FileGridTile(
                 Box(modifier = Modifier.size(56.dp), contentAlignment = Alignment.Center) {
                     when {
                         exeIcon != null -> Image(bitmap = exeIcon!!, contentDescription = null, modifier = Modifier.size(48.dp))
-                        isImage -> AsyncImage(
-                            model = thumbModel,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            placeholder = fileIconPainter(file.name, false),
-                            error = fileIconPainter(file.name, false),
-                            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)),
-                        )
+                        isImage || isVideo -> FileThumb(file.name, thumbModel, isVideo, size = 56.dp, corner = 6.dp, badge = true)
                         // The artwork carries its own keyline padding, so it fills the whole 56dp box.
                         else -> FileTypeIcon(file.name, isDir, size = 56.dp)
                     }
