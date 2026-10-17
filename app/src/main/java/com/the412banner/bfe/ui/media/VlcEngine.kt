@@ -2,7 +2,10 @@ package com.the412banner.bfe.ui.media
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import android.view.TextureView
 import androidx.compose.runtime.getValue
@@ -86,6 +89,7 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
     private var winW = 0
     private var winH = 0
     private val releaser = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
 
     val currentRef: MediaRef? get() = current
     val isReady: Boolean get() = player != null
@@ -207,7 +211,19 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
         media.release()
         p.setRate(s.speed)
         applyEqualizer(s)
-        p.play()
+        playWhenSurfaceReady(p, SystemClock.uptimeMillis())
+    }
+
+    /**
+     * Starts [p] once the video TextureView has its SurfaceTexture (it appears with the view's first
+     * draw; libVLC's window helper owns the view's listener, so this checks once a frame). Gives up
+     * waiting after 800 ms — music, PiP or a stopped activity may never draw it.
+     */
+    private fun playWhenSurfaceReady(p: MediaPlayer, since: Long) {
+        if (player !== p) return
+        val ready = host?.video?.isAvailable != false
+        if (ready || SystemClock.uptimeMillis() - since > 800) { p.play(); return }
+        main.postDelayed({ playWhenSurfaceReady(p, since) }, 16)
     }
 
     /** Re-opens the current file at the current position (after an instance-option change). */
@@ -314,6 +330,7 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
 
     fun release() {
         pendingOpen = null
+        main.removeCallbacksAndMessages(null)
         releasePlayer()
         current = null
         releaser.shutdown()

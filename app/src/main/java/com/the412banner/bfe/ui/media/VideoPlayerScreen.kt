@@ -85,8 +85,8 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -286,7 +286,7 @@ internal fun VideoPlayerScreen(
                 v.setColorMatrix(if (s.hasColorChange) s.colorMatrix else null)
                 v.setSharpen(s.sharpen)
             },
-            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (audioOnly) 0f else 1f },
+            modifier = Modifier.fillMaxSize(),
         )
         if (!audioOnly && engine.hasVideo) FilmGrain(s.grain, Modifier.fillMaxSize())
         if (audioOnly) AudioArtwork(state.current)
@@ -834,7 +834,7 @@ private fun HudPill(hud: Hud?, modifier: Modifier) {
                 is Hud.Volume -> {
                     val boosted = h.level > 1f
                     HudLevel(
-                        if (h.level <= 0f) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                        if (h.level <= 0f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
                         if (boosted) "Volume boost" else "Volume",
                         "${(h.level * 100).toInt()} %",
                         if (boosted) h.level - 1f else h.level,
@@ -888,7 +888,8 @@ private fun AudioArtwork(ref: MediaRef?) {
         value = if (ref == null) null else withContext(Dispatchers.IO) { readAudioMeta(context, ref) }
     }
     val art = meta?.art
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    // Opaque over the (empty) video surface underneath.
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim)) {
         if (art != null) {
             // A soft, darkened wash of the cover behind everything (the blur needs Android 12+).
             Image(

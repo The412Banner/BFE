@@ -54,7 +54,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Slideshow
@@ -179,6 +179,8 @@ internal fun PhotoViewerScreen(request: MediaRequest, onCurrentChanged: (String)
             else -> close()
         }
     }
+    // Zooming in is for looking: the bars step aside (a tap brings them back).
+    LaunchedEffect(zoomed) { if (zoomed) barsVisible = false }
     SystemBarsVisible(barsVisible && !slideshow)
     KeepScreenOn(slideshow)
 
@@ -364,7 +366,9 @@ internal fun PhotoViewerScreen(request: MediaRequest, onCurrentChanged: (String)
                                 leadingIcon = { Icon(Icons.Filled.Wallpaper, null) },
                                 onClick = { menuOpen = false; setAs(item) },
                             )
-                            if (item.path != null) {
+                            // Archive / cloud photos are BFE's temporary copies: nothing to show or save there.
+                            val real = remember(item.key) { item.path != null && !isCacheCopy(context, item) }
+                            if (real) {
                                 DropdownMenuItem(
                                     text = { Text("Show in folder") },
                                     leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
@@ -372,7 +376,7 @@ internal fun PhotoViewerScreen(request: MediaRequest, onCurrentChanged: (String)
                                 )
                             }
                             val turned = ((rotations[item.key] ?: 0) % 360) != 0
-                            if (turned && item.path != null && MediaTypes.canSaveRotation(item.name)) {
+                            if (turned && real && MediaTypes.canSaveRotation(item.name)) {
                                 DropdownMenuItem(
                                     text = { Text("Save rotation") },
                                     leadingIcon = { Icon(Icons.Filled.Save, null) },
@@ -399,7 +403,7 @@ internal fun PhotoViewerScreen(request: MediaRequest, onCurrentChanged: (String)
                 ) {
                     BarAction(Icons.Filled.Share, "Share", onClick = { shareMedia(context, item) })
                     BarAction(Icons.AutoMirrored.Filled.OpenInNew, "Open with", onClick = { openWith = mediaTarget(context, item) })
-                    BarAction(Icons.Filled.RotateRight, "Rotate", onClick = { rotate(item) }, active = ((rotations[item.key] ?: 0) % 360) != 0)
+                    BarAction(Icons.AutoMirrored.Filled.RotateRight, "Rotate", onClick = { rotate(item) }, active = ((rotations[item.key] ?: 0) % 360) != 0)
                     BarAction(Icons.Filled.Info, "Info", onClick = { details = item })
                     BarAction(
                         Icons.Filled.Delete,
@@ -514,7 +518,15 @@ private fun rememberViewerImageLoader(): ImageLoader {
     }
 }
 
+/** BFE's own temporary copy (a file opened from inside an archive or from the cloud). */
+private fun isCacheCopy(context: Context, item: MediaRef): Boolean {
+    val p = item.path ?: return false
+    return runCatching { File(p).canonicalPath.startsWith(context.cacheDir.canonicalPath + File.separator) }.getOrDefault(false)
+}
+
+/** Real files BFE can write, and SAF documents; never cache copies or other apps' content Uris. */
 private fun canDeletePhoto(context: Context, item: MediaRef): Boolean {
+    if (isCacheCopy(context, item)) return false
     item.path?.let { p -> return File(p).parentFile?.canWrite() == true }
     val uri = Uri.parse(item.uri)
     return runCatching { DocumentsContract.isDocumentUri(context, uri) }.getOrDefault(false)
