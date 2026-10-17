@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Unarchive
@@ -329,4 +330,5 @@ internal object SheetIcons {
     val Install = Icons.Filled.Android
     val Convert = Icons.Filled.Movie
     val Properties = Icons.Filled.Info
+    val Web = Icons.Filled.Language
 }

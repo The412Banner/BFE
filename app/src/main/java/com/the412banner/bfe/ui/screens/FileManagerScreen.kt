@@ -2654,6 +2654,12 @@ fun BrowserPane(
             val lower = loc.name.lowercase()
             val fromArchive = req.fromArchive
             buildList {
+                // Web pages open in BFE's own viewer first (scripts on, relative files load).
+                if (com.the412banner.bfe.HtmlViewerActivity.isHtmlName(loc.name)) {
+                    add(SheetAction("View page", SheetIcons.Web) {
+                        context.startActivity(com.the412banner.bfe.HtmlViewerActivity.intent(context, f?.absolutePath, req.uri, loc.name))
+                    })
+                }
                 if (fromArchive != null) {
                     // BFE's cache copy of an entry inside an archive: browse it when it's an archive
                     // itself, install an APK, extract the entry somewhere real, or look at its details.

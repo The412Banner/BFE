@@ -251,6 +251,23 @@
             </intent-filter>
         </activity>
 
+        <!-- Built-in HTML viewer (WebView). Also offered to other apps for local HTML files. -->
+        <activity
+            android:name="com.the412banner.bfe.HtmlViewerActivity"
+            android:label="@string/html_viewer_label"
+            android:theme="@style/AppTheme"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/html" />
+                <data android:mimeType="application/xhtml+xml" />
+            </intent-filter>
+        </activity>
+
         <!-- No-UI target of the QuickExtract alias: hands the file to UnpackService and finishes. -->
         <activity
             android:name="com.the412banner.bfe.QuickExtractActivity"
