@@ -6,6 +6,79 @@ where it stands*.
 
 ---
 
+## In flight: Aurora Glass redesign + Classic look (branch `feat/aurora-glass`, 2026-10-16)
+
+Owner picked scheme 1 "Aurora Glass" from `/sdcard/Download/BFE-UI-Schemes-Preview.html`: frosted
+glass over a soft backdrop, floating bottom pill toolbar in portrait, pill rail in landscape, selection
+actions as a second pill; default colours "mostly neutral, colour as accent"; portrait dual pane split
+down the middle. Then: "Can we keep the current UI design as a classic view in the settings?" →
+both looks ship. **Not merged, not released, not device-run (CI-compiled only).**
+
+- **Look switch:** Settings → Appearance → Look = Aurora Glass (default; pref `ui_look` unset →
+  Aurora, for upgraders too) / Classic. `ThemeSettings.style` + `LocalUiStyle` / `isAurora`;
+  `BfeTheme(style, edgeToEdge)` calls its content from ONE place, so switching recomposes in place
+  (panes, selections, clipboard, scroll survive). Look-specific chrome branches at call sites that keep
+  the same composition position (FileManagerScreen's BrowserPane calls, SettingsHost). The switch
+  crossfades: `LookTransition` PixelCopies the window (API 26+), applies the change, fades the copy
+  out over 420 ms (`LookTransitionOverlay`, window-aligned). Classic = the original composables,
+  untouched apart from pure extractions (shared menu contents `FmMenus.kt`, `paneCrumbs`, Home's
+  About dialog / update check) and look-aware helpers that return Classic's values unchanged.
+- **Palettes** (`ui/theme/AuroraPalettes.kt`): Neutral (default, graphite #0E1117 / #ECEFF4, accent
+  #8AB4FF / #2F5BEA), Aurora, Ocean, Ember, Forest, Rose — light + dark each. Each palette is one
+  table → Material scheme (`auroraColorScheme`: background/surface stay the opaque ground; the
+  surfaceContainer family = solid glass-over-ground) + `GlassTokens` (panel / raised / floating /
+  menu / sheet / dialog fills, rim, highlight, shadow, glow, selection, grain). Dynamic colour on 12+
+  replaces the accent and tints glass + backdrop; the palette keeps the vividness. Picker:
+  `ui/components/PalettePicker.kt`.
+- **Glass** (`ui/theme/Glass.kt`): `Modifier.glass(shape, level, fill, border, glow, haze)` /
+  `GlassSurface`: fill + top sheen + 128 px grain tile + rim hairline (bright top edge) + an
+  outside-only soft shadow / accent halo (`glassShadow`, path rings clipped with ClipOp.Difference,
+  so nothing dark sits under translucent glass). Panels on the backdrop are translucent fills (same on
+  every API). Floating pills get real blur via **Haze 0.7.0** (`haze`/`hazeChild`; RenderNode +
+  RenderEffect on API 32+, its API-31 bug workaround = scrim) — 0.7.0 is the last Haze on Compose
+  1.6.1 / core-ktx 1.12.0, so **no version bumps** (0.7.2+ pull Compose 1.6.7); below 32 a dense
+  frosted fill. Dialogs / sheets: `GlassWindow.kt` sets FLAG_BLUR_BEHIND + blurBehindRadius on their
+  window on API 31+ when `isCrossWindowBlurEnabled` (listener-tracked; denser fill otherwise).
+- **Backdrop** (`AuroraBackdrop`): ground + 3 radial blobs on 22/26/30 s orbits, own graphics layer,
+  time ticks every 66 ms (~15 Hz) inside `repeatOnLifecycle(RESUMED)`, static under reduced motion.
+  Main window goes edge-to-edge in Aurora (transparent bars, adjustResize, root pads `safeDrawing`);
+  Classic restores fitsSystemWindows + the original soft-input mode.
+- **Motion** (`Motion.kt`): emphasized / emphasized-decelerate / -accelerate easings, 200/300/400 ms,
+  settle springs; `LocalReducedMotion` = animator duration scale 0 (re-read on resume) → snaps.
+- **Shell** (`ui/AuroraShell.kt`): FM layer grows in from the tapped tile (`LaunchOrigin`: scale
+  0.92→1 + fade, 380 ms) and stops drawing when covered; routes via AnimatedContent (tile → screen
+  grows from the tile, back shrinks into it above Home, z-index flipped); Settings slides+fades
+  (`SettingsHost`, shared by both looks); glass snackbar lifted over the pill; job pills under the
+  status bar.
+- **Home** (`HomeAurora.kt`): wordmark + storage summary + live "Sharing" chip; same tiles grouped
+  Storage / Library / Connect / App storage / Favorites; tiles via the shared `HomeTileFrame` (glass
+  in Aurora, dashed accent rim for the + tile), 5 a row portrait; staggered entrance; pill: Home,
+  Files, accent + (Add app storage), Settings, More (Open file manager, Refresh, Check for updates,
+  About). First run: glass welcome card.
+- **File manager** (`FileManagerAurora.kt`): glass pane cards (active: brighter + accent rim + halo,
+  draw-phase animation); pane header = drive chip (same drive menu, this pane) + fading breadcrumbs
+  (archive crumbs tinted) + Favorites star + view mode; floating pill (Back, Home, Search, accent New,
+  Sort, Split, More) / landscape rail; selection pill (actions from BrowserPane, display-equivalence
+  mutation policy so republishing can't loop); glass search / paste / progress capsules (shimmer);
+  `AnimatedListing` = AnimatedContent per folder (direction from depth), exactly one live list on the
+  hoisted list/grid state (exiting folder gets a LazyListState frozen at `exitScroll`, captured in the
+  listing effect just before the reset) so refresh-in-place and the foreground refresh hold;
+  animateItemPlacement; rows without per-row cards; DateText date-over-time; divider = glass grip with
+  spring snapping to ⅓ · ½ · ⅔ (near or flicked) and double-tap 50/50.
+- **Overlays:** glass `BfeDropdownMenu` (all menus), `OutlinedAlertDialog` (all dialogs), Open-with
+  sheet (`OpenWithSheetAurora.kt`: action / app tiles with minLines = 2, glass chips), job pills,
+  update-dialog shimmer.
+- **Secondary screens** (`ui/components/AuroraScreens.kt`): `bfeTopBarColors`, `bfeScreenColor`,
+  `bfeCardColors` / `bfeCardBorder` (selection-aware), `bfeBarBackground`, `BfePage` (backdrop page for
+  overlays / other activities) applied to Category, Apps, Cloud, Remote, Add account, transfers,
+  Network, Settings (glass rows/blocks), Unpack, HTML viewer, folder picker; the App icon setting is a
+  glass card with a frosted preview sheet.
+- **Proof:** CI green per stage — 1 foundation: run 38988770664 (`ff9889d`, pre-rebase); 2 Home:
+  38989741389 (`5de92ab`); 3 file manager + Home app-storage carry-over: 38991064047 (`0d928da`);
+  4 overlays: 38991518372 (`c692107`); 5 screens + App icon + docs: RUN5. `@Preview`s: glass levels, backdrop, palette picker,
+  pill + rail. Compose-1.6 APIs checked against the 1.6.1 / M3 1.2.0 sources jars. UI unverified on a
+  device.
+
 ## Fix: player crash "invalid state" on every play (branch `fix/vlc-subs-surface`, 2026-10-16)
 
 Owner: "I just tried to play a video but it crashed the app" (Aurora preview `91b7a3c`):
