@@ -541,7 +541,7 @@ scripts/appicons/                 launcher-icon SVG masters, icons.json, build.p
   out, so heavy ones can stutter on 4K. Turning or mirroring the picture turns its subtitles too. No
   volume normalisation beyond ReplayGain tags (libVLC's equalizer API owns the audio-filter chain).
   Music plays while the player is open (screen off is fine) but has no notification / background
-  service. The APK is about 20 MB bigger for libVLC (arm64 only).
+  service. libVLC adds about 21 MB to the APK (arm64 only; ~43 MB once installed).
 - Photo viewer: only JPEG / PNG / WebP are sub-sampled; HEIC / AVIF / BMP / GIF decode whole at up to
   2560 px (sharp to ~2× zoom on big photos). HEIC needs Android 9+, AVIF Android 12+. Rotation is
   view-only except "Save rotation" for JPEG.

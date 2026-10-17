@@ -55,6 +55,19 @@ device-run** (see proof).
   maps, time/delay formats, geometry incl. SAR / padded buffers / crop / rotation, colour matrices,
   settings round-trip, VlcArgs) — 25 JUnit tests, run locally with kotlinc 2.0.21 + JUnit 4.13.2 and in
   CI's `testReleaseUnitTest`. Everything Android / libVLC / Compose is **CI-compiled only**.
+- **CI:** green on every push — 38989771792 (38fc07b), 38990504903 (d123b00), 38990988195 (26448d9),
+  38991451724 (161f84b, rebased onto test/next `bab7c74` with the app icons); this log commit re-runs it.
+- **APK check (161f84b):** 52,787,288 bytes vs 31,825,248 for test/next `bab7c74` = **+20.96 MB**, almost
+  all libvlc.so (43.1 MB → 20.3 MB deflated; legacy packaging, so ~43 MB more once installed). Only
+  `lib/arm64-v8a/`. `libc++_shared.so` in the APK is BFE's r28 copy (sha256 `e09c2f45…`, same as jniLibs),
+  not libVLC's r27-beta one, and every one of the 140 libc++ symbols libvlc.so / libvlcjni.so import is
+  exported by it (readelf dyn-sym diff: 0 missing). libvlc.so sha256 matches NOTICE_LIBVLC.txt.
+- **Owner to confirm:** Back while a video plays enters PiP (Settings toggle, on by default); repeat is
+  "play once" for video, "whole folder" for music; "Resume from" is offered (pill, 9 s) rather than
+  auto-resuming; volume swipes go past 100 % into VLC's boost without a separate opt-in; music keeps
+  playing with the screen off (no notification yet); "Remember settings" is off by default; GIF / animated
+  WebP animate in the viewer only (list thumbnails stay still); photo bars hide on tap and on zoom-in, not
+  on a timer; Delete is permanent (confirm dialog, no trash); labels "BFE Viewer" / "BFE Player".
 
 ## In flight: new launcher icon + Settings → App icon (branch `feat/app-icons`, 2026-10-16)
 
