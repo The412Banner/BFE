@@ -13,6 +13,8 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import com.the412banner.bfe.ui.components.ShimmerProgressBar
+import com.the412banner.bfe.ui.theme.isAurora
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -112,7 +114,8 @@ fun UpdateHost() {
                 text = {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         if (d is DownloadState.Downloading && d.total > 0) {
-                            LinearProgressIndicator(
+                            if (isAurora) ShimmerProgressBar((d.bytes.toFloat() / d.total).coerceIn(0f, 1f))
+                            else LinearProgressIndicator(
                                 progress = { (d.bytes.toFloat() / d.total).coerceIn(0f, 1f) },
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -122,7 +125,7 @@ fun UpdateHost() {
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         } else {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            if (isAurora) ShimmerProgressBar(null) else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 if (d is DownloadState.Verifying) "Checking the download…" else "Starting…",

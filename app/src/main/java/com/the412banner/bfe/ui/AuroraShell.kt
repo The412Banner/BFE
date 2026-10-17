@@ -16,8 +16,28 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.SnackbarData
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.the412banner.bfe.ui.components.GlassIconButton
+import com.the412banner.bfe.ui.theme.GlassLevel
+import com.the412banner.bfe.ui.theme.glass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -182,4 +202,38 @@ private fun Modifier.auroraCover(covered: Boolean): Modifier {
         if (reduced) shown.snapTo(target) else shown.animateTo(target, tween(if (covered) 260 else 320, easing = BfeMotion.Emphasized))
     }
     return graphicsLayer { alpha = shown.value }.drawWithContent { if (shown.value > 0.002f) drawContent() }
+}
+
+/** Aurora's snackbar: a floating glass capsule with the message, an accent action and ✕ when long. */
+@Composable
+fun AuroraSnackbar(data: SnackbarData) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .widthIn(max = 560.dp)
+            .glass(RoundedCornerShape(18.dp), GlassLevel.Overlay)
+            .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+    ) {
+        Text(
+            data.visuals.message,
+            color = cs.onSurface,
+            fontSize = 13.5.sp,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).padding(vertical = 10.dp),
+        )
+        data.visuals.actionLabel?.let { label ->
+            Text(
+                label, color = cs.primary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { data.performAction() }.padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        }
+        if (data.visuals.withDismissAction) {
+            GlassIconButton(Icons.Filled.Close, "Dismiss", onClick = { data.dismiss() }, size = 36.dp, iconSize = 18.dp)
+        } else {
+            Spacer(Modifier.width(12.dp))
+        }
+    }
 }

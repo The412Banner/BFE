@@ -78,6 +78,7 @@ import com.the412banner.bfe.media.MediaType
 import com.the412banner.bfe.storage.Loc
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.DefaultApps
+import com.the412banner.bfe.ui.theme.isAurora
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -96,9 +97,9 @@ internal data class SheetAction(
 )
 
 /** One "Open as" choice: a chip label and the MIME type the app list is queried with. */
-private data class OpenAs(val label: String, val mime: String)
+internal data class OpenAs(val label: String, val mime: String)
 
-private class ViewerApp(val component: ComponentName, val label: String, val icon: ImageBitmap?)
+internal class ViewerApp(val component: ComponentName, val label: String, val icon: ImageBitmap?)
 
 private val ARCHIVE_MIMES = setOf(
     "application/zip", "application/x-7z-compressed", "application/x-rar-compressed", "application/vnd.rar",
@@ -220,6 +221,28 @@ internal fun OpenWithSheet(
         }
         onDismiss()
         a.onClick()
+    }
+
+    // Aurora Glass: the same sheet as frosted glass with tiles (OpenWithSheetAurora.kt).
+    if (isAurora) {
+        AuroraOpenWithSheet(
+            file = file,
+            detectedMime = detectedMime,
+            actions = actions,
+            chips = chips,
+            selected = selected,
+            onSelect = { selected = it },
+            apps = apps,
+            savedComponent = savedComponent,
+            ext = ext,
+            always = always,
+            onAlways = { always = it },
+            onLaunch = ::launch,
+            onAction = ::runAction,
+            onDismiss = onDismiss,
+            sheetState = sheetState,
+        )
+        return
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {

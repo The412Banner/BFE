@@ -231,7 +231,22 @@ class PaneSelectionUi(
     val actions: List<SelAction>,
     val onToggleAll: () -> Unit,
     val onDone: () -> Unit,
-)
+) {
+    companion object {
+        /**
+         * BrowserPane republishes its selection after every recomposition; only a change in what the
+         * pill SHOWS counts as a change, so publishing never feeds back into another recomposition.
+         * (The actions read the pane's live state when tapped, so keeping an earlier instance is safe.)
+         */
+        val SameDisplay = object : androidx.compose.runtime.SnapshotMutationPolicy<PaneSelectionUi?> {
+            override fun equivalent(a: PaneSelectionUi?, b: PaneSelectionUi?): Boolean =
+                if (a == null || b == null) a === b
+                else a.count == b.count && a.allSelected == b.allSelected && a.targetName == b.targetName &&
+                    a.actions.size == b.actions.size &&
+                    a.actions.indices.all { i -> a.actions[i].label == b.actions[i].label && a.actions[i].enabled == b.actions[i].enabled && a.actions[i].tone == b.actions[i].tone }
+        }
+    }
+}
 
 /** Everything a row or tile can do for one entry (the same callbacks Classic's rows get). */
 internal class FileRowActions(

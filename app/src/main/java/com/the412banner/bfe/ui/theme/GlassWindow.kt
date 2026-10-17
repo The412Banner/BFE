@@ -45,8 +45,8 @@ fun rememberWindowBlurAvailable(): Boolean {
  * [radius] (and lightens the dim so the frost shows), on Android 12+. No-op elsewhere.
  */
 @Composable
-fun WindowBlurBehind(radius: Dp = 28.dp, dimAmount: Float = 0.32f) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+fun WindowBlurBehind(enabled: Boolean = true, radius: Dp = 28.dp, dimAmount: Float = 0.32f) {
+    if (!enabled || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
     val view = LocalView.current
     val px = with(LocalDensity.current) { radius.roundToPx() }
     DisposableEffect(view, px) {

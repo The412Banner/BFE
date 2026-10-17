@@ -74,6 +74,7 @@ import com.the412banner.bfe.ui.theme.isAurora
 import com.the412banner.bfe.ui.AuroraRouteHost
 import com.the412banner.bfe.ui.screens.home.AuroraWelcome
 import com.the412banner.bfe.ui.SettingsHost
+import com.the412banner.bfe.ui.AuroraSnackbar
 import com.the412banner.bfe.ui.auroraScreenLayer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
@@ -204,6 +205,8 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (aurora) AuroraBackdrop(Modifier.fillMaxSize())
         Column(modifier = Modifier.fillMaxSize().then(if (aurora) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)) {
+            // Aurora: running jobs as glass capsules under the status bar, clear of the thumb zone.
+            if (aurora) JobPills()
             Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 PermissionGate {
                     // The file manager stays composed under Home and Settings so both panes keep their
@@ -236,20 +239,36 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
                 }
             }
             // Pinned app-wide extraction + compression pills (each renders nothing when idle).
-            UnpackProgressPill()
-            PackProgressPill()
-            ApkJobPill()
-            ConvertProgressPill()
+            if (!aurora) JobPills()
         }
-        SnackbarHost(
-            hostState = snackbarHost,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
-                .then(if (aurora) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier),
-        )
+        if (aurora) {
+            // Glass snackbar, lifted above the floating pill on the screens that have one.
+            val overPill = !showSettings && (route == AppRoute.FILES || route == AppRoute.HOME)
+            SnackbarHost(
+                hostState = snackbarHost,
+                modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(bottom = if (overPill) 80.dp else 12.dp),
+                snackbar = { AuroraSnackbar(it) },
+            )
+        } else {
+            SnackbarHost(
+                hostState = snackbarHost,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+            )
+        }
         // The crossfade when the look / palette / theme changes (draws nothing otherwise).
         LookTransitionOverlay()
     }
     UpdateHost()
+}
+
+/** The app-wide extraction / compression / APK / convert pills (each renders nothing when idle). */
+@Composable
+private fun JobPills() {
+    UnpackProgressPill()
+    PackProgressPill()
+    ApkJobPill()
+    ConvertProgressPill()
 }
 
 /** Shows [content] when All-Files-Access is granted; otherwise a short explanation + grant button. */

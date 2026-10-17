@@ -482,7 +482,7 @@ class PaneState(
     var onSigningKeys: () -> Unit = {}
     // Aurora Glass: this pane's multi-select actions, published by BrowserPane for the floating
     // selection pill (null when not selecting), and which side of a dual split the pane is on.
-    var selectionUi by mutableStateOf<PaneSelectionUi?>(null)
+    var selectionUi by mutableStateOf<PaneSelectionUi?>(null, PaneSelectionUi.SameDisplay)
     var isRightPane by mutableStateOf(false)
     fun requestReload() { reloadTick++ }
 
@@ -2807,8 +2807,8 @@ fun BrowserPane(
                 add(SelAction("Share", Icons.Filled.Share, entries.any { !it.isDir && it.id in selectedIds }) { shareFiles(picked()) })
                 if (!pickMode && !paneState.isArchive) {
                     add(SelAction("Compress", Icons.Filled.Archive, any) { compressTargets = picked() })
-                    val videoSel = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
-                    if (videoSel.isNotEmpty()) add(SelAction("Convert", Icons.Filled.Movie, true) { convertTargets = videoSel })
+                    fun videoSel() = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
+                    if (videoSel().isNotEmpty()) add(SelAction("Convert", Icons.Filled.Movie, true) { convertTargets = videoSel() })
                 }
                 if (!paneState.isArchive) add(SelAction("Delete", Icons.Filled.Delete, any, SelTone.DANGER) { pendingBulkDelete = picked() })
             }

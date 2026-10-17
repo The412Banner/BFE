@@ -49,6 +49,28 @@ import androidx.compose.material.icons.filled.Android
 import com.the412banner.bfe.unpack.UnpackManager
 import com.the412banner.bfe.unpack.UnpackPhase
 import com.the412banner.bfe.unpack.UnpackService
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.the412banner.bfe.ui.components.GlassIconButton
+import com.the412banner.bfe.ui.components.ShimmerProgressBar
+import com.the412banner.bfe.ui.theme.BfeMotion
+import com.the412banner.bfe.ui.theme.GlassLevel
+import com.the412banner.bfe.ui.theme.LocalGlass
+import com.the412banner.bfe.ui.theme.LocalReducedMotion
+import com.the412banner.bfe.ui.theme.glass
+import com.the412banner.bfe.ui.theme.isAurora
 
 /**
  * App-wide minimized progress pill for a running unpack. Hosted in the root scaffold so it floats
@@ -63,6 +85,25 @@ import com.the412banner.bfe.unpack.UnpackService
 fun UnpackProgressPill(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val state by UnpackManager.state.collectAsState()
+    if (isAurora) {
+        AuroraPillSlot(state.isRunning, modifier) {
+            val listing = state.phase == UnpackPhase.LISTING
+            AuroraJobPill(
+                icon = Icons.Filled.Unarchive,
+                title = state.archiveName.ifBlank { "Unpacking" },
+                detail = if (listing) "Reading archive…" else buildString {
+                    append("${state.percent}%")
+                    if (state.speedBps > 0) append("  •  ${StringUtils.formatBytes(state.speedBps)}/s")
+                    if (state.etaSeconds >= 0) append("  •  ETA ${StringUtils.humanDuration(state.etaSeconds * 1000)}")
+                },
+                progress = if (listing) null else state.percent / 100f,
+                onClick = { context.startActivity(UnpackArchiveActivity.intent(context, state.archivePath)) },
+                cancelLabel = "Cancel unpack",
+                onCancel = { UnpackService.cancel(context) },
+            )
+        }
+        return
+    }
     if (!state.isRunning) return
 
     val listing = state.phase == UnpackPhase.LISTING
@@ -134,6 +175,26 @@ fun UnpackProgressPill(modifier: Modifier = Modifier) {
 fun PackProgressPill(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val state by PackManager.state.collectAsState()
+    if (isAurora) {
+        AuroraPillSlot(state.isRunning, modifier) {
+            val scanning = state.phase == PackPhase.SCANNING
+            AuroraJobPill(
+                icon = Icons.Filled.Archive,
+                title = state.archiveName.ifBlank { "Compressing" },
+                detail = if (scanning) "Scanning files…" else buildString {
+                    append("${state.percent}%")
+                    if (state.speedBps > 0) append("  •  ${StringUtils.formatBytes(state.speedBps)}/s")
+                    if (state.etaSeconds >= 0) append("  •  ETA ${StringUtils.humanDuration(state.etaSeconds * 1000)}")
+                    state.currentFile?.let { append("  •  ").append(it.substringAfterLast('/')) }
+                },
+                progress = if (scanning) null else state.percent / 100f,
+                onClick = null,
+                cancelLabel = "Cancel compression",
+                onCancel = { PackService.cancel(context) },
+            )
+        }
+        return
+    }
     if (!state.isRunning) return
 
     val scanning = state.phase == PackPhase.SCANNING
@@ -200,6 +261,20 @@ fun PackProgressPill(modifier: Modifier = Modifier) {
 fun ApkJobPill(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val state by ApkJobManager.state.collectAsState()
+    if (isAurora) {
+        AuroraPillSlot(state.isRunning, modifier) {
+            AuroraJobPill(
+                icon = Icons.Filled.Android,
+                title = when (state.kind) { ApkJobKind.CLONE -> "Cloning "; ApkJobKind.EDIT -> "Editing "; ApkJobKind.SIGN -> "Signing " } + state.sourceName,
+                detail = state.stage.label + "…",
+                progress = state.fraction,
+                onClick = null,
+                cancelLabel = "Cancel",
+                onCancel = { ApkJobService.cancel(context) },
+            )
+        }
+        return
+    }
     if (!state.isRunning) return
     Card(
         modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -234,6 +309,26 @@ fun ApkJobPill(modifier: Modifier = Modifier) {
 fun ConvertProgressPill(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val state by ConvertManager.state.collectAsState()
+    if (isAurora) {
+        AuroraPillSlot(state.isRunning, modifier) {
+            val probing = state.phase == ConvertPhase.PROBING
+            AuroraJobPill(
+                icon = Icons.Filled.Movie,
+                title = (if (state.batchTotal > 1) "Video ${state.batchIndex}/${state.batchTotal} — " else "Converting ") + state.currentName,
+                detail = if (probing) "Reading…" else buildString {
+                    append("${state.percent}%")
+                    if (state.speed > 0f) append("  •  ${"%.1f".format(state.speed)}×")
+                    if (state.outputBytes > 0) append("  •  ${StringUtils.formatBytes(state.outputBytes)}")
+                    if (state.etaSeconds >= 0) append("  •  ETA ${StringUtils.humanDuration(state.etaSeconds * 1000)}")
+                },
+                progress = if (probing) null else state.overallPercent / 100f,
+                onClick = null,
+                cancelLabel = "Cancel conversion",
+                onCancel = { ConvertService.cancel(context) },
+            )
+        }
+        return
+    }
     if (!state.isRunning) return
     val probing = state.phase == ConvertPhase.PROBING
     Card(
@@ -271,5 +366,59 @@ fun ConvertProgressPill(modifier: Modifier = Modifier) {
             if (probing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(4.dp))
             else LinearProgressIndicator(progress = { state.overallPercent / 100f }, modifier = Modifier.fillMaxWidth().height(4.dp))
         }
+    }
+}
+
+/** Aurora Glass: a job pill grows in under the status bar while its job runs and folds away after. */
+@Composable
+private fun AuroraPillSlot(visible: Boolean, modifier: Modifier, content: @Composable () -> Unit) {
+    val reduced = LocalReducedMotion.current
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = if (reduced) EnterTransition.None else
+            expandVertically(spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)) + fadeIn(tween(220, delayMillis = 60)),
+        exit = if (reduced) ExitTransition.None else
+            shrinkVertically(tween(260, easing = BfeMotion.EmphasizedAccelerate)) + fadeOut(tween(160)),
+    ) { content() }
+}
+
+/**
+ * One running job as a glass capsule: the job's icon, what it is, its live numbers, the shimmering
+ * progress bar (indeterminate while listing / scanning) and ✕ to cancel. Same data as Classic's card.
+ */
+@Composable
+internal fun AuroraJobPill(
+    icon: ImageVector,
+    title: String,
+    detail: String,
+    progress: Float?,
+    onClick: (() -> Unit)?,
+    cancelLabel: String,
+    onCancel: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val g = LocalGlass.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .glass(RoundedCornerShape(18.dp), GlassLevel.Floating)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 8.dp),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(32.dp).clip(CircleShape).background(g.raised),
+        ) { Icon(icon, null, tint = cs.tertiary, modifier = Modifier.size(17.dp)) }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = cs.onSurface, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, color = cs.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(5.dp))
+            ShimmerProgressBar(progress, height = 3.dp)
+        }
+        GlassIconButton(Icons.Filled.Close, cancelLabel, onClick = onCancel, size = 38.dp, iconSize = 18.dp, tint = cs.error)
     }
 }
