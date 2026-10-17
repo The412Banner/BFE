@@ -311,47 +311,18 @@ private fun HomeMoreButton(onOpenFiles: () -> Unit, onRefresh: () -> Unit, onOpe
 private fun AuroraHomeTile(tile: HomeTile, modifier: Modifier = Modifier, onLaunch: (CoordsHolder) -> Unit) {
     val holder = remember { CoordsHolder() }
     val dark = LocalGlass.current.palette.dark
-    // Two cells wide (as Classic): icon circle left, name + one-line stats right, full-width usage bar.
+    // Two cells wide, laid out as Classic's (HomeTileBody: name across the top, icon + stats under it).
     HomeTileFrame(
         onClick = { onLaunch(holder); tile.onClick() },
         onLongClick = null,
         wide = true,
         modifier = modifier.onGloballyPositioned { holder.coords = it },
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(44.dp).clip(CircleShape).background(tile.style.color.copy(alpha = if (dark) 0.20f else 0.15f)),
-            ) {
-                Icon(tile.style.icon, null, tint = if (dark) lerp(tile.style.color, androidx.compose.ui.graphics.Color.White, 0.25f) else tile.style.color, modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    tile.label,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    lineHeight = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    // One line where it fits: "2.22 GB · 5,342 files".
-                    tile.stats?.replace("\n", " · ") ?: "…",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        tile.fraction?.let { f ->
-            Spacer(Modifier.height(10.dp))
-            UsageBar(f, tile.style.color, Modifier.fillMaxWidth(), height = 4.dp)
-        }
+        HomeTileBody(
+            tile,
+            iconBackground = tile.style.color.copy(alpha = if (dark) 0.20f else 0.15f),
+            iconTint = if (dark) lerp(tile.style.color, androidx.compose.ui.graphics.Color.White, 0.25f) else tile.style.color,
+        ) { f -> UsageBar(f, tile.style.color, Modifier.fillMaxWidth(), height = 4.dp) }
     }
 }
 

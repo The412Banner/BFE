@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -408,42 +409,11 @@ internal fun HomeAboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit) 
     )
 }
 
-/** A rounded tile: icon in a tinted circle, label, a two-line stats line and (storage) a usage bar. */
+/** A rounded tile, laid out by [HomeTileBody]; the usage bar is a plain progress bar. */
 @Composable
 private fun HomeTileCard(tile: HomeTile) {
     HomeTileFrame(onClick = tile.onClick, onLongClick = null, wide = true) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(44.dp).clip(CircleShape).background(tile.style.color.copy(alpha = 0.16f)),
-            ) {
-                Icon(tile.style.icon, null, tint = tile.style.color, modifier = Modifier.size(24.dp))
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    tile.label,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    lineHeight = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    // One line where it fits: "2.22 GB · 5,342 files".
-                    tile.stats?.replace("\n", " · ") ?: "…",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        tile.fraction?.let { f ->
-            Spacer(Modifier.height(10.dp))
+        HomeTileBody(tile, iconBackground = tile.style.color.copy(alpha = 0.16f), iconTint = tile.style.color) { f ->
             LinearProgressIndicator(
                 progress = { f },
                 color = tile.style.color,
@@ -451,6 +421,60 @@ private fun HomeTileCard(tile: HomeTile) {
                 modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
             )
         }
+    }
+}
+
+/**
+ * A dashboard tile's content (Classic and Aurora): the name centred across the top with the tile's
+ * whole width to fit in, the icon in a tinted circle beside the stats under it, and (storage) a
+ * usage bar along the bottom.
+ */
+@Composable
+internal fun ColumnScope.HomeTileBody(
+    tile: HomeTile,
+    iconBackground: Color,
+    iconTint: Color,
+    usageBar: @Composable (Float) -> Unit,
+) {
+    Text(
+        tile.label,
+        color = MaterialTheme.colorScheme.onSurface,
+        fontSize = 14.sp,
+        lineHeight = 17.sp,
+        fontWeight = FontWeight.SemiBold,
+        textAlign = TextAlign.Center,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.weight(1f))
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(36.dp).clip(CircleShape).background(iconBackground),
+        ) {
+            Icon(tile.style.icon, null, tint = iconTint, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            // One line where it fits: "2.22 GB · 5,342 files".
+            tile.stats?.replace("\n", " · ") ?: "…",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    Spacer(Modifier.weight(1f))
+    tile.fraction?.let { f ->
+        Spacer(Modifier.height(6.dp))
+        usageBar(f)
     }
 }
 
