@@ -398,11 +398,12 @@ class OdfConverter private constructor(
         val alt = frame.child(Ns.SVG, "title")?.text() ?: frame.child(Ns.SVG, "desc")?.text() ?: ""
         val href = img.attr(Ns.XLINK, "href")
         val bin = img.child(Ns.OFFICE, "binary-data")?.text()
+        val z = zip
         val url = when {
             bin != null -> runCatching { Base64.getMimeDecoder().decode(bin.trim()) }.getOrNull()?.let { bytes -> assets.put("image." + sniffImageExt(bytes), bytes) }
-            href != null && zip != null && !href.contains("://") -> {
+            href != null && z != null && !href.contains("://") -> {
                 val path = resolveZipPath("", href.removePrefix("./"))
-                val bytes = runCatching { zip.bytes(path) }.getOrNull() ?: return placeholder(path)
+                val bytes = runCatching { z.bytes(path) }.getOrNull() ?: return placeholder(path)
                 val name = if (isWebImage(path)) path else "$path.${sniffImageExt(bytes)}"
                 assets.put(name, bytes) ?: return placeholder(path)
             }

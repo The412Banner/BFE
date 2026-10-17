@@ -58,6 +58,9 @@ object DocumentViewer {
     /** True for the plain-text kinds ("View text" rather than "View document"). */
     fun isTextName(name: String, mime: String? = null): Boolean = DocFormats.kindOf(name, mime) == DocKind.TEXT
 
+    /** True for binary .doc / .xls / .ppt: the viewer only explains them, so a caller may prefer the sheet. */
+    fun isLegacyOfficeName(name: String, mime: String? = null): Boolean = DocFormats.kindOf(name, mime) == DocKind.LEGACY_OFFICE
+
     /**
      * The viewer for [path] (a real, readable file — preferred: no copy, and Markdown's relative
      * pictures load) or [uri] (a content:// Uri, read-granted to the viewer). [name] is what the file

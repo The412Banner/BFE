@@ -28,12 +28,13 @@ cp "$here/sample.md" "$out/sample.md"
 )
 python3 -I "$here/make_office.py" "$work" "$out" "$@"
 
-# Hand-written RTF: code page 1252 hex escapes, \u Unicode with a fallback, \b0, \page, \line.
+# Hand-written RTF: code page 1252 hex escapes, \u Unicode with a fallback, \b0 (an empty group keeps the
+# space after it: a control word eats the one space that ends it), \page, \line.
 python3 -I -c '
 import sys
 open(sys.argv[1], "w", newline="\n").write(
     r"{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Arial;}}{\colortbl;\red192\green0\blue0;}" "\n"
     r"\pard\qc\b Caf\'"'"'e9 Title\b0\par" "\n"
-    r"\pard Price: 5 \u8364? euro, {\cf1 red text}, {\i italic} and \b bold\b0 again.\line Second line.\par" "\n"
+    r"\pard Price: 5 \u8364? euro, {\cf1 red text}, {\i italic} and \b bold\b0{} again.\line Second line.\par" "\n"
     r"\page\pard After the break.\par}" "\n")
 ' "$out/extras.rtf"

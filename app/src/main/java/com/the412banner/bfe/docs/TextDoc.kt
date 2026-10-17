@@ -68,7 +68,7 @@ class TextDoc private constructor(
 
     /** The whole text (CSV table view, copying), up to [maxChars]. */
     fun fullText(maxChars: Int = 32 * 1024 * 1024): String {
-        val end = minOf(buf.limit(), encoding.bom + maxChars.toLong() * encoding.unit).toInt()
+        val end = minOf(buf.limit().toLong(), encoding.bom + maxChars.toLong() * encoding.unit).toInt()
         return decode(encoding.bom, end)
     }
 

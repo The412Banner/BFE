@@ -123,7 +123,7 @@ object DocFormats {
                 return DocKind.LEGACY_OFFICE
             ascii.startsWith("PK") -> return sniffZip(file)
         }
-        if (ascii.contains("<office:document")) return DocKind.ODT
+        if (String(head, Charsets.ISO_8859_1).contains("<office:document")) return DocKind.ODT
         return if (TextDoc.looksLikeText(head)) DocKind.TEXT else null
     }
 

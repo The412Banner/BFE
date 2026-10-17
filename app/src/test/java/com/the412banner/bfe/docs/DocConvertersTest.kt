@@ -115,7 +115,8 @@ class DocConvertersTest {
         assertHas(html, "This paragraph has <b>bold words</b>, <i>italic words</i>, <s>struck words</s> and <u>underlined words</u>.")
         assertMatches(html, "<a href=\"https://github.com/The412Banner/BFE\">.*?the BFE repository.*?</a>")
         assertHas(html, lists)
-        assertHas(html, "<tr><th>Game</th><th>Year</th><th>Rating</th></tr><tr><td>Half-Life</td><td>1998</td><td>96</td></tr>")
+        // pandoc's "Table Heading" paragraph style is bold, so the header text keeps its <b>.
+        assertMatches(html, "<tr><th>(<b>)?Game(</b>)?</th><th>(<b>)?Year(</b>)?</th><th>(<b>)?Rating(</b>)?</th></tr><tr><td>Half-Life</td><td>1998</td><td>96</td></tr>")
         assertHas(html, "<sup class=\"fn\"><a id=\"fnref-1\" href=\"#fn-1\">1</a></sup>")
         assertMatches(html, "<li id=\"fn-1\"><p>The footnote text lives here\\. <a href=\"#fnref-1\">")
         assertMatches(html, "<img src=\"res/0\\.png\" style=\"width:10px\"")
