@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
@@ -219,8 +220,9 @@ internal fun AddAppStorageTile(onClick: () -> Unit) {
 }
 
 /**
- * Shared tile chrome for Home: same size, shape and border as the dashboard tiles. Aurora Glass: a
- * glass tile that dips when pressed; the ＋ tile is a clear tile with a dashed accent rim.
+ * Shared tile chrome for Home: the same shape and border for app-storage and dashboard ([wide])
+ * tiles; dashboard tiles pass a taller [height]. Aurora Glass: a glass tile that dips when pressed;
+ * the ＋ tile is a clear tile with a dashed accent rim.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -229,6 +231,7 @@ internal fun HomeTileFrame(
     onLongClick: (() -> Unit)?,
     dashed: Boolean = false,
     wide: Boolean = false,
+    height: Dp = HOME_TILE_HEIGHT,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -240,7 +243,7 @@ internal fun HomeTileFrame(
             verticalArrangement = if (dashed || wide) Arrangement.Center else Arrangement.Top,
             modifier = modifier
                 .fillMaxWidth()
-                .height(HOME_TILE_HEIGHT)
+                .height(height)
                 .pressScale(interaction, 0.96f)
                 .then(
                     if (dashed) Modifier.clip(Glass.Tile).drawBehind {
@@ -255,14 +258,14 @@ internal fun HomeTileFrame(
                     } else Modifier.glass(Glass.Tile, GlassLevel.Panel),
                 )
                 .combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = onLongClick)
-                .padding(horizontal = if (wide) 12.dp else 4.dp, vertical = 8.dp),
+                .padding(horizontal = if (wide) 8.dp else 4.dp, vertical = 8.dp),
         ) { content() }
         return
     }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(HOME_TILE_HEIGHT)
+            .height(height)
             .clip(RoundedCornerShape(14.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = RoundedCornerShape(14.dp),
@@ -274,7 +277,7 @@ internal fun HomeTileFrame(
         Column(
             horizontalAlignment = if (wide) Alignment.Start else Alignment.CenterHorizontally,
             verticalArrangement = if (dashed || wide) Arrangement.Center else Arrangement.Top,
-            modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 12.dp else 4.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 8.dp else 4.dp, vertical = 8.dp),
         ) { content() }
     }
 }

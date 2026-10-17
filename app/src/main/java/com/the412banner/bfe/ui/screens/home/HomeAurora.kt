@@ -144,15 +144,11 @@ internal fun AuroraHome(
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 AuroraHomeHeader(stats = stats, onOpenServer = onOpenServer)
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                    // Cells are sized for the small app-storage tiles; dashboard tiles take two cells, so
-                    // the count stays even (no half-empty rows) — as in Classic.
-                    val cells = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12)
-                    else (maxWidth / 76.dp).toInt().coerceIn(4, 8)
-                    val columns = cells - cells % 2
+                    val grid = homeGrid(maxWidth, landscape, sidePadding = 16.dp)
                     // Entrance order for the staggered fade-in: tiles in reading order.
                     val order = remember(tiles) { tiles.mapIndexed { i, t -> t.key to i }.toMap() }
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(columns),
+                        columns = GridCells.Fixed(grid.columns),
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = if (landscape) 16.dp else 96.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -161,7 +157,7 @@ internal fun AuroraHome(
                         listOf("Storage" to storage, "Library" to library, "Connect" to connect).forEach { (label, group) ->
                             if (group.isEmpty()) return@forEach
                             item(key = "label:$label", span = { GridItemSpan(maxLineSpan) }) { SectionLabel(label) }
-                            items(group, key = { it.key }, span = { GridItemSpan(2) }) { tile ->
+                            items(group, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile ->
                                 AuroraHomeTile(
                                     tile,
                                     Modifier.staggeredEnter(order[tile.key] ?: 0, Unit, enabled = SystemClock.uptimeMillis() - bornAt < 700),
@@ -171,13 +167,13 @@ internal fun AuroraHome(
                         }
                         // Other apps' storage pinned to Home, then the ＋ tile to add another.
                         item(key = "label:appstorage", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("App storage") }
-                        items(appStorage.pins, key = { "pin:" + it.key }) { pin ->
+                        items(appStorage.pins, key = { "pin:" + it.key }, span = { GridItemSpan(grid.appSpan) }) { pin ->
                             val holder = remember { CoordsHolder() }
                             Box(Modifier.onGloballyPositioned { holder.coords = it }) {
                                 AppStorageTileCard(pin, onClick = { launchFrom(holder); appStorage.open(pin) }, onLongClick = { appStorage.remove(pin) })
                             }
                         }
-                        item(key = "appstorage-add") { AddAppStorageTile(onClick = appStorage.add) }
+                        item(key = "appstorage-add", span = { GridItemSpan(grid.appSpan) }) { AddAppStorageTile(onClick = appStorage.add) }
                         item(key = "label:favorites", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Favorites") }
                         item(key = "favorites", span = { GridItemSpan(maxLineSpan) }) {
                             AuroraFavoritesRow(favorites, onOpen = { holder, dir -> launchFrom(holder); onOpenFolder(FmLocationRequest.folder(dir)) })
@@ -311,11 +307,12 @@ private fun HomeMoreButton(onOpenFiles: () -> Unit, onRefresh: () -> Unit, onOpe
 private fun AuroraHomeTile(tile: HomeTile, modifier: Modifier = Modifier, onLaunch: (CoordsHolder) -> Unit) {
     val holder = remember { CoordsHolder() }
     val dark = LocalGlass.current.palette.dark
-    // Two cells wide, laid out as Classic's (HomeTileBody: name across the top, icon + stats under it).
+    // Laid out as Classic's (HomeTileBody: name across the top, icon under it, stats along the bottom).
     HomeTileFrame(
         onClick = { onLaunch(holder); tile.onClick() },
         onLongClick = null,
         wide = true,
+        height = homeDashTileHeight(),
         modifier = modifier.onGloballyPositioned { holder.coords = it },
     ) {
         HomeTileBody(
