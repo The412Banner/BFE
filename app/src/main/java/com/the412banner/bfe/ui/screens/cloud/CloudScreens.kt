@@ -39,7 +39,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -74,6 +73,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.icons.BfeIcon
 import com.the412banner.bfe.cloud.CloudSection
 import com.the412banner.bfe.cloud.CloudServices
@@ -355,7 +355,7 @@ private fun AccountsPage(
                     IconButton(onClick = { tick++ }) { Icon(Icons.Filled.Refresh, "Refresh") }
                     Box {
                         IconButton(onClick = { showMenu = true }) { Icon(Icons.Filled.MoreVert, "More") }
-                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.outlinedMenuCard()) {
+                        BfeDropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, modifier = Modifier.outlinedMenuCard()) {
                             DropdownMenuItem(
                                 text = { Text("About rclone") },
                                 leadingIcon = { Icon(Icons.Filled.Info, null) },
@@ -575,7 +575,7 @@ private fun AccountCard(
             }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Options") }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.outlinedMenuCard()) {
+                BfeDropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.outlinedMenuCard()) {
                     DropdownMenuItem(
                         text = { Text("Rename") },
                         leadingIcon = { Icon(Icons.Filled.DriveFileRenameOutline, null) },

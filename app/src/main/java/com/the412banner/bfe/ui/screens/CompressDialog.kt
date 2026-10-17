@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -39,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.pack.PackFormat
 import com.the412banner.bfe.pack.PackLevel
 import com.the412banner.bfe.pack.WcpProfile
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 
 /** The Winlator content-pack fields the user fills in for a .wcp (see [WcpProfile]). */
 data class WcpMeta(
@@ -189,7 +189,7 @@ internal fun CompressDialog(
                     OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth()) {
                         Text("Type: $wcpType", fontSize = 13.sp)
                     }
-                    DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }, modifier = Modifier.outlinedMenuCard()) {
+                    BfeDropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }, modifier = Modifier.outlinedMenuCard()) {
                         WcpProfile.TYPES.forEach { t ->
                             DropdownMenuItem(text = { Text(t) }, onClick = { wcpType = t; typeMenu = false })
                         }

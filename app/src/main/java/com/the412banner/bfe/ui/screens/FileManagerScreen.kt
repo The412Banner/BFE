@@ -96,7 +96,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -162,6 +161,7 @@ import com.the412banner.bfe.core.ApkIconLoader
 import com.the412banner.bfe.core.PeIconExtractor
 import com.the412banner.bfe.core.StorageRoot
 import com.the412banner.bfe.core.StorageRoots
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.components.CollapsibleRail
 import com.the412banner.bfe.ui.icons.BfeIcon
 import com.the412banner.bfe.ui.icons.FileIcons
@@ -1023,7 +1023,7 @@ private fun SharedToolbar(
                         .padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
-            DropdownMenu(
+            BfeDropdownMenu(
                 expanded = showDriveMenu,
                 onDismissRequest = { showDriveMenu = false },
                 modifier = Modifier.outlinedMenuCard(),
@@ -1121,7 +1121,7 @@ private fun SharedToolbar(
                     Text("New ▾", color = MaterialTheme.colorScheme.onBackground, fontSize = 12.sp)
                 }
             }
-            DropdownMenu(expanded = showNewMenu, onDismissRequest = { showNewMenu = false }, modifier = Modifier.outlinedMenuCard()) {
+            BfeDropdownMenu(expanded = showNewMenu, onDismissRequest = { showNewMenu = false }, modifier = Modifier.outlinedMenuCard()) {
                 DropdownMenuItem(
                     text = { Text("Folder") },
                     leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
@@ -1173,7 +1173,7 @@ private fun SharedToolbar(
             IconButton(onClick = { showSortMenu = true }) {
                 Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+            BfeDropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                 // Folders are always listed first; each group has its own order.
                 @Composable
                 fun SortHeader(text: String) = Text(
@@ -1272,7 +1272,7 @@ private fun SharedToolbar(
             IconButton(onClick = { showTools = true }) {
                 Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            DropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
+            BfeDropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
                 if (browsing && !active.isArchive) {
                     DropdownMenuItem(
                         text = { Text("New folder…") },
@@ -3479,7 +3479,7 @@ private fun FileItemRow(
                                 .size(18.dp)
                                 .clickable { onMenu() },
                         )
-                        DropdownMenu(
+                        BfeDropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = onDismissMenu,
                             modifier = Modifier.outlinedMenuCard(),
@@ -3592,7 +3592,7 @@ private fun FileItemRow(
                 IconButton(onClick = onMenu) {
                     Icon(Icons.Filled.MoreVert, "Actions", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }
-                DropdownMenu(
+                BfeDropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = onDismissMenu,
                     modifier = Modifier.outlinedMenuCard(),
@@ -3952,7 +3952,7 @@ private fun FileGridTile(
                 Icon(Icons.Filled.MoreVert, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
             }
         }
-        DropdownMenu(
+        BfeDropdownMenu(
             expanded = menuExpanded,
             onDismissRequest = onDismissMenu,
             modifier = Modifier.outlinedMenuCard(),

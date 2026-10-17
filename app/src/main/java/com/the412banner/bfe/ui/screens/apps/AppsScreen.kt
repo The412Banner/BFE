@@ -44,7 +44,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -86,6 +85,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.apk.ApkJobKind
 import com.the412banner.bfe.apk.ApkJobManager
@@ -473,7 +473,7 @@ private fun AppsTopBar(
             IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Search") }
             Box {
                 IconButton(onClick = { sortMenu = true }) { Icon(Icons.Filled.Sort, "Sort") }
-                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }, modifier = Modifier.outlinedMenuCard()) {
+                BfeDropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }, modifier = Modifier.outlinedMenuCard()) {
                     listOf("name" to "Name", "size" to "Size", "installed" to "Install date", "updated" to "Update date").forEach { (key, label) ->
                         DropdownMenuItem(
                             text = { Text(if (sortBy == key) "$label  ${if (sortDesc) "↓" else "↑"}" else label) },

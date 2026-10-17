@@ -31,7 +31,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -65,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.icons.BfeIcon
 import com.the412banner.bfe.ui.icons.FileIcons
 import com.the412banner.bfe.ui.icons.FileTypeIcon
@@ -452,7 +452,7 @@ fun UnpackArchiveScreen(
                             onClick = { bufferMenu = true },
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         ) { Text(buffer.label, color = MaterialTheme.colorScheme.onBackground) }
-                        DropdownMenu(expanded = bufferMenu, onDismissRequest = { bufferMenu = false }) {
+                        BfeDropdownMenu(expanded = bufferMenu, onDismissRequest = { bufferMenu = false }) {
                             ReadBuffer.entries.forEach { b ->
                                 DropdownMenuItem(text = { Text(b.label) }, onClick = { buffer = b; bufferMenu = false })
                             }

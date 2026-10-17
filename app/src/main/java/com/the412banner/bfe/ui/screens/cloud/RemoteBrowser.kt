@@ -52,7 +52,6 @@ import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -90,6 +89,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.preference.PreferenceManager
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.icons.BfeIcon
 import com.the412banner.bfe.ui.icons.FileIcons
 import com.the412banner.bfe.ui.icons.FileTypeIcon
@@ -402,7 +402,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                             IconButton(onClick = { searching = true }) { Icon(Icons.Filled.Search, "Search") }
                             Box {
                                 IconButton(onClick = { showUpload = true }) { Icon(Icons.Filled.CloudUpload, "Upload") }
-                                DropdownMenu(expanded = showUpload, onDismissRequest = { showUpload = false }, modifier = Modifier.outlinedMenuCard()) {
+                                BfeDropdownMenu(expanded = showUpload, onDismissRequest = { showUpload = false }, modifier = Modifier.outlinedMenuCard()) {
                                     DropdownMenuItem(
                                         text = { Text("Files…") },
                                         leadingIcon = { Icon(Icons.Filled.UploadFile, null) },
@@ -423,7 +423,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                             TransfersButton(onTransfers)
                             Box {
                                 IconButton(onClick = { showMore = true }) { Icon(Icons.Filled.MoreVert, "More") }
-                                DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }, modifier = Modifier.outlinedMenuCard()) {
+                                BfeDropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }, modifier = Modifier.outlinedMenuCard()) {
                                     DropdownMenuItem(
                                         text = { Text("New folder") },
                                         leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null) },
@@ -493,7 +493,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                                 ) {
                                     Box {
                                         IconButton(onClick = { menuFor = e.path }) { Icon(Icons.Filled.MoreVert, "Options", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                        DropdownMenu(expanded = menuFor == e.path, onDismissRequest = { menuFor = null }, modifier = Modifier.outlinedMenuCard()) {
+                                        BfeDropdownMenu(expanded = menuFor == e.path, onDismissRequest = { menuFor = null }, modifier = Modifier.outlinedMenuCard()) {
                                             if (!e.isDir) {
                                                 DropdownMenuItem(
                                                     text = { Text("Open") },

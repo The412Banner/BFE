@@ -28,7 +28,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -68,6 +67,7 @@ import com.the412banner.bfe.apk.SignSchemes
 import com.the412banner.bfe.apk.SigningKeys
 import com.the412banner.bfe.storage.InstalledApp
 import com.the412banner.bfe.storage.InstalledApps
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -122,7 +122,7 @@ private fun KeyAndSchemesRows(
         OutlinedButton(onClick = { keyMenu = true }, modifier = Modifier.weight(1f)) {
             Text(key.displayName, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        DropdownMenu(expanded = keyMenu, onDismissRequest = { keyMenu = false }, modifier = Modifier.outlinedMenuCard()) {
+        BfeDropdownMenu(expanded = keyMenu, onDismissRequest = { keyMenu = false }, modifier = Modifier.outlinedMenuCard()) {
             keys.forEach { k ->
                 DropdownMenuItem(text = { Text(k.displayName + if (k.isBuiltIn) "" else "  (${k.alias})") }, onClick = { onKey(k); keyMenu = false })
             }

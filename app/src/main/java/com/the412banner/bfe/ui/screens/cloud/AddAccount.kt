@@ -42,7 +42,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -87,6 +86,7 @@ import com.the412banner.bfe.cloud.RcOption
 import com.the412banner.bfe.cloud.RcProvider
 import com.the412banner.bfe.cloud.RcloneDaemon
 import com.the412banner.bfe.cloud.ServiceField
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -395,7 +395,7 @@ internal fun FieldInput(field: ServiceField, value: String, onChange: (String) -
             modifier = Modifier.fillMaxWidth(),
         )
         if (field.choices.isNotEmpty()) {
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            BfeDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 field.choices.forEach { (v, label) ->
                     DropdownMenuItem(
                         text = {

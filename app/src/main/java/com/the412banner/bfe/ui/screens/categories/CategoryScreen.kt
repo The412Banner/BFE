@@ -59,7 +59,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -102,6 +101,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import com.the412banner.bfe.ui.components.BfeDropdownMenu
 import com.the412banner.bfe.ui.icons.BfeIcon
 import com.the412banner.bfe.ui.icons.fileIconRes
 import com.the412banner.bfe.UnpackArchiveActivity
@@ -565,7 +565,7 @@ private fun CategoryTopBar(
                 IconButton(onClick = onToggleView) { Icon(if (grid) Icons.Filled.ViewList else Icons.Filled.GridView, if (grid) "List view" else "Grid view") }
                 Box {
                     IconButton(onClick = { sortMenu = true }) { Icon(Icons.Filled.Sort, "Sort") }
-                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }, modifier = Modifier.outlinedMenuCard()) {
+                    BfeDropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }, modifier = Modifier.outlinedMenuCard()) {
                         listOf("name" to "Name", "date" to dateLabel, "size" to "Size").forEach { (key, label) ->
                             DropdownMenuItem(
                                 text = { Text(if (sortBy == key) "$label  ${if (sortDesc) "↓" else "↑"}" else label) },
@@ -732,7 +732,7 @@ private fun MediaListRow(
                 IconButton(onClick = onMenu) {
                     Icon(Icons.Filled.MoreVert, "Actions", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = onDismissMenu, modifier = Modifier.outlinedMenuCard()) {
+                BfeDropdownMenu(expanded = menuExpanded, onDismissRequest = onDismissMenu, modifier = Modifier.outlinedMenuCard()) {
                     @Composable
                     fun Item(label: String, icon: ImageVector, danger: Boolean = false, action: () -> Unit) {
                         val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
