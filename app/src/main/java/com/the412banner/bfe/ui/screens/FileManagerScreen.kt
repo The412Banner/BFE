@@ -193,6 +193,12 @@ import com.the412banner.bfe.util.DateText
 import com.the412banner.bfe.util.FavoritesStore
 import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.ui.screens.home.HomePrefs
+import com.the412banner.bfe.ui.theme.isAurora
+import com.the412banner.bfe.ui.theme.LocalHazeState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -251,6 +257,44 @@ private fun elidePathStart(path: String, max: Int): String {
 }
 
 /**
+ * The pane's clickable breadcrumb: drive (or pinned location) first, then one crumb per folder down to
+ * the current one; inside an archive "…/folder › Game.zip › inner". Each crumb carries what tapping it
+ * does (null = not tappable). Shared by both looks' pane headers.
+ */
+internal fun paneCrumbs(paneState: PaneState, currentFile: File?, locDisplayPath: String, navFileDir: (File) -> Unit): List<Pair<String, (() -> Unit)?>> =
+    if (currentFile != null) {
+        val root = File(paneState.rootPath)
+        val rootAbs = root.absolutePath
+        val curAbs = currentFile.absolutePath
+        val rootPrefix = rootAbs.trimEnd('/') + "/"
+        val rel = if (curAbs == rootAbs) "" else curAbs.removePrefix(rootPrefix)
+        if (curAbs != rootAbs && !curAbs.startsWith(rootPrefix)) {
+            listOf<Pair<String, (() -> Unit)?>>(elidePathStart(locDisplayPath, 52) to null)
+        } else {
+            val out = mutableListOf<Pair<String, (() -> Unit)?>>(
+                describeLocation(root).driveLabel.ifBlank { root.name.ifBlank { "/" } } to { navFileDir(root) }
+            )
+            var acc = root
+            rel.split('/').filter { it.isNotEmpty() }.forEach { seg ->
+                acc = File(acc, seg)
+                val target = acc
+                out.add(seg to { navFileDir(target) })
+            }
+            out
+        }
+    } else if (paneState.isArchive) {
+        // …/folder › Game.zip › inner › dir — the first crumb leaves the archive.
+        val stack = paneState.altStack
+        listOf<Pair<String, (() -> Unit)?>>("\u2026/" + File(paneState.path).name.ifBlank { "/" } to { paneState.exitAlt() }) +
+            stack.mapIndexed { i, loc -> loc.name to { paneState.altStack = stack.take(i + 1) } }
+    } else {
+        val stack = paneState.altStack
+        stack.mapIndexed { i, loc ->
+            (if (i == 0) paneState.altLabel else loc.name) to { paneState.altStack = stack.take(i + 1) }
+        }
+    }
+
+/**
  * "Natural" name order, ignoring case: runs of digits compare as numbers, so "Disc 2" sorts before
  * "Disc 10" and "file9" before "file10".
  */
@@ -281,10 +325,10 @@ private fun comparatorFor(sortBy: String, desc: Boolean, folderSortBy: String, f
 }
 
 // Image extensions that get a real thumbnail (via Coil) instead of the generic file icon.
-private val IMAGE_THUMB_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "heic", "heif", "avif")
+internal val IMAGE_THUMB_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "heic", "heif", "avif")
 // Videos get a frame grabbed by Coil's VideoFrameDecoder (Android's own media stack, so what it can't
 // decode simply keeps the video type icon).
-private val VIDEO_THUMB_EXTS = setOf("mp4", "m4v", "mkv", "webm", "3gp", "mov", "ts", "avi", "wmv", "flv", "mpg", "mpeg")
+internal val VIDEO_THUMB_EXTS = setOf("mp4", "m4v", "mkv", "webm", "3gp", "mov", "ts", "avi", "wmv", "flv", "mpg", "mpeg")
 
 // After "New file…", these get an immediate "Open with…" offer (a text editor is the obvious next step).
 private val TEXT_LIKE_EXTS = setOf("txt", "md", "ini", "cfg", "conf", "json", "xml", "yml", "yaml", "log", "csv", "bat", "sh", "reg", "properties", "toml", "html", "htm", "kt", "java", "py", "js", "css", "gradle", "lua")
@@ -382,7 +426,7 @@ fun describeLocation(file: File): FavLocation {
 
 // Semantic identity colours for the favourite-card drive badge. Intentionally NOT theme
 // accent colours — they identify the storage source at a glance. Returns (background, foreground).
-private fun badgeColors(loc: FavLocation): Pair<Color, Color> {
+internal fun badgeColors(loc: FavLocation): Pair<Color, Color> {
     val white = Color(0xFFFFFFFF)
     return when (loc.storage) {
         FavStorage.INTERNAL -> Color(0xFF2E5FB0) to white   // blue
@@ -436,6 +480,10 @@ class PaneState(
     // APK-tools hooks (wired by BrowserPane, invoked from the shared toolbar's overflow menu).
     var onCloneInstalledApp: () -> Unit = {}
     var onSigningKeys: () -> Unit = {}
+    // Aurora Glass: this pane's multi-select actions, published by BrowserPane for the floating
+    // selection pill (null when not selecting), and which side of a dual split the pane is on.
+    var selectionUi by mutableStateOf<PaneSelectionUi?>(null)
+    var isRightPane by mutableStateOf(false)
     fun requestReload() { reloadTick++ }
 
     /** Whether this pane is currently browsing a SAF ("app storage") tree rather than a File dir. */
@@ -532,6 +580,8 @@ fun FileManagerScreen(
     openRequest: FmLocationRequest? = null,
     onHome: (() -> Unit)? = null,
     onBackAtRoot: (() -> Unit)? = null,
+    // Aurora Glass: the "Sharing" status chip opens the Access-from-network screen.
+    onOpenServer: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val prefs = remember { androidx.preference.PreferenceManager.getDefaultSharedPreferences(context) }
@@ -665,25 +715,44 @@ fun FileManagerScreen(
     val accent = MaterialTheme.colorScheme.primary
     val idleBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
 
+    val aurora = isAurora
+    LaunchedEffect(rightPane) { rightPane.isRightPane = true }
+
     // One dual-pane column: an activate-on-touch + accent-bordered box hosting an independent pane.
+    // Aurora Glass: a glass card whose active state brightens it, rims it in the accent and adds a glow.
     @Composable
     fun PaneColumn(index: Int, state: PaneState, other: PaneState, modifier: Modifier) {
         val isActive = activeIndex == index
         Box(
             modifier = modifier
                 .activateOnTouch(isActive) { activeIndex = index }
-                .border(2.dp, if (isActive) accent else idleBorder),
+                .then(if (aurora) Modifier.auroraPaneCard(isActive) else Modifier.border(2.dp, if (isActive) accent else idleBorder)),
         ) {
-            BrowserPane(
-                paneState = state,
-                dualPane = true,
-                // A pane showing an archive is read-only, so it's never a destination for the other pane.
-                otherPaneDir = { other.currentLoc.takeUnless { it is Loc.ArchiveLoc } },
-                onRequestOtherReload = { other.requestReload() },
-                modifier = Modifier.fillMaxSize(),
-            )
+            CompositionLocalProvider(LocalPaneActive provides isActive) {
+                BrowserPane(
+                    paneState = state,
+                    dualPane = true,
+                    // A pane showing an archive is read-only, so it's never a destination for the other pane.
+                    otherPaneDir = { other.currentLoc.takeUnless { it is Loc.ArchiveLoc } },
+                    onRequestOtherReload = { other.requestReload() },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
+
+    // ── Aurora Glass chrome state: the drive menu data the pane headers open, the blur source for the
+    //    floating pills, and how much room those pills take at the bottom of the lists ──
+    val fmChrome = remember { FmChrome() }
+    fmChrome.drives = drives
+    fmChrome.pinned = pinned
+    fmChrome.onOpenPinned = { openPinned(it) }
+    fmChrome.onAddAppStorage = { showAddStorage = true }
+    fmChrome.onUnpin = { p -> PinnedStorage.remove(context, p); pinnedTick++ }
+    val hazeState = remember { HazeState() }
+    val otherPane = if (active === leftPane) rightPane else leftPane
+    // The selection pill follows the active pane, or the other one if only it is selecting.
+    val selectionUi = active.selectionUi ?: if (effectiveDual) otherPane.selectionUi else null
 
     // ── "Add app storage" picker dialog (lists installed DocumentsProviders) ──
     if (showAddStorage) {
@@ -699,8 +768,19 @@ fun FileManagerScreen(
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val showSideRail = landscape && !pickMode
 
-    Row(modifier = Modifier.fillMaxSize()) {
-        if (showSideRail) {
+    if (aurora) {
+        val reserve = when {
+            landscape -> if (selectionUi != null) 76.dp else 12.dp
+            selectionUi != null -> 78.dp + if (selectionUi.actions.size > 5) 140.dp else 92.dp
+            else -> 78.dp
+        }
+        SideEffect { fmChrome.listBottomPadding = reserve }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalFmChrome provides fmChrome) {
+    Row(modifier = Modifier.fillMaxSize().then(if (aurora) Modifier.haze(hazeState) else Modifier)) {
+        if (showSideRail && !aurora) {
             val railState = rememberRailState("filemanager")
             val storageItems = buildList {
                 add(RailItem("Internal", Icons.Filled.Smartphone, false) { active.exitAlt(); active.onOpenDrive(File("/storage/emulated/0")) })
@@ -719,9 +799,13 @@ fun FileManagerScreen(
                 outlinedItems = true,
             )
         }
+        // Aurora's landscape pill rail floats at the left; leave it room.
+        if (aurora && landscape) Spacer(Modifier.width(76.dp))
         Column(modifier = Modifier.weight(1f).fillMaxSize()) {
             // ── ONE shared toolbar, full width, bound to the active pane ──
-            SharedToolbar(
+            // (Aurora: a quiet header here; the controls float in the pill / rail below.)
+            if (aurora) AuroraFmHeader(active = active, pickMode = pickMode, onOpenServer = onOpenServer)
+            else SharedToolbar(
                 active = active,
                 drives = drives,
                 pinned = pinned,
@@ -748,16 +832,27 @@ fun FileManagerScreen(
                     initialDir = initialDir,
                     pickerTitle = pickerTitle,
                     onPick = onPick,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                        .then(if (aurora) Modifier.padding(start = if (landscape) 2.dp else 10.dp, end = 10.dp, top = 2.dp, bottom = 8.dp).auroraPaneCard(true) else Modifier),
                 )
             } else {
                 // Drag the handle between the panes to resize them (20–80 %); double-tap resets to
-                // 50/50. The split is remembered across launches.
-                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                // 50/50. The split is remembered across launches. Panes sit side by side in both
+                // orientations (portrait splits down the middle).
+                BoxWithConstraints(
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                        .then(if (aurora) Modifier.padding(start = if (landscape) 2.dp else 10.dp, end = 10.dp, top = 2.dp, bottom = 8.dp) else Modifier),
+                ) {
                     val totalPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
                     Row(modifier = Modifier.fillMaxSize()) {
                         PaneColumn(0, leftPane, rightPane, Modifier.weight(splitFraction).fillMaxHeight())
-                        PaneDivider(
+                        if (aurora) AuroraPaneDivider(
+                            fraction = splitFraction,
+                            totalPx = totalPx,
+                            onDelta = { d -> splitFraction = (splitFraction + d).coerceIn(0.2f, 0.8f) },
+                            onFraction = { f -> splitFraction = f.coerceIn(0.2f, 0.8f) },
+                            onSettled = { f -> prefs.edit().putFloat("fmSplitFraction", f.coerceIn(0.2f, 0.8f)).apply() },
+                        ) else PaneDivider(
                             onDrag = { dx -> splitFraction = (splitFraction + dx / totalPx).coerceIn(0.2f, 0.8f) },
                             onDragEnd = { prefs.edit().putFloat("fmSplitFraction", splitFraction).apply() },
                             onReset = { splitFraction = 0.5f; prefs.edit().putFloat("fmSplitFraction", 0.5f).apply() },
@@ -767,6 +862,24 @@ fun FileManagerScreen(
                 }
             }
         }
+    }
+    } // LocalFmChrome
+    // ── Aurora Glass: the floating pill toolbar (portrait) / pill rail (landscape) + selection pill ──
+    if (aurora) {
+        CompositionLocalProvider(LocalHazeState provides hazeState) {
+            AuroraFmChrome(
+                active = active,
+                selection = selectionUi,
+                landscape = landscape,
+                dualPane = effectiveDual,
+                onToggleDualPane = toggleDual,
+                pickMode = pickMode,
+                prefs = prefs,
+                onHome = onHome,
+                onOpenSettings = onOpenSettings,
+            )
+        }
+    }
     }
 }
 
@@ -1012,48 +1125,7 @@ private fun SharedToolbar(
                 onDismissRequest = { showDriveMenu = false },
                 modifier = Modifier.outlinedMenuCard(),
             ) {
-                drives.forEachIndexed { index, drive ->
-                    if (index > 0) MenuItemDivider()
-                    DropdownMenuItem(
-                        text = { Text(drive.label) },
-                        leadingIcon = {
-                            Icon(
-                                if (drive.removable) Icons.Filled.SdStorage else Icons.Filled.Storage,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        },
-                        onClick = {
-                            showDriveMenu = false
-                            active.exitAlt()
-                            if (drive.readable) active.onOpenDrive(drive.dir)
-                            else AppSnackbar.show(context, "${drive.label} is mounted but not readable right now")
-                        },
-                    )
-                }
-                // Pinned SAF "app storage" locations, then the "+ Add app storage" entry.
-                pinned.forEach { p ->
-                    MenuItemDivider()
-                    DropdownMenuItem(
-                        text = { Text(p.label) },
-                        leadingIcon = { Icon(if (p.isRoot) Icons.Filled.Security else Icons.Filled.Cloud, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            Icon(
-                                Icons.Filled.Close, "Remove",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp).clickable { showDriveMenu = false; onUnpin(p) },
-                            )
-                        },
-                        onClick = { showDriveMenu = false; onOpenPinned(p) },
-                    )
-                }
-                MenuItemDivider()
-                DropdownMenuItem(
-                    text = { Text("Add app storage") },
-                    leadingIcon = { Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) },
-                    onClick = { showDriveMenu = false; onAddAppStorage() },
-                )
+                FmDriveMenuItems(active, drives, pinned, onOpenPinned, onAddAppStorage, onUnpin, onDone = { showDriveMenu = false })
             }
         }
     }
@@ -1106,17 +1178,7 @@ private fun SharedToolbar(
                 }
             }
             BfeDropdownMenu(expanded = showNewMenu, onDismissRequest = { showNewMenu = false }, modifier = Modifier.outlinedMenuCard()) {
-                DropdownMenuItem(
-                    text = { Text("Folder") },
-                    leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { showNewMenu = false; active.showNewFolderDialog = true },
-                )
-                MenuItemDivider()
-                DropdownMenuItem(
-                    text = { Text("File…") },
-                    leadingIcon = { Icon(Icons.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { showNewMenu = false; active.showNewFileDialog = true },
-                )
+                FmNewMenuItems(active, onDone = { showNewMenu = false })
             }
         }
     }
@@ -1158,71 +1220,7 @@ private fun SharedToolbar(
                 Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             BfeDropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                // Folders are always listed first; each group has its own order.
-                @Composable
-                fun SortHeader(text: String) = Text(
-                    text,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
-                )
-                @Composable
-                fun SortChoice(label: String, checked: Boolean, onPick: () -> Unit) = DropdownMenuItem(
-                    text = { Text(label) },
-                    leadingIcon = {
-                        if (checked) Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary)
-                        else Spacer(Modifier.size(24.dp))
-                    },
-                    onClick = {
-                        onPick()
-                        prefs.edit()
-                            .putString("fmFolderSortBy", active.folderSortBy).putBoolean("fmFolderSortDesc", active.folderSortDesc)
-                            .putString("fmFileSortBy", active.sortBy).putBoolean("fmFileSortDesc", active.sortDesc)
-                            .apply()
-                        showSortMenu = false
-                        active.requestReload()
-                    },
-                )
-                SortHeader("Folders")
-                listOf(
-                    Triple("Name (A → Z)", "name", false), Triple("Name (Z → A)", "name", true),
-                    Triple("Newest first", "date", true), Triple("Oldest first", "date", false),
-                ).forEach { (label, key, desc) ->
-                    SortChoice(label, active.folderSortBy == key && active.folderSortDesc == desc) {
-                        active.folderSortBy = key; active.folderSortDesc = desc
-                    }
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                SortHeader("Files")
-                listOf(
-                    Triple("Name (A → Z)", "name", false), Triple("Name (Z → A)", "name", true),
-                    Triple("Newest first", "date", true), Triple("Oldest first", "date", false),
-                    Triple("Largest first", "size", true), Triple("Smallest first", "size", false),
-                    Triple("Type", "type", false),
-                ).forEach { (label, key, desc) ->
-                    SortChoice(label, active.sortBy == key && active.sortDesc == desc) {
-                        active.sortBy = key; active.sortDesc = desc
-                    }
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-                DropdownMenuItem(
-                    text = { Text(if (active.compactRows) "Comfortable rows" else "Compact rows") },
-                    onClick = {
-                        active.compactRows = !active.compactRows
-                        prefs.edit().putBoolean("fmCompactRows", active.compactRows).apply()
-                        showSortMenu = false
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(if (active.showHidden) "Hide hidden files" else "Show hidden files") },
-                    onClick = {
-                        active.showHidden = !active.showHidden
-                        prefs.edit().putBoolean("fmShowHidden", active.showHidden).apply()
-                        showSortMenu = false
-                        active.requestReload()
-                    },
-                )
+                FmSortMenuItems(active, prefs, onDone = { showSortMenu = false })
             }
         }
     }
@@ -1257,37 +1255,7 @@ private fun SharedToolbar(
                 Icon(Icons.Filled.MoreVert, "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             BfeDropdownMenu(expanded = showTools, onDismissRequest = { showTools = false }, modifier = Modifier.outlinedMenuCard()) {
-                if (browsing && !active.isArchive) {
-                    DropdownMenuItem(
-                        text = { Text("New folder…") },
-                        leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null, tint = MaterialTheme.colorScheme.primary) },
-                        onClick = { showTools = false; active.showNewFolderDialog = true },
-                    )
-                    MenuItemDivider()
-                    DropdownMenuItem(
-                        text = { Text("New file…") },
-                        leadingIcon = { Icon(Icons.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.primary) },
-                        onClick = { showTools = false; active.showNewFileDialog = true },
-                    )
-                    MenuItemDivider()
-                }
-                DropdownMenuItem(
-                    text = { Text("Clone installed app…") },
-                    leadingIcon = { Icon(Icons.Filled.Android, null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { showTools = false; active.onCloneInstalledApp() },
-                )
-                MenuItemDivider()
-                DropdownMenuItem(
-                    text = { Text("Signing keys…") },
-                    leadingIcon = { Icon(Icons.Filled.Security, null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { showTools = false; active.onSigningKeys() },
-                )
-                MenuItemDivider()
-                DropdownMenuItem(
-                    text = { Text("Settings") },
-                    leadingIcon = { Icon(Icons.Filled.Settings, null, tint = MaterialTheme.colorScheme.primary) },
-                    onClick = { showTools = false; onOpenSettings() },
-                )
+                FmToolsMenuItems(active, browsing, onOpenSettings, onDone = { showTools = false })
             }
         }
     }
@@ -1409,6 +1377,9 @@ fun BrowserPane(
     val currentLoc: Loc = paneState.currentLoc
     val currentFile: File? = (currentLoc as? Loc.FileLoc)?.file
     var entries by remember { mutableStateOf<List<Loc>>(emptyList()) }
+    // The location [entries] were listed from (Aurora animates folder changes off it).
+    var entriesFor by remember { mutableStateOf<String?>(null) }
+    var exitScroll by remember { mutableStateOf(PaneScroll()) }
     var selectedEntry by remember { mutableStateOf<Loc?>(null) }
     var showMenuFor by remember { mutableStateOf<Loc?>(null) }
     // Clipboard holds a LIST so one paste can carry a whole selection.
@@ -1460,7 +1431,7 @@ fun BrowserPane(
             when (val o = archivePane.ensureOpen(loc)) {
                 is ArchivePaneState.Open.Ready -> o.warning?.let { AppSnackbar.show(context, "${loc.archive.name}: $it", long = true) }
                 ArchivePaneState.Open.Cancelled -> { loading = false; paneState.closeArchive(loc.archive); return@LaunchedEffect }
-                is ArchivePaneState.Open.Failed -> { entries = emptyList(); loadError = o.message; loading = false; return@LaunchedEffect }
+                is ArchivePaneState.Open.Failed -> { entries = emptyList(); entriesFor = loc.id; loadError = o.message; loading = false; return@LaunchedEffect }
             }
         }
         val result = withContext(Dispatchers.IO) {
@@ -1474,10 +1445,14 @@ fun BrowserPane(
             }
         }
         entries = result.getOrNull() ?: emptyList()
+        entriesFor = loc.id
         loadError = if (result.isFailure) "Couldn't read this folder" else null
         loading = false
         if (reset) {
             highlightId = null
+            // Where the folder we're leaving was scrolled to, so Aurora's outgoing list can slide away
+            // from there on its own copy while the hoisted states reset for the new folder.
+            exitScroll = PaneScroll(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset)
             runCatching { listState.scrollToItem(0) }
             runCatching { gridState.scrollToItem(0) }
         }
@@ -2760,6 +2735,153 @@ fun BrowserPane(
         )
     }
 
+    // ── Aurora Glass layout (FileManagerAurora.kt). Same state, same actions; Classic below. ──
+    if (isAurora) {
+        // Everything a row / tile can do, built once per entry from this pane's actions.
+        fun actionsFor(file: Loc) = FileRowActions(
+            onTap = {
+                if (file.isDir) openLoc(file)
+                else if (pickMode) {
+                    if (matchesPickExt(file)) {
+                        currentFile?.let { pickPrefs.edit().putString("lastFilePickerDir", it.absolutePath).apply() }
+                        (file as? Loc.FileLoc)?.file?.let { f -> onPick?.invoke(f) }
+                    }
+                } else openWith(file)
+            },
+            onLongPress = {
+                // Long-press starts multi-select on this item (or toggles it when already selecting).
+                if (!pickMode) {
+                    if (!selectionMode) selectionMode = true
+                    selectedIds = if (file.id in selectedIds) selectedIds - file.id else selectedIds + file.id
+                }
+            },
+            onToggleSelect = { selectedIds = if (file.id in selectedIds) selectedIds - file.id else selectedIds + file.id },
+            onMenu = { showMenuFor = file },
+            onDismissMenu = { showMenuFor = null },
+            onSelect = { selectionMode = true; selectedIds = selectedIds + file.id; showMenuFor = null },
+            onOpenWith = { openWith(file) },
+            onInstallApk = { installApk(file) },
+            onShare = { shareFile(file) },
+            onUnpack = { launchUnpack(file) },
+            onFastExtract = { launchFastExtract(file) },
+            onCompress = { showMenuFor = null; compressTargets = listOf(file) },
+            onCloneApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.CLONE) },
+            onEditApk = { openApkEditorFor(file, com.the412banner.bfe.apk.ApkJobKind.EDIT) },
+            onSignApk = { openSign(file) },
+            onConvert = { showMenuFor = null; convertTargets = listOf(file) },
+            onRename = { renameTarget = file; showMenuFor = null },
+            onCopy = { clipboard = listOf(file); isCutOperation = false; showMenuFor = null },
+            onCut = { clipboard = listOf(file); isCutOperation = true; showMenuFor = null },
+            onDelete = { selectedEntry = file; showMenuFor = null },
+            onToggleFavorite = {
+                val nowFav = toggleFav(file)
+                favTick++
+                showMenuFor = null
+                AppSnackbar.show(context, if (nowFav) "Added \"${file.name}\" to Favorites" else "Removed \"${file.name}\" from Favorites")
+            },
+            onProperties = { propertiesTarget = file; showMenuFor = null },
+            onBrowse = { if (file is Loc.ArchiveLoc) browseArchiveEntry(file) else (file as? Loc.FileLoc)?.let { browseArchive(it.file) } },
+            onExtractTo = { showMenuFor = null; (file as? Loc.ArchiveLoc)?.let { archivePane.extractTargets = listOf(it) } },
+        )
+
+        // The selection actions, for the floating pill (same set and rules as Classic's selection bar).
+        val selection: PaneSelectionUi? = if (!selectionMode) null else {
+            fun picked() = entries.filter { it.id in selectedIds }
+            val any = selectedIds.isNotEmpty()
+            val other = if (dualPane) otherPaneDir() else null
+            val arrow = if (paneState.isRightPane) "\u2190" else "\u2192"
+            val acts = buildList {
+                add(SelAction("Copy", Icons.Filled.FileCopy, any) {
+                    clipboard = picked(); isCutOperation = false; selectionMode = false; selectedIds = emptySet()
+                })
+                if (paneState.isArchive) add(SelAction("Extract\u2026", Icons.Filled.Unarchive, any, SelTone.ACCENT) {
+                    archivePane.extractTargets = picked().filterIsInstance<Loc.ArchiveLoc>()
+                })
+                else add(SelAction("Cut", Icons.Filled.ContentCut, any) {
+                    clipboard = picked(); isCutOperation = true; selectionMode = false; selectedIds = emptySet()
+                })
+                if (other != null) {
+                    add(SelAction(if (paneState.isArchive) "Extract $arrow" else "Copy $arrow", Icons.Filled.FileCopy, any, SelTone.ACCENT) { crossPaneTransfer(cut = false) })
+                    if (!paneState.isArchive) add(SelAction("Move $arrow", Icons.Filled.ContentCut, any, SelTone.ACCENT) { crossPaneTransfer(cut = true) })
+                }
+                add(SelAction("Share", Icons.Filled.Share, entries.any { !it.isDir && it.id in selectedIds }) { shareFiles(picked()) })
+                if (!pickMode && !paneState.isArchive) {
+                    add(SelAction("Compress", Icons.Filled.Archive, any) { compressTargets = picked() })
+                    val videoSel = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
+                    if (videoSel.isNotEmpty()) add(SelAction("Convert", Icons.Filled.Movie, true) { convertTargets = videoSel })
+                }
+                if (!paneState.isArchive) add(SelAction("Delete", Icons.Filled.Delete, any, SelTone.DANGER) { pendingBulkDelete = picked() })
+            }
+            PaneSelectionUi(
+                count = selectedIds.size,
+                allSelected = entries.isNotEmpty() && selectedIds.size == entries.size,
+                targetName = other?.name?.ifBlank { "/" },
+                actions = acts,
+                onToggleAll = { selectedIds = if (selectedIds.size == entries.size) emptySet() else entries.map { it.id }.toSet() },
+                onDone = { selectionMode = false; selectedIds = emptySet() },
+            )
+        }
+        SideEffect { paneState.selectionUi = selection }
+        DisposableEffect(paneState) { onDispose { paneState.selectionUi = null } }
+
+        AuroraPaneLayout(
+            modifier = modifier,
+            paneState = paneState,
+            currentLoc = currentLoc,
+            currentFile = currentFile,
+            entries = entries,
+            entriesFor = entriesFor,
+            loading = loading,
+            loadError = loadError,
+            highlightId = highlightId,
+            selectionMode = selectionMode,
+            selectedIds = selectedIds,
+            showActions = !pickMode,
+            menuFor = showMenuFor,
+            favTick = favTick,
+            isFavorite = { isLocFav(it) },
+            actionsFor = ::actionsFor,
+            pickMode = pickMode,
+            pickDirMode = pickDirMode,
+            pickerTitle = pickerTitle,
+            onPickFolder = { f -> onPick?.invoke(f) },
+            clipboard = clipboard,
+            isCut = isCutOperation,
+            onPaste = { performPaste() },
+            onCancelPaste = { clipboard = emptyList(); isCutOperation = false },
+            operationRunning = isOperationRunning,
+            operationLabel = operationLabel,
+            operationProgress = if (operationDeterminate) operationProgress else null,
+            onCancelOperation = if (operationJob != null) ({
+                operationJob?.cancel()
+                operationJob = null
+                isOperationRunning = false
+                operationDeterminate = false
+                paneState.requestReload()
+            }) else null,
+            pullState = pullState,
+            listState = listState,
+            gridState = gridState,
+            exitScroll = exitScroll,
+            archivePane = archivePane,
+            onNavigate = { navFileDir(it) },
+            onPinCurrent = {
+                currentFile?.let {
+                    FavoritesStore.add(context, it.absolutePath)
+                    favTick++
+                    AppSnackbar.show(context, "Added \"${it.name}\" to Favorites")
+                }
+            },
+            onJumpFavorite = { dir -> paneState.showFavorites = false; openDrive(dir) },
+            onUnpinFavorite = { dir ->
+                FavoritesStore.remove(context, dir.absolutePath)
+                favTick++
+                AppSnackbar.show(context, "Removed \"${dir.name}\" from Favorites")
+            },
+        )
+        return
+    }
+
     Column(modifier = modifier) {
         // ── Pick-mode title ──
         if (pickMode && !pickerTitle.isNullOrEmpty()) {
@@ -2813,37 +2935,7 @@ fun BrowserPane(
                 // folder down to the current one. Scrolls sideways and keeps the deepest crumb in view;
                 // the path takes all remaining width so free space stays pinned to the right edge.
                 val crumbs: List<Pair<String, (() -> Unit)?>> = remember(locDisplayPath, paneState.rootPath, paneState.altStack) {
-                    if (currentFile != null) {
-                        val root = File(paneState.rootPath)
-                        val rootAbs = root.absolutePath
-                        val curAbs = currentFile.absolutePath
-                        val rootPrefix = rootAbs.trimEnd('/') + "/"
-                        val rel = if (curAbs == rootAbs) "" else curAbs.removePrefix(rootPrefix)
-                        if (curAbs != rootAbs && !curAbs.startsWith(rootPrefix)) {
-                            listOf<Pair<String, (() -> Unit)?>>(elidePathStart(locDisplayPath, 52) to null)
-                        } else {
-                            val out = mutableListOf<Pair<String, (() -> Unit)?>>(
-                                describeLocation(root).driveLabel.ifBlank { root.name.ifBlank { "/" } } to { navFileDir(root) }
-                            )
-                            var acc = root
-                            rel.split('/').filter { it.isNotEmpty() }.forEach { seg ->
-                                acc = File(acc, seg)
-                                val target = acc
-                                out.add(seg to { navFileDir(target) })
-                            }
-                            out
-                        }
-                    } else if (paneState.isArchive) {
-                        // …/folder › Game.zip › inner › dir — the first crumb leaves the archive.
-                        val stack = paneState.altStack
-                        listOf<Pair<String, (() -> Unit)?>>("\u2026/" + File(paneState.path).name.ifBlank { "/" } to { paneState.exitAlt() }) +
-                            stack.mapIndexed { i, loc -> loc.name to { paneState.altStack = stack.take(i + 1) } }
-                    } else {
-                        val stack = paneState.altStack
-                        stack.mapIndexed { i, loc ->
-                            (if (i == 0) paneState.altLabel else loc.name) to { paneState.altStack = stack.take(i + 1) }
-                        }
-                    }
+                    paneCrumbs(paneState, currentFile, locDisplayPath, ::navFileDir)
                 }
                 val crumbScroll = rememberScrollState()
                 LaunchedEffect(locDisplayPath, crumbScroll.maxValue) { crumbScroll.scrollTo(crumbScroll.maxValue) }
@@ -3307,7 +3399,7 @@ fun BrowserPane(
 // Gating (isDir/isInno/looksLikeArchive/apk/video) is recomputed from [file] here — one source of
 // truth for what each item shows. Every item dismisses the menu first, then runs its action.
 @Composable
-private fun FileContextMenuItems(
+internal fun FileContextMenuItems(
     file: Loc,
     isFavorite: Boolean,
     onSelect: () -> Unit,
@@ -3875,7 +3967,7 @@ private fun FavoriteCard(
  * once it has loaded). BFE's type icon shows while it loads and stays if the file can't be decoded.
  */
 @Composable
-private fun FileThumb(name: String, model: Any, video: Boolean, size: Dp, corner: Dp, badge: Boolean) {
+internal fun FileThumb(name: String, model: Any, video: Boolean, size: Dp, corner: Dp, badge: Boolean) {
     val context = LocalContext.current
     val request = remember(model, video) {
         if (video) ImageRequest.Builder(context).data(model).videoFrameMillis(1_000).build() else model
@@ -4202,7 +4294,7 @@ private fun AttributeToggleRow(
 
 /** Centered empty / error / no-results state for a pane: icon, a short title, optional detail + action. */
 @Composable
-private fun PaneMessage(
+internal fun PaneMessage(
     icon: ImageVector,
     title: String,
     // BFE artwork to show instead of [icon] (drawn full colour, slightly faded).

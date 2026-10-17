@@ -219,6 +219,7 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
                                     openRequest = fmRequest,
                                     onHome = goHome,
                                     onBackAtRoot = goHome,
+                                    onOpenServer = { serverBack = AppRoute.FILES; route = AppRoute.SERVER },
                                 )
                             }
                         }
