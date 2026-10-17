@@ -422,3 +422,17 @@ internal fun AuroraJobPill(
         GlassIconButton(Icons.Filled.Close, cancelLabel, onClick = onCancel, size = 38.dp, iconSize = 18.dp, tint = cs.error)
     }
 }
+
+@androidx.compose.ui.tooling.preview.Preview(name = "Aurora job pills", widthDp = 380, heightDp = 200)
+@Composable
+private fun AuroraJobPillPreview() {
+    com.the412banner.bfe.ui.theme.BfeTheme(style = com.the412banner.bfe.ui.theme.UiStyle.AURORA) {
+        Box(Modifier.size(380.dp, 200.dp)) {
+            com.the412banner.bfe.ui.theme.AuroraBackdrop(Modifier.matchParentSize())
+            Column(Modifier.padding(top = 8.dp)) {
+                AuroraJobPill(Icons.Filled.Unarchive, "Witcher3.part1.rar", "62%  •  48 MB/s  •  ETA 1 min", 0.62f, onClick = {}, cancelLabel = "Cancel", onCancel = {})
+                AuroraJobPill(Icons.Filled.Archive, "Backups.7z", "Scanning files…", null, onClick = null, cancelLabel = "Cancel", onCancel = {})
+            }
+        }
+    }
+}

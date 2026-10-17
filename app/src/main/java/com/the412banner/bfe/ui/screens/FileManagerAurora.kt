@@ -75,6 +75,11 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileCopy
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.material.icons.filled.DensitySmall
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.FolderOpen
@@ -1489,3 +1494,37 @@ internal fun AuroraPaneDivider(
     }
 }
 
+
+@Preview(name = "Aurora selection pill + capsules (dark)", widthDp = 380, heightDp = 360)
+@Composable
+private fun SelectionPillPreview() {
+    com.the412banner.bfe.ui.theme.BfeTheme(style = com.the412banner.bfe.ui.theme.UiStyle.AURORA) {
+        Box(Modifier.size(380.dp, 360.dp)) {
+            com.the412banner.bfe.ui.theme.AuroraBackdrop(Modifier.matchParentSize())
+            Column(Modifier.padding(12.dp)) {
+                InfoCapsule(Icons.Filled.ContentPaste, "Paste 3 items here (move)", "Cancel", onAction = {}, onClick = {})
+                Spacer(Modifier.height(8.dp))
+                OperationCapsule("Copying 2/5 — Game.iso", 0.42f, onCancel = {})
+                Spacer(Modifier.height(8.dp))
+                GlassSearchField("", {}, "Filter this folder")
+            }
+            SelectionPill(
+                PaneSelectionUi(
+                    count = 3, allSelected = false, targetName = "Download",
+                    actions = listOf(
+                        SelAction("Copy", Icons.Filled.FileCopy, true) {},
+                        SelAction("Cut", Icons.Filled.ContentCut, true) {},
+                        SelAction("Copy →", Icons.Filled.FileCopy, true, SelTone.ACCENT) {},
+                        SelAction("Move →", Icons.Filled.ContentCut, true, SelTone.ACCENT) {},
+                        SelAction("Share", Icons.Filled.Share, false) {},
+                        SelAction("Compress", Icons.Filled.Archive, true) {},
+                        SelAction("Delete", Icons.Filled.Delete, true, SelTone.DANGER) {},
+                    ),
+                    onToggleAll = {}, onDone = {},
+                ),
+                wide = false,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+            )
+        }
+    }
+}
