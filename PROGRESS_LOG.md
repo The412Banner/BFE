@@ -6,6 +6,56 @@ where it stands*.
 
 ---
 
+## In flight: built-in photo viewer + video / music player (branch `feat/media-viewer`, 2026-10-16)
+
+Owner: "We also need a built-in photo and video player", then: "Video player needs to handle all codecs
+and audio, with aspect, brightness and all the video effects VLC offers to adjust." Branched from
+`test/next` (`af379ba`), rebased onto `b2ff378` (HTML viewer). **Not merged, not released, not
+device-run** (see proof).
+
+- **Libraries (pinned):** `org.videolan.android:libvlc-all:3.6.5` (LGPL-2.1+, latest stable 3.6.x;
+  arm64 via the existing `abiFilters`), `me.saket.telephoto:zoomable-image-coil:0.8.0` (Apache-2.0 —
+  the one release built on Compose 1.6.1 + Coil 2.5, exactly BOM 2024.02.00; 0.9+ pull Compose runtime
+  1.6.3+), `io.coil-kt:coil-gif:2.6.0`, `androidx.exifinterface:exifinterface:1.3.7`. Media3 was
+  never added (engine switched to libVLC before any code).
+- **libVLC findings (inspected the AAR, `strings` on libvlc.so):** the Android build has deinterlace,
+  hqdn3d, gradfun, postproc, transform, rotate, croppadd, invert, sepia, extract, colorthres,
+  gaussianblur, antiflicker, wave, oldmovie, vhs, edgedetection, anaglyph, plus normvol / compressor /
+  equalizer / spatializer / headphone / scaletempo / ReplayGain and soxr — but **no sharpen, grain,
+  posterize, mirror, psychedelic, ripple or motionblur**. libVLC's docs: most video/audio options have
+  no effect per media, so filters / deinterlace / time-stretch / subtitle style are **instance
+  options** and the player rebuilds LibVLC + MediaPlayer at the same position (fresh TextureViews each
+  time: a SurfaceTexture takes one producer). The Java MediaPlayer has no adjust API → colour is a
+  ColorMatrix on the TextureView's layer paint (instant, HW-decoding friendly); sharpen = AGSL
+  RuntimeShader RenderEffect (API 33+); grain = a Compose overlay. `setEqualizer` owns the media
+  player's `audio-filter` variable, so normvol can't be chained → ReplayGain is the levelling option.
+  The AAR bundles its own `libc++_shared.so` (NDK r27 beta, unstripped 9.2 MB); BFE's r28 copy in
+  jniLibs should win `pickFirsts` (libvlc.so is r28c) — checked in the CI APK below.
+- **Photo viewer** (`PhotoViewerActivity`, translucent window, `ui/media/PhotoViewerScreen.kt`):
+  HorizontalPager over the folder (pane order) or category list, telephoto zoom (sub-sampling for
+  JPEG/PNG/WebP; others wrapped as `WholeImage` so they decode once at ≤2560 px and animate), zoom reset
+  per page, swipe-down close, fade + 0.92→1 scale enter/exit, glass bars (Share, Open with = BFE's sheet,
+  Rotate with turn re-fit + JPEG "Save rotation" via ExifInterface.rotate, Info sheet with EXIF,
+  Delete → next photo + `MediaChanges` so the file list re-lists), Slideshow, Set as…, Show in folder.
+- **Player** (`VideoPlayerActivity` singleTask/own task, `ui/media/`): `VlcEngine` (MediaPlayer →
+  Compose state, fd:// for content Uris without a path, pending seeks before Playing, pause-when-ready on
+  effect reloads), `VideoGeometry` (VideoHelper's maths + crop/zoom/rotation), `VideoSurfaceView`,
+  `PlayerState` (playlist, resume offer, debounced persistence and reload), `VideoPlayerScreen`
+  (gestures, HUD, glass controls, resume pill, music layout), `PlayerSheet` (Picture / Effects / Audio /
+  Subtitles, Reset, Remember settings). PiP with RemoteActions (+ auto-enter on API 31+), audio focus,
+  noisy receiver, keep-screen-on while a video plays.
+- **Integration:** `SheetAction` gained `component` / `componentLabel`; such actions follow the same
+  Always-use rules as apps (saved in `DefaultApps` with BFE's own component, highlighted "Default",
+  never auto-launched — matching existing behaviour). View / Play first in FileManagerScreen (also
+  archive cache copies, root staged copies), CategoryScreen and RemoteBrowser; "View page" got its
+  component too. VIEW filters: image/* → BFE Viewer; video/*, audio/*, application/ogg,
+  application/x-matroska → BFE Player. Settings → Photos, video & music: remember position, PiP when
+  leaving. `BfeTheme(forceDark = true)` for the media screens.
+- **Proof level:** pure logic (natural order, types, folder siblings, hand-off, resume policy, gesture
+  maps, time/delay formats, geometry incl. SAR / padded buffers / crop / rotation, colour matrices,
+  settings round-trip, VlcArgs) — 25 JUnit tests, run locally with kotlinc 2.0.21 + JUnit 4.13.2 and in
+  CI's `testReleaseUnitTest`. Everything Android / libVLC / Compose is **CI-compiled only**.
+
 ## In flight: new launcher icon + Settings → App icon (branch `feat/app-icons`, 2026-10-16)
 
 Owner (picking from `BFE-App-Icon-Mixes.html` / `BFE-App-Icon-Options.html`): "Let's use M5 default and

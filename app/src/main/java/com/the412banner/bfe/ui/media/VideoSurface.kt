@@ -39,18 +39,36 @@ import kotlin.random.Random
  * not a SurfaceView — so the picture can take a colour matrix (layer paint), a sharpen shader and
  * view transforms in real time.
  */
-internal class VideoSurfaceView(context: Context) : FrameLayout(context) {
-    val video = TextureView(context)
-    val subs = TextureView(context).apply { isOpaque = false }
+internal class VideoSurfaceView(context: Context) : FrameLayout(context), VlcEngine.SurfaceHost {
+    private var videoView = TextureView(context)
+    private var subsView = newSubs()
+    override val video: TextureView get() = videoView
+    override val subs: TextureView get() = subsView
     private val frame = FrameLayout(context).apply { clipChildren = true }
     private var lastMatrix: FloatArray? = null
     private var lastSharpen = -1f
 
     init {
         clipChildren = true
-        frame.addView(video, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        frame.addView(subs, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        frame.addView(videoView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        frame.addView(subsView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         addView(frame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
+    }
+
+    private fun newSubs() = TextureView(context).apply { isOpaque = false }
+
+    /** Fresh surfaces for a new libVLC instance, laid out and styled like the old ones. */
+    override fun renewSurfaces() {
+        val vlp = video.layoutParams
+        val slp = subs.layoutParams
+        frame.removeView(video)
+        frame.removeView(subs)
+        videoView = TextureView(context)
+        subsView = newSubs()
+        frame.addView(videoView, vlp)
+        frame.addView(subsView, slp)
+        lastMatrix?.let { m -> video.setLayerPaint(Paint().apply { colorFilter = ColorMatrixColorFilter(m) }) }
+        if (lastSharpen > 0f && Build.VERSION.SDK_INT >= 33) Sharpen.apply(video, lastSharpen)
     }
 
     /** Applies a placement (null = fill, before the first video size arrives) and the turn / mirror. */

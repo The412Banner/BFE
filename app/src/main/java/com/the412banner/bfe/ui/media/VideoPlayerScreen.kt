@@ -280,7 +280,7 @@ internal fun VideoPlayerScreen(
             }
         }
         AndroidView(
-            factory = { ctx -> VideoSurfaceView(ctx).also { v -> engine.attachViews(v.video, v.subs) } },
+            factory = { ctx -> VideoSurfaceView(ctx).also { v -> engine.attachHost(v) } },
             update = { v ->
                 v.place(placement, s.rotation, s.flipH, s.flipV)
                 v.setColorMatrix(if (s.hasColorChange) s.colorMatrix else null)

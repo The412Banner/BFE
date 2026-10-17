@@ -34,6 +34,16 @@ import java.util.concurrent.Executors
  * instance and resume at the same position. The old one is stopped and released off the main thread.
  */
 class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
+
+    /**
+     * Where the player draws. [renewSurfaces] swaps in fresh TextureViews: a SurfaceTexture takes one
+     * producer at a time, and a libVLC instance being torn down may still hold the old one.
+     */
+    interface SurfaceHost {
+        val video: TextureView
+        val subs: TextureView
+        fun renewSurfaces()
+    }
     private val app = context.applicationContext
 
     data class Track(val id: Int, val name: String)
@@ -65,8 +75,12 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
     private var settings: PlayerSettings = PlayerSettings.DEFAULT
     private var equalizer: MediaPlayer.Equalizer? = null
     private var eqApplied = false
-    private var videoView: TextureView? = null
-    private var subsView: TextureView? = null
+    private var host: SurfaceHost? = null
+    /** The input is running (libVLC ignores seeks before that, so they wait in [pendingSeek]). */
+    private var started = false
+    private var pendingSeek: Long? = null
+    /** Re-opened for an effect change while paused: pause again once the first frame is up. */
+    private var pauseWhenReady = false
     private var winW = 0
     private var winH = 0
     private val releaser = Executors.newSingleThreadExecutor()
@@ -83,6 +97,8 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
                     isPlaying = true
                     ended = false
                     opening = false
+                    started = true
+                    pendingSeek?.let { t -> pendingSeek = null; player?.setTime(t, false) }
                     applyLive(settings)
                     refreshTracks()
                 }
@@ -100,7 +116,10 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
                     opening = false
                     error = "VLC couldn't play ${current?.name ?: "this file"}."
                 }
-                MediaPlayer.Event.TimeChanged -> timeMs = event.timeChanged
+                MediaPlayer.Event.TimeChanged -> {
+                    timeMs = event.timeChanged
+                    if (pauseWhenReady) { pauseWhenReady = false; player?.pause() }
+                }
                 MediaPlayer.Event.LengthChanged -> lengthMs = event.lengthChanged
                 MediaPlayer.Event.SeekableChanged -> seekable = event.seekable
                 MediaPlayer.Event.Vout -> {
@@ -113,9 +132,8 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
     }
 
     /** The screen's surfaces. Re-binding is safe; the current player attaches to them at once. */
-    fun attachViews(video: TextureView, subs: TextureView) {
-        videoView = video
-        subsView = subs
+    fun attachHost(h: SurfaceHost) {
+        host = h
         player?.let { bindVout(it) }
     }
 
@@ -130,12 +148,18 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
         layout = VideoLayout(width, height, visibleWidth, visibleHeight, sarNum, sarDen)
     }
 
-    /** Opens [ref] at [startMs] with [s] (rebuilding libVLC first when its instance options changed). */
-    fun open(ref: MediaRef, startMs: Long, s: PlayerSettings, autoplay: Boolean = true) {
+    /**
+     * Opens [ref] at [startMs] with [s] (rebuilding libVLC first when its instance options changed).
+     * [startPaused] shows the first frame and pauses there.
+     */
+    fun open(ref: MediaRef, startMs: Long, s: PlayerSettings, startPaused: Boolean = false) {
         settings = s
         error = null
         ended = false
         opening = true
+        started = false
+        pendingSeek = null
+        pauseWhenReady = startPaused
         layout = null
         hasVideo = false
         audioTracks = emptyList()
@@ -172,14 +196,14 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
         media.release()
         p.setRate(s.speed)
         applyEqualizer(s)
-        if (autoplay) p.play()
+        p.play()
     }
 
     /** Re-opens the current file at the current position (after an instance-option change). */
     fun reload(s: PlayerSettings) {
         val ref = current ?: return
         val resumeAt = if (ended) 0L else timeMs
-        open(ref, resumeAt, s, autoplay = isPlaying || opening || !ended)
+        open(ref, resumeAt, s, startPaused = !(isPlaying || opening))
     }
 
     /** Whether [s] needs a new libVLC instance compared with the running one. */
@@ -201,11 +225,12 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
         val len = lengthMs
         val t = if (len > 0) ms.coerceIn(0L, len) else ms.coerceAtLeast(0L)
         if (ended) {
-            current?.let { open(it, t, settings, autoplay = true) }
+            current?.let { open(it, t, settings) }
             return
         }
-        p.setTime(t, fast)
         timeMs = t
+        if (!started) { pendingSeek = t; return }
+        p.setTime(t, fast)
     }
 
     fun seekBy(deltaMs: Long) = seekTo(timeMs + deltaMs)
@@ -286,7 +311,9 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
 
     private fun ensureEngine(args: List<String>): MediaPlayer {
         player?.let { if (args == engineArgs) return it }
+        val rebuilding = player != null
         releasePlayer()
+        if (rebuilding) host?.renewSurfaces()
         val lib = LibVLC(app, ArrayList(VlcArgs.BASE + args))
         val p = MediaPlayer(lib)
         p.setEventListener(listener)
@@ -299,11 +326,11 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
     }
 
     private fun bindVout(p: MediaPlayer) {
-        val v = videoView ?: return
+        val h = host ?: return
         val vout = p.getVLCVout()
         if (vout.areViewsAttached()) return
-        vout.setVideoView(v)
-        subsView?.let { vout.setSubtitlesView(it) }
+        vout.setVideoView(h.video)
+        vout.setSubtitlesView(h.subs)
         vout.attachViews(this)
         if (winW > 0 && winH > 0) vout.setWindowSize(winW, winH)
     }

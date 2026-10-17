@@ -5,7 +5,8 @@ bundled native engines. In one app: a dual-pane "commander" layout; **extraction
 images, GOG/InnoSetup installers and FreeArc repacks; **compression** to zip/7z/tar/tzst and Winlator
 `.wcp` packs; **browsing storage normal file managers can't reach** — other apps' SAF document
 providers and, on a rooted device, **any installed app's private data**; an **APK cloner + signer**;
-a **video converter** (game FMVs → MP4) powered by a bundled ffmpeg; **Access from network** — a
+a **video converter** (game FMVs → MP4) powered by a bundled ffmpeg; a built-in **photo viewer** and a
+**video / music player** on libVLC with VLC's effects; **Access from network** — a
 local Wi-Fi file server that other devices reach with a web browser or an FTP client; and **cloud storage +
 remote connections** (Google Drive, OneDrive, Dropbox, MEGA, S3, SFTP, SMB, WebDAV and more) through rclone.
 
@@ -241,6 +242,57 @@ build in BFE installs straight into Bannerlator.
 - **Bink 2 (`.bk2`) is proprietary** — there's no open decoder, so BFE says so up front instead of
   failing. Encoding is software x264 (no hardware encoder): quick for 480p/720p cutscenes, slow for 4K.
 
+### Photo viewer & video player
+Tapping a photo, video or music file puts **View** / **Play** at the top of BFE's Open with sheet (also
+for files inside archives, cloud downloads and the Images / Videos / Audio categories). Like any app
+there, BFE's viewer or player can be the **Always use for .ext** choice — it is then listed first and
+marked Default, and a tap still shows the sheet. Other apps can open images, videos and music in
+**BFE Viewer** / **BFE Player** too (their Open with list); BFE then pages through that file's folder.
+
+**Photo viewer** — full screen, edge to edge, on black, fading and scaling in over the screen it came
+from. Swipe between the photos of the same folder in the order the file list showed them (or through
+the category, as sorted and searched). Pinch to zoom, animated double-tap zoom, pan with fling; big
+JPEG / PNG / WebP photos are drawn tile by tile ([telephoto](https://github.com/saket/telephoto)
+sub-sampling), so a 100-megapixel image stays sharp without decoding the whole bitmap; other formats
+(HEIC, AVIF, BMP…) decode once at up to 2560 px. EXIF orientation is honoured, GIF and animated WebP /
+HEIF play. Swipe down to close. The glass bars (tap to hide / show) carry Share, Open with, Rotate (view
+only; a JPEG can **Save rotation** losslessly as its EXIF tag), Info (resolution, size, dates, camera,
+lens, exposure, location) and Delete (confirm, then the next photo), plus Slideshow, Set as… and Show in
+folder.
+
+**Video player** — built on **libVLC**, so it plays practically anything: H.264 / HEVC / AV1 / VP9 /
+VC-1 / WMV / DivX / MPEG-2 / RealMedia… with AC-3 / E-AC-3 / DTS / TrueHD / FLAC / Opus… audio, ASS/SSA,
+SRT, PGS and embedded subtitles; a subtitle file named like the video next to it loads by itself.
+Frosted-glass controls fade away after a few seconds: play / pause, ±10 s, previous / next in the
+folder, a seek bar with the scrub time, speed, repeat (once / this file / the whole folder), lock,
+rotation (auto / landscape / portrait), aspect, and picture-in-picture.
+Gestures: tap for the controls, **double-tap left / right to seek 10 s** (keep tapping to add more),
+double-tap the middle to pause, **hold for 2×**, swipe up / down on the left for **brightness** and on
+the right for **volume** — past the system maximum into VLC's boost up to 200 % — swipe sideways to
+**seek** with a live preview, pinch to zoom. Videos longer than a minute **remember where you stopped**
+and offer "Resume from 12:34". Picture-in-picture on Home / Back while playing (or from the button) with
+previous / play-pause / next; audio focus (pauses for calls and other players) and a pause when
+headphones are unplugged.
+The **effects sheet** (a bottom sheet in portrait, a side sheet in landscape, so you watch while you
+adjust):
+- **Picture** — looks (Vivid, Warm, Cool, Night, Grayscale, Sepia, Invert), brightness, contrast,
+  saturation, hue, gamma, VLC's aspect / scale set (Best fit, Fit screen, Fill, 16:9, 4:3, 21:9, 2.35:1,
+  16:10, 5:4, 1:1, Original), crop, zoom, rotate 90° steps, mirror / upside down — all instant (a colour
+  matrix on the video layer, so it works with hardware decoding).
+- **Effects** — VLC's deinterlacers (Yadif, Yadif 2×, Blend, Bob, Linear, Mean, Discard, X, Phosphor,
+  IVTC), denoise (hqdn3d), banding removal (gradfun), deblocking (postproc) and looks (Old film, VHS,
+  Waves, Edges, Soft blur, Anti-flicker); changing one restarts playback at the same spot. Sharpen
+  (Android 13+) and film grain are instant.
+- **Audio** — audio tracks + load an external track, 10-band equalizer with VLC's presets and preamp,
+  volume boost, audio delay, speed 0.25–4× with a keep-pitch switch, ReplayGain volume levelling.
+- **Subtitles** — tracks, load a subtitle file, delay, size, colour, background box.
+Reset puts the file back to defaults; **Remember settings** carries them to the next file.
+
+**Music** — audio files play in the same player with a music layout: cover art (embedded, or a
+`cover.jpg` / `folder.jpg` next to the track), title, artist and album, the same controls, the
+equalizer, and the folder as the playlist. Music keeps playing with the screen off while the player is
+open (there is no notification / background service yet).
+
 ### Access from network — share files over Wi-Fi (browser + FTP)
 Open other devices onto this phone's files: a PC, Mac, TV, tablet or another phone on the **same Wi-Fi**,
 or connected to **this phone's hotspot**. Everything runs on the phone — no internet, no account, no
@@ -319,10 +371,11 @@ cloud. (Until the Home screen lands it lives at ⋮ → **Settings → Access fr
 ### Settings & About
 ⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
 **dynamic color** on Android 12+), the **app icon** (see [App icon](#app-icon)), **Start on** (Home or the last folder), default apps, Access from
-network, and About — version, source code link, release notes, BFE's license and every bundled
+network, **Photos, video & music** (remember playback position, picture-in-picture when leaving the
+player), and About — version, source code link, release notes, BFE's license and every bundled
 **open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264, the lzip / lzop / LZ4 / ECM / ALZ /
-ACE / LZX tools, the EGG and OTA-payload credits, NanoHTTPD, Apache FtpServer/MINA, rclone and the Java
-libraries), readable in-app.
+ACE / LZX tools, the EGG and OTA-payload credits, libVLC, NanoHTTPD, Apache FtpServer/MINA, rclone and
+the Java libraries), readable in-app.
 
 ---
 
@@ -431,7 +484,11 @@ app/src/main/java/com/the412banner/bfe/
 ├─ update/     UpdateManager (update.json check, download, SHA-256 check, install)
 ├─ cloud/      rclone: RcClient (rcd API) · RcloneApi · RcloneDaemon/RcdProcess · RcloneManager (first-use download)
 │              · CloudSetup (add / sign-in flow) · CloudServices (catalog) · CloudTransferService (queue)
-├─ util/       snackbars, default apps, favourites
+├─ media/      viewer / player plumbing: media types, folder playlists + hand-off (MediaLaunch), resume
+│              positions + settings (MediaPrefs), and the pure maths — VideoGeometry (fit / aspect / crop /
+│              zoom / rotate), ColorAdjust (picture colour matrix), PlayerSettings + VlcArgs (libVLC
+│              instance options), GestureMath — unit-tested on the JVM
+├─ util/       snackbars, default apps, favourites, natural name order
 ├─ appicon/    AppIcons (launcher-icon switching via activity-aliases) + the generated AppIconCatalog
 ├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), archive pane (ArchivePane), Open with sheet, Settings, Unpack screen, dialogs
 │  ├─ home/       Home dashboard (tiles, stats, navigation, folder picker)
@@ -439,6 +496,10 @@ app/src/main/java/com/the412banner/bfe/
 │  ├─ apps/       installed apps list, sizes (Usage access / root), APK backup + share
 │  ├─ server/     Access from network screen (ServerScreen + QR code)
 │  └─ cloud/      CloudScreen / RemoteScreen, accounts, add-account forms, remote browser, transfers UI
+├─ ui/media/   PhotoViewerScreen + PhotoDetails, VideoPlayerScreen + PlayerSheet (effects) + PlayerState,
+│              VlcEngine (libVLC MediaPlayer → Compose state), VideoSurface (TextureViews, colour matrix,
+│              AGSL sharpen, film grain), Glass (the frosted panels) — PhotoViewerActivity /
+│              VideoPlayerActivity sit at the package root next to HtmlViewerActivity
 ├─ ui/icons/   FileIcons: name → BFE icon (special folders, file types), FileTypeIcon / BfeIcon
 └─ ui/         progress pills, update dialogs, theme, components
 app/src/main/resources/…/server/web/  the Access-from-network web page's app.css + app.js
@@ -473,6 +534,17 @@ scripts/appicons/                 launcher-icon SVG masters, icons.json, build.p
 - APK clones of apps that verify their own signature, are Play-licensed, or are bound to
   Google-services/Firebase may not run; that's inherent to cloning.
 - No predictive-back animation (targetSdk 28).
+- Player: libVLC for Android 3.6 is built without VLC's sharpen, film-grain, posterize, mirror,
+  psychedelic, ripple and motion-blur filters, so Sharpen is BFE's own shader (Android 13+ only) and
+  grain an overlay; posterize / mirror-split aren't offered. VLC's CPU filters (denoise, deinterlace
+  modes, gradfun, postproc, the looks) restart playback when changed and make MediaCodec copy frames
+  out, so heavy ones can stutter on 4K. Turning or mirroring the picture turns its subtitles too. No
+  volume normalisation beyond ReplayGain tags (libVLC's equalizer API owns the audio-filter chain).
+  Music plays while the player is open (screen off is fine) but has no notification / background
+  service. The APK is about 20 MB bigger for libVLC (arm64 only).
+- Photo viewer: only JPEG / PNG / WebP are sub-sampled; HEIC / AVIF / BMP / GIF decode whole at up to
+  2560 px (sharp to ~2× zoom on big photos). HEIC needs Android 9+, AVIF Android 12+. Rotation is
+  view-only except "Save rotation" for JPEG.
 - The Home category tiles and browser read Android's media library, so they only see files it has
   indexed: not folders marked `.nomedia`, and on Android 10 and older not files written straight to
   storage (e.g. by an extraction) until the system scans them. Documents and New files skip hidden
@@ -494,7 +566,8 @@ from its Winlator/Bannerlator lineage. Bundled third-party components keep their
 GPL v2+, built with `--enable-gpl --enable-libx264`), `NOTICE_LUNZIP.txt`, `NOTICE_LZOP.txt`,
 `NOTICE_LZ4.txt`, `NOTICE_UNECM.txt`, `NOTICE_UNALZ.txt`, `NOTICE_UNACE.txt`, `NOTICE_LZX.txt`,
 `NOTICE_EGG.txt`, `NOTICE_OTA_PAYLOAD.txt`, `NOTICE_RCLONE.txt` (rclone, MIT, by Nick
-Craig-Wood and contributors, plus the licence of every Go module in the downloaded build) and
+Craig-Wood and contributors, plus the licence of every Go module in the downloaded build),
+`NOTICE_LIBVLC.txt` (libVLC for Android, LGPL-2.1+, with the full licence text and source links) and
 `THIRD_PARTY_LIBRARIES.txt`.
 
 ### Credits
@@ -512,5 +585,9 @@ BFE's extra archive formats stand on these projects (licences and exact versions
   arithmetic coder comes from **Project Nayuki**'s Reference-arithmetic-coding (MIT).
 - **AOSP update_engine**'s `update_metadata.proto` (Apache-2.0) — the payload.bin format.
 - **XZ for Java** (public domain) and **Apache Commons Compress** (Apache-2.0) — LZMA / xz / bzip2.
+- **libVLC** by VideoLAN and the VLC authors (LGPL-2.1+, with the libraries VideoLAN builds into it) —
+  the video / audio player; `NOTICE_LIBVLC.txt` has the versions, hashes and source links.
+- **telephoto** by Saket Narayan (Apache-2.0) — the photo viewer's zoom and sub-sampling; **Coil** +
+  coil-gif (Apache-2.0) — image decoding and animation.
 - Test archives from EggDotNet, xunazo, patool, acefile-testdata and Sembiance's format samples were
   used to verify the decoders (not shipped).
