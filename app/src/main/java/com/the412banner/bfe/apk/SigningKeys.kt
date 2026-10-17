@@ -2,10 +2,12 @@ package com.the412banner.bfe.apk
 
 import android.content.Context
 import android.util.Log
+import com.the412banner.bfe.security.SecretVault
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -29,7 +31,9 @@ import java.util.Date
  *   leaves `filesDir/keys/`.
  * - Imported keystores: PKCS12 (.p12/.pfx — the format to convert to), BKS, and JKS where the
  *   platform's JCA happens to offer it (Android's does not — the import then says so). The file is
- *   copied into `filesDir/keys/` and remembered with its alias + passwords in a private prefs file.
+ *   copied into `filesDir/keys/` and remembered with its alias in a private prefs file; its store and
+ *   key passwords are sealed in the credential vault ([SecretVault], one entry per keystore file).
+ *   BFE 1.1.0 and older kept them in that prefs file in plain text — [migrateToVault] moves them.
  * - Generated keys: same as the built-in path, with the user's CN / organisation / validity.
  */
 object SigningKeys {
@@ -38,20 +42,52 @@ object SigningKeys {
     private const val BUILT_IN_ALIAS = "bfetest"
     private const val BUILT_IN_PASS = "bfetest"
     private const val PREFS = "signing_keys"
+    private const val VAULT_PREFIX = "apk.key/"
+    private val lock = Any()
 
     private fun keysDir(ctx: Context): File = File(ctx.filesDir, "keys").apply { mkdirs() }
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** Every key BFE knows about: the built-in first (created on demand), then imports/generated. */
     fun list(ctx: Context): List<KeyRef> {
+        migrateToVault(ctx)
         val out = ArrayList<KeyRef>()
         out += builtIn(ctx)
-        val raw = prefs(ctx).getString("keys", "[]") ?: "[]"
-        runCatching {
-            val arr = org.json.JSONArray(raw)
-            for (i in 0 until arr.length()) fromJson(arr.getJSONObject(i))?.let { if (File(it.storePath).isFile) out += it }
-        }
+        stored(ctx).forEach { if (File(it.storePath).isFile) out += withPasswords(ctx, it, strict = false) }
         return out
+    }
+
+    /**
+     * [key] as BFE keeps it, passwords included (a job only says which key to use). Throws when the
+     * key is gone or the vault can't be read just now.
+     */
+    fun resolve(ctx: Context, key: KeyRef): KeyRef {
+        if (key.isBuiltIn) return builtIn(ctx)
+        migrateToVault(ctx)
+        val k = stored(ctx).firstOrNull { it.storePath == key.storePath && File(it.storePath).isFile }
+            ?: throw IOException("The signing key \"${key.displayName}\" is no longer in BFE")
+        return withPasswords(ctx, k, strict = true)
+    }
+
+    /** Plain passwords left by BFE 1.1.0 and older go into the vault, then out of prefs. Safe to repeat. */
+    fun migrateToVault(ctx: Context) {
+        synchronized(lock) {
+            val arr = runCatching { JSONArray(prefs(ctx).getString("keys", "[]") ?: "[]") }.getOrNull() ?: return
+            val objs = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+            val legacy = objs.filter { it.has("storePassword") || it.has("keyPassword") }
+            if (legacy.isEmpty()) return
+            try {
+                legacy.forEach { o ->
+                    SecretVault.put(ctx, vaultName(o.optString("storePath")), sealedPasswords(o.optString("storePassword", ""), o.optString("keyPassword", "")))
+                }
+            } catch (e: IOException) {
+                Log.w(TAG, "Signing-key passwords not moved to the vault yet: ${e.message}")
+                return
+            }
+            // Only once every password is sealed: rewrite the list without them.
+            save(ctx, objs.mapNotNull { fromJson(it) })
+            Log.i(TAG, "Moved ${legacy.size} signing-key passwords into the vault")
+        }
     }
 
     /** The key the user last signed with (falls back to the built-in). */
@@ -95,7 +131,12 @@ object SigningKeys {
         while (file.exists()) { file = File(keysDir(ctx), "$safe-${n++}.p12") }
         generateInto(file, "key", password, dn, validityYears)
         val ref = KeyRef(file.absolutePath, "PKCS12", "key", password, password, displayName)
-        remember(ctx, ref)
+        try {
+            remember(ctx, ref)
+        } catch (e: IOException) {
+            file.delete()
+            throw e
+        }
         return ref
     }
 
@@ -131,16 +172,22 @@ object SigningKeys {
         while (file.exists()) { file = File(keysDir(ctx), "${source.nameWithoutExtension}-${n++}.${source.extension}") }
         source.copyTo(file, overwrite = true)
         val ref = KeyRef(file.absolutePath, storeType, alias, storePassword, keyPassword, displayName)
-        // Prove the key opens before keeping it.
-        load(ref)
-        remember(ctx, ref)
+        try {
+            // Prove the key opens before keeping it.
+            load(ref)
+            remember(ctx, ref)
+        } catch (e: Exception) {
+            file.delete()
+            throw e
+        }
         return ref
     }
 
     fun remove(ctx: Context, key: KeyRef) {
         if (key.isBuiltIn) return
-        val remaining = list(ctx).filter { !it.isBuiltIn && it.storePath != key.storePath }
+        val remaining = stored(ctx).filter { File(it.storePath).isFile && it.storePath != key.storePath }
         save(ctx, remaining)
+        runCatching { SecretVault.remove(ctx, vaultName(key.storePath)) }
         File(key.storePath).delete()
     }
 
@@ -183,19 +230,47 @@ object SigningKeys {
     }
 
     private fun remember(ctx: Context, ref: KeyRef) {
-        val cur = list(ctx).filter { !it.isBuiltIn && it.storePath != ref.storePath }
+        // Passwords into the vault first (throws when it's unavailable), then the key into the list.
+        SecretVault.put(ctx, vaultName(ref.storePath), sealedPasswords(ref.storePassword, ref.keyPassword))
+        val cur = stored(ctx).filter { File(it.storePath).isFile && it.storePath != ref.storePath }
         save(ctx, cur + ref)
     }
 
-    private fun save(ctx: Context, keys: List<KeyRef>) {
-        val arr = org.json.JSONArray()
-        keys.forEach { arr.put(toJson(it)) }
-        prefs(ctx).edit().putString("keys", arr.toString()).apply()
+    /** The keys in prefs, without the built-in one. Passwords are blank unless an unmigrated entry still has them. */
+    private fun stored(ctx: Context): List<KeyRef> = runCatching {
+        val arr = JSONArray(prefs(ctx).getString("keys", "[]") ?: "[]")
+        (0 until arr.length()).mapNotNull { fromJson(arr.getJSONObject(it)) }
+    }.getOrDefault(emptyList())
+
+    /** [key] with its passwords from the vault; [strict] throws when the vault can't be read, else they stay as they are. */
+    private fun withPasswords(ctx: Context, key: KeyRef, strict: Boolean): KeyRef {
+        val sealed = try {
+            SecretVault.get(ctx, vaultName(key.storePath))
+        } catch (e: IOException) {
+            if (strict) throw e
+            Log.w(TAG, "Signing-key passwords unavailable: ${e.message}")
+            null
+        } ?: return key
+        return runCatching {
+            val o = JSONObject(sealed)
+            key.copy(storePassword = o.getString("store"), keyPassword = o.getString("key"))
+        }.getOrDefault(key)
     }
 
+    private fun vaultName(storePath: String) = VAULT_PREFIX + File(storePath).name
+
+    private fun sealedPasswords(store: String, key: String) = JSONObject().put("store", store).put("key", key).toString()
+
+    private fun save(ctx: Context, keys: List<KeyRef>) {
+        val arr = JSONArray()
+        keys.forEach { arr.put(toJson(it)) }
+        // commit: the migration drops the plain passwords only after the vault has them.
+        prefs(ctx).edit().putString("keys", arr.toString()).commit()
+    }
+
+    /** No passwords: those live in the vault. */
     private fun toJson(k: KeyRef): JSONObject = JSONObject()
-        .put("storePath", k.storePath).put("storeType", k.storeType).put("alias", k.alias)
-        .put("storePassword", k.storePassword).put("keyPassword", k.keyPassword).put("displayName", k.displayName)
+        .put("storePath", k.storePath).put("storeType", k.storeType).put("alias", k.alias).put("displayName", k.displayName)
 
     private fun fromJson(o: JSONObject): KeyRef? = runCatching {
         KeyRef(

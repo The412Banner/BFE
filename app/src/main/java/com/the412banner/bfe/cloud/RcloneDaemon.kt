@@ -21,8 +21,9 @@ import java.io.IOException
  * and [release] it after.
  *
  * Everything rclone keeps lives in app-private storage: the config (accounts, tokens, obscured
- * passwords) in `filesDir/rclone/rclone.conf`, caches and temp files under `cacheDir`. BFE disables
- * Android backups, so the config never leaves the device.
+ * passwords) in `filesDir/rclone/rclone.conf`, encrypted by rclone with a password only the credential
+ * vault holds ([RcloneSecureConfig]), and caches and temp files under `cacheDir`. BFE disables Android
+ * backups, so the config never leaves the device.
  */
 object RcloneDaemon {
     private const val TAG = "BFE_RCLONE"
@@ -61,10 +62,14 @@ object RcloneDaemon {
         val app = ctx.applicationContext
         if (!RcloneManager.isInstalled(app)) throw IOException("rclone isn't installed")
         val started = withContext(Dispatchers.IO) {
+            val bin = RcloneManager.binary(app)
+            // Encrypt / check rclone.conf first and get its password from the vault.
+            val configPassword = RcloneSecureConfig.prepare(app, bin)
             val tmp = File(app.cacheDir, "rclone-tmp").apply { deleteRecursively(); mkdirs() }
             RcdProcess.start(
-                binary = RcloneManager.binary(app),
+                binary = bin,
                 config = configFile(app),
+                configPassword = configPassword,
                 cacheDir = File(app.cacheDir, "rclone"),
                 tempDir = tmp,
                 extraEnv = certEnv(),
@@ -74,6 +79,24 @@ object RcloneDaemon {
         rcd = started
         Log.i(TAG, "rcd running on ${started.client.baseUrl}")
         RcloneApi(started.client)
+    }
+
+    /**
+     * At launch: a plain rclone.conf left by an older BFE (or a stray copy) is encrypted now, not at the
+     * next Cloud / Remote visit. Works without the engine installed. No-op when there's nothing plain.
+     */
+    fun secureAtRest(ctx: Context) {
+        val app = ctx.applicationContext
+        scope.launch {
+            startLock.withLock {
+                if (rcd?.isAlive == true) return@withLock
+                runCatching {
+                    if (RcloneSecureConfig.needsSecuring(app)) {
+                        RcloneSecureConfig.prepare(app, RcloneManager.binary(app).takeIf { RcloneManager.isInstalled(app) })
+                    }
+                }.onFailure { Log.w(TAG, "Couldn't secure the rclone config yet: ${it.message}") }
+            }
+        }
     }
 
     /** rclone's last log lines (for error details). */

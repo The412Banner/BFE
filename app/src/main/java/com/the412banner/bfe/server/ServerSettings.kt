@@ -2,10 +2,14 @@ package com.the412banner.bfe.server
 
 import android.content.Context
 import android.os.Environment
+import android.util.Log
+import com.the412banner.bfe.security.SecretVault
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.security.SecureRandom
+import java.util.concurrent.Executors
 
 /** A folder picked for sharing. [label] is the name clients see (volume roots get "Internal", "SD card"...). */
 data class SharedFolder(val path: String, val readOnly: Boolean, val label: String)
@@ -67,10 +71,24 @@ data class ServerSettings(
     }
 }
 
-/** SharedPreferences storage for [ServerSettings], plus which protocols the user has switched on. */
+/**
+ * SharedPreferences storage for [ServerSettings], plus which protocols the user has switched on. The
+ * password is the exception: it is sealed in the credential vault ([SecretVault]); BFE 1.1.0 and older
+ * kept it here in plain text, and [migratePassword] moves it over.
+ */
 object ServerPrefs {
+    private const val TAG = "BFE_SERVER"
     private const val PREFS = "bfe_server"
     private const val ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+    private const val PLAIN_PASSWORD = "password"
+    const val PASSWORD_ENTRY = "server.password"
+
+    // False while the vault couldn't be read: save() then leaves the stored password alone.
+    @Volatile private var passwordKnown = false
+    // The password as last saved. The screen saves on every keystroke and a vault write is a keystore
+    // operation, so writes run in order on their own thread and loads read this meanwhile.
+    @Volatile private var latest: String? = null
+    private val writer = Executors.newSingleThreadExecutor { r -> Thread(r, "bfe-server-pw").apply { isDaemon = true } }
 
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -82,12 +100,7 @@ object ServerPrefs {
 
     fun load(ctx: Context): ServerSettings {
         val p = prefs(ctx)
-        var password = p.getString("password", null)
-        if (password.isNullOrEmpty()) {
-            // First use: a random password, shown on screen and editable.
-            password = generatePassword()
-            p.edit().putString("password", password).apply()
-        }
+        val password = loadPassword(ctx)
         val folders = runCatching {
             val arr = JSONArray(p.getString("folders", "[]"))
             List(arr.length()) { i ->
@@ -124,11 +137,52 @@ object ServerPrefs {
             .putString("folders", arr.toString())
             .putBoolean("anonymous", s.anonymous)
             .putString("user", s.user)
-            .putString("password", s.password)
             .putBoolean("keepAwake", s.keepAwake)
             .putBoolean("startHttpOnLaunch", s.startHttpOnLaunch)
             .putBoolean("startFtpOnLaunch", s.startFtpOnLaunch)
             .apply()
+        savePassword(ctx, s.password)
+    }
+
+    /** A plain password from BFE 1.1.0 and older goes into the vault, then out of prefs. Safe to repeat. */
+    fun migratePassword(ctx: Context) {
+        val p = prefs(ctx)
+        val plain = p.getString(PLAIN_PASSWORD, null) ?: return
+        // Throws when the vault is unavailable: the plain one then stays until the next try.
+        if (plain.isNotEmpty()) SecretVault.put(ctx, PASSWORD_ENTRY, plain)
+        p.edit().remove(PLAIN_PASSWORD).commit()
+    }
+
+    private fun loadPassword(ctx: Context): String {
+        latest?.takeIf { it.isNotEmpty() }?.let { return it }
+        try {
+            migratePassword(ctx)
+            // First use (or an old one that could no longer be unlocked): a random password, shown on
+            // screen and editable.
+            val password = SecretVault.get(ctx, PASSWORD_ENTRY)?.takeIf { it.isNotEmpty() }
+                ?: generatePassword().also { SecretVault.put(ctx, PASSWORD_ENTRY, it) }
+            passwordKnown = true
+            return password
+        } catch (e: IOException) {
+            // The keystore failed just now. Nothing is overwritten; a password not moved yet still works.
+            Log.w(TAG, "The server password isn't available: ${e.message}")
+            passwordKnown = false
+            return prefs(ctx).getString(PLAIN_PASSWORD, null).orEmpty()
+        }
+    }
+
+    private fun savePassword(ctx: Context, password: String) {
+        if (!passwordKnown) return
+        latest = password
+        val app = ctx.applicationContext
+        writer.execute {
+            try {
+                // Empty = none stored, so the next load makes a fresh one (as before the vault).
+                if (password.isEmpty()) SecretVault.remove(app, PASSWORD_ENTRY) else SecretVault.put(app, PASSWORD_ENTRY, password)
+            } catch (e: IOException) {
+                Log.w(TAG, "Couldn't store the server password: ${e.message}")
+            }
+        }
     }
 
     // Which servers the user has switched on. Persisted so a restarted service (after the system

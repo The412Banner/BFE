@@ -1,5 +1,6 @@
 package com.the412banner.bfe.cloud
 
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.InetAddress
@@ -12,6 +13,10 @@ import java.util.concurrent.TimeUnit
  * It listens on 127.0.0.1 only, on a free port picked at start, behind a random user/password that
  * only this process knows (passed through the environment, not the command line). `--rc-serve` also
  * lets [RcClient.openRead] stream remote files.
+ *
+ * The config is encrypted (see [RcloneSecureConfig]): its password also goes in through the
+ * environment (RCLONE_CONFIG_PASS), rclone is told never to prompt for one, and the running daemon is
+ * unlocked with it too, so even the first save of a brand-new config is written encrypted.
  *
  * Plain JVM (ProcessBuilder), so the same code starts a daemon in a desktop test. Android specifics
  * (paths, the idle timer, logging) live in [RcloneDaemon].
@@ -40,12 +45,14 @@ class RcdProcess private constructor(private val process: Process, val client: R
 
     companion object {
         /**
-         * Starts rcd with [binary], keeping its config in [config] and scratch files in [cacheDir] /
-         * [tempDir]; returns once the API answers (or throws with rclone's last log lines).
+         * Starts rcd with [binary], keeping its config in [config] (encrypted with [configPassword]) and
+         * scratch files in [cacheDir] / [tempDir]; returns once the API answers (or throws with rclone's
+         * last log lines).
          */
         fun start(
             binary: File,
             config: File,
+            configPassword: String,
             cacheDir: File,
             tempDir: File,
             extraEnv: Map<String, String> = emptyMap(),
@@ -68,6 +75,8 @@ class RcdProcess private constructor(private val process: Process, val client: R
                 "--cache-dir", cacheDir.absolutePath,
                 "--temp-dir", tempDir.absolutePath,
                 "--log-level", "INFO",
+                // A config it can't decrypt is an error, never a password prompt on stdin.
+                "--ask-password=false",
             )
             pb.redirectErrorStream(true)
             // A "local" remote's relative paths resolve against the working directory: make that "/"
@@ -76,11 +85,13 @@ class RcdProcess private constructor(private val process: Process, val client: R
             pb.environment().apply {
                 put("RCLONE_RC_USER", user)
                 put("RCLONE_RC_PASS", pass)
+                put("RCLONE_CONFIG_PASS", configPassword)
                 put("HOME", config.parentFile?.absolutePath ?: tempDir.absolutePath)
                 put("TMPDIR", tempDir.absolutePath)
                 putAll(extraEnv)
             }
             val process = pb.start()
+            process.outputStream.close()
             val rcd = RcdProcess(process, RcClient(port, user, pass))
             Thread {
                 runCatching {
@@ -100,11 +111,20 @@ class RcdProcess private constructor(private val process: Process, val client: R
                 }
                 try {
                     rcd.client.call("rc/noop", readTimeoutMs = 2_000)
-                    return rcd
                 } catch (e: Exception) {
                     lastError = e
                     Thread.sleep(120)
+                    continue
                 }
+                // rclone only takes RCLONE_CONFIG_PASS when it reads an encrypted file; with no config
+                // yet it would save the first one in plain text. Unlocking sets the key regardless.
+                try {
+                    rcd.client.call("config/unlock", JSONObject().put("configPassword", configPassword), readTimeoutMs = 10_000)
+                } catch (e: Exception) {
+                    rcd.stop()
+                    throw IOException("rclone didn't accept the config password: ${e.message}")
+                }
+                return rcd
             }
             process.destroy()
             throw IOException("rclone didn't start in time: ${lastError?.message ?: ""} ${rcd.logTail(6)}".trim())

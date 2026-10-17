@@ -458,8 +458,8 @@ private fun AccountsPage(
                     scope.launch {
                         val res = withContext(Dispatchers.IO) {
                             runCatching {
-                                RcloneDaemon.api(context) // make sure rclone is up so it sees the change right away
-                                RcloneConfigFile.renameSection(RcloneDaemon.configFile(context), r.name, new)
+                                // rclone must be up: it has to see the change right away, and confirms it.
+                                RcloneConfigFile.renameSection(context, RcloneDaemon.api(context), r.name, new)
                                 CloudSetup.renameStartPath(context, r.name, new)
                             }
                         }
@@ -512,7 +512,8 @@ private fun AccountsPage(
                         "SHA-256 ${RcloneManager.BIN_SHA256.take(12)}…)\n\n" +
                         "rclone is free software by Nick Craig-Wood and contributors, MIT licensed. Its notice and the " +
                         "licences of the libraries it uses are in Settings → Open-source licenses.\n\n" +
-                        "Your accounts are kept in BFE's private storage on this device.",
+                        "Your accounts are kept in BFE's private storage on this device, encrypted with BFE's " +
+                            "credential key (see Settings → Security).",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },

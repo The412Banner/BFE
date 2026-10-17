@@ -1,0 +1,11 @@
+[gdrive]
+type = drive
+scope = drive
+token = {"access_token":"ya29.FAKE","token_type":"Bearer","refresh_token":"1//FAKE-REFRESH","expiry":"2026-10-16T12:00:00Z"}
+
+[nas]
+type = sftp
+host = 192.168.1.20
+user = me
+pass = FAKE-OBSCURED
+

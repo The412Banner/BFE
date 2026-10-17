@@ -18,7 +18,10 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
-/** Everything one APK job needs, intent-serialisable. */
+/**
+ * Everything one APK job needs, intent-serialisable. The signing key travels as WHICH key only — its
+ * passwords stay in the credential vault and the service looks them up ([SigningKeys.resolve]).
+ */
 data class ApkJobRequest(
     val kind: ApkJobKind,
     val input: String,
@@ -48,7 +51,7 @@ data class ApkJobRequest(
         }
         put("key", JSONObject().apply {
             put("storePath", key.storePath); put("storeType", key.storeType); put("alias", key.alias)
-            put("storePassword", key.storePassword); put("keyPassword", key.keyPassword); put("displayName", key.displayName)
+            put("displayName", key.displayName)
         })
         put("v1", schemes.v1); put("v2", schemes.v2); put("v3", schemes.v3)
     }.toString()
@@ -77,7 +80,7 @@ data class ApkJobRequest(
                 },
                 key = KeyRef(
                     k.getString("storePath"), k.getString("storeType"), k.getString("alias"),
-                    k.getString("storePassword"), k.getString("keyPassword"), k.getString("displayName"),
+                    "", "", k.getString("displayName"),
                 ),
                 schemes = SignSchemes(o.getBoolean("v1"), o.getBoolean("v2"), o.getBoolean("v3")),
                 installAfter = o.getBoolean("installAfter"),
@@ -204,7 +207,7 @@ class ApkJobService : Service() {
                 val pageAlign = if (extractNative == false) 16384 else 4096
                 stage(ApkJobStage.ALIGNING)   // apksig re-aligns while it copies (see ApkSigning)
                 stage(ApkJobStage.SIGNING)
-                ApkSigning.sign(toSign, out, req.key, req.schemes, pageAlign)
+                ApkSigning.sign(toSign, out, SigningKeys.resolve(this, req.key), req.schemes, pageAlign)
                 if (cancelled) throw ApkRewriter.Cancelled()
                 stage(ApkJobStage.VERIFYING)
                 val v = ApkSigning.verify(out)

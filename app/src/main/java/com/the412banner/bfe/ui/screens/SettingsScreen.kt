@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +66,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -88,6 +91,8 @@ import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.CheckState
 import com.the412banner.bfe.util.DefaultApps
 import com.the412banner.bfe.media.MediaPrefs
+import com.the412banner.bfe.security.SecretVault
+import com.the412banner.bfe.security.VaultProtection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
@@ -121,7 +126,7 @@ private val LICENSE_DOCS = listOf(
 
 /**
  * Settings + About, a full-screen page over the file manager: updates, appearance, default apps,
- * and the about block (version, GitHub, licenses). Sub-pages (default apps, a license text) are
+ * where the credential key lives, and the about block (version, GitHub, licenses). Sub-pages (default apps, a license text) are
  * simple in-screen states; system Back walks back out of them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -364,6 +369,11 @@ private fun MainSettings(
         )
 
         SettingsDivider()
+        // ── Security ──
+        SectionHeader("Security")
+        CredentialProtectionRow()
+
+        SettingsDivider()
         // ── About ──
         SectionHeader("About")
         SettingRow(
@@ -403,6 +413,31 @@ private fun MainSettings(
     }
 }
 
+/** Read-only: where the credential vault's key lives (StrongBox / TEE / software), as the keystore reports it. */
+@Composable
+private fun CredentialProtectionRow() {
+    val context = LocalContext.current
+    val vault by produceState<Result<VaultProtection>?>(null) {
+        value = withContext(Dispatchers.IO) { runCatching { SecretVault.protection(context) } }
+    }
+    val level = vault?.getOrNull()
+    val weak = vault != null && level != VaultProtection.STRONGBOX && level != VaultProtection.TEE && level != VaultProtection.SECURE_HARDWARE
+    val covers = " Covers Cloud and Remote accounts, the Access from network password and signing-key passwords."
+    SettingRow(
+        icon = if (weak) Icons.Filled.Warning else Icons.Filled.VerifiedUser,
+        iconTint = if (weak) MaterialTheme.colorScheme.error else null,
+        title = "Credential encryption",
+        subtitle = when (level) {
+            null -> if (vault == null) "Checking…" else "The credential key isn't available right now. Saved sign-ins stay locked until it is."
+            VaultProtection.STRONGBOX -> "Credentials are encrypted with a hardware key (StrongBox, a separate security chip).$covers"
+            VaultProtection.TEE -> "Credentials are encrypted with a hardware key (Trusted Execution Environment).$covers"
+            VaultProtection.SECURE_HARDWARE -> "Credentials are encrypted with a hardware key (secure hardware).$covers"
+            VaultProtection.SOFTWARE -> "Credentials are encrypted, but this device has no secure hardware for the key: Android protects it in software only.$covers"
+            VaultProtection.UNKNOWN -> "Credentials are encrypted with an Android Keystore key; this device doesn't report whether it's held in hardware.$covers"
+        },
+    )
+}
+
 @Composable
 private fun SectionHeader(text: String) {
     if (isAurora) {
@@ -424,6 +459,7 @@ private fun SettingRow(
     subtitle: String? = null,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    iconTint: Color? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -434,7 +470,7 @@ private fun SettingRow(
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        Icon(icon, null, tint = iconTint ?: MaterialTheme.colorScheme.primary)
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)

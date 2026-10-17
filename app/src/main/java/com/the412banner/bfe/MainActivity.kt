@@ -64,6 +64,7 @@ import com.the412banner.bfe.ui.screens.home.HomePrefs
 import com.the412banner.bfe.ui.screens.home.HomeScreen
 import com.the412banner.bfe.ui.screens.server.ServerScreen
 import com.the412banner.bfe.ui.update.UpdateHost
+import com.the412banner.bfe.ui.SecurityNoticeHost
 import com.the412banner.bfe.server.ServerService
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.util.AppSnackbar
@@ -260,6 +261,7 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
         LookTransitionOverlay()
     }
     UpdateHost()
+    SecurityNoticeHost()
 }
 
 /** The app-wide extraction / compression / APK / convert pills (each renders nothing when idle). */
