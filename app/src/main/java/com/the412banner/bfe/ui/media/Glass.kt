@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +64,12 @@ internal fun Modifier.glass(shape: Shape = Glass.Panel, strong: Boolean = false)
         .background(cs.surfaceContainerLowest.copy(alpha = if (strong) 0.88f else 0.58f))
         .border(1.dp, cs.onSurface.copy(alpha = 0.16f), shape)
 }
+
+/**
+ * Keeps taps on a panel's empty parts (titles, padding) from falling through to the gesture layer
+ * underneath, where they would toggle the bars. The panel's own buttons still get theirs first.
+ */
+internal fun Modifier.absorbTaps(): Modifier = pointerInput(Unit) { detectTapGestures { } }
 
 /**
  * The viewer / player theme: BFE's dark scheme whatever the app theme is (controls sit on black),

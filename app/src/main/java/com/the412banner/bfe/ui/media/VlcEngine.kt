@@ -81,6 +81,8 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
     private var pendingSeek: Long? = null
     /** Re-opened for an effect change while paused: pause again once the first frame is up. */
     private var pauseWhenReady = false
+    /** An open asked for before the screen's surfaces exist; runs as soon as they're attached. */
+    private var pendingOpen: (() -> Unit)? = null
     private var winW = 0
     private var winH = 0
     private val releaser = Executors.newSingleThreadExecutor()
@@ -135,6 +137,7 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
     fun attachHost(h: SurfaceHost) {
         host = h
         player?.let { bindVout(it) }
+        pendingOpen?.let { todo -> pendingOpen = null; todo() }
     }
 
     fun setWindowSize(w: Int, h: Int) {
@@ -153,6 +156,14 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
      * [startPaused] shows the first frame and pauses there.
      */
     fun open(ref: MediaRef, startMs: Long, s: PlayerSettings, startPaused: Boolean = false) {
+        if (host == null) {
+            // libVLC needs its window before play(): wait for the screen's TextureViews.
+            current = ref
+            settings = s
+            opening = true
+            pendingOpen = { open(ref, startMs, s, startPaused) }
+            return
+        }
         settings = s
         error = null
         ended = false
@@ -302,6 +313,7 @@ class VlcEngine(context: Context) : IVLCVout.OnNewVideoLayoutListener {
     private fun ensureLoaded() { if (libVlc == null) LibVLC.loadLibraries() }
 
     fun release() {
+        pendingOpen = null
         releasePlayer()
         current = null
         releaser.shutdown()

@@ -529,7 +529,7 @@ internal fun VideoPlayerScreen(
                 exit = fadeOut(tween(200)) + slideOutHorizontally(tween(240)) { -it / 3 },
                 modifier = Modifier.align(Alignment.BottomStart).padding(bottom = if (showControls) 132.dp else 16.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.glass(Glass.Pill)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.glass(Glass.Pill).absorbTaps()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.clip(Glass.Pill).clickable { state.acceptResume() }.padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
@@ -548,7 +548,7 @@ internal fun VideoPlayerScreen(
             engine.error?.let { msg ->
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.align(Alignment.Center).widthIn(max = 420.dp).glass(strong = true).padding(20.dp),
+                    modifier = Modifier.align(Alignment.Center).widthIn(max = 420.dp).glass(strong = true).absorbTaps().padding(20.dp),
                 ) {
                     Icon(Icons.Filled.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(40.dp))
                     Spacer(Modifier.height(10.dp))
@@ -602,7 +602,7 @@ private fun TopBar(
     var menu by remember { mutableStateOf(false) }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().glass().padding(horizontal = 4.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().glass().absorbTaps().padding(horizontal = 4.dp, vertical = 4.dp),
     ) {
         IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close") }
         Column(modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
@@ -691,7 +691,7 @@ private fun BottomBar(
     val shownTime = scrub?.let { (it * len).toLong() } ?: engine.timeMs
 
     Column(
-        modifier = Modifier.widthIn(max = 980.dp).fillMaxWidth().glass().padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier = Modifier.widthIn(max = 980.dp).fillMaxWidth().glass().absorbTaps().padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

@@ -278,135 +278,138 @@ internal fun PhotoViewerScreen(request: MediaRequest, onCurrentChanged: (String)
     }
 
     // ── Layout ──
-    val dragFraction = with(density) { (abs(dragY) / 600.dp.toPx()).coerceIn(0f, 1f) }
+    // How far the swipe-to-close has gone, read in the draw phase so dragging never recomposes.
+    val dragRange = with(density) { 600.dp.toPx() }
+    fun dragFraction() = (abs(dragY) / dragRange).coerceIn(0f, 1f)
     Box(modifier = Modifier.fillMaxSize()) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { alpha = enter.value * (1f - dragFraction * 0.85f) }
-            .background(MaterialTheme.colorScheme.scrim),
-    )
-    HorizontalPager(
-        state = pager,
-        key = { items.getOrNull(it)?.key ?: it },
-        beyondBoundsPageCount = 1,
-        pageSpacing = 16.dp,
-        userScrollEnabled = !slideshow,
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                val s = 0.92f + 0.08f * enter.value
-                scaleX = s * (1f - dragFraction * 0.15f)
-                scaleY = s * (1f - dragFraction * 0.15f)
-                alpha = enter.value
-                translationY = dragY
-            }
-            // Swipe down (or up) to close while not zoomed: the photo follows the finger, the backdrop fades.
-            .draggable(
-                orientation = Orientation.Vertical,
-                enabled = !zoomed && !slideshow,
-                state = rememberDraggableState { d -> dragY += d },
-                onDragStopped = { velocity ->
-                    val far = abs(dragY) > with(density) { 120.dp.toPx() } || abs(velocity) > with(density) { 1600.dp.toPx() }
-                    if (far) close()
-                    else animate(dragY, 0f, animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f)) { v, _ -> dragY = v }
-                },
-            ),
-    ) { page ->
-        val item = items.getOrNull(page) ?: return@HorizontalPager
-        key(item.key, versions[item.key] ?: 0) {
-            PhotoPage(
-                item = item,
-                loader = loader,
-                rotation = rotations[item.key] ?: 0,
-                settled = pager.settledPage == page,
-                onTap = { if (slideshow) { slideshow = false; barsVisible = true } else barsVisible = !barsVisible },
-                onZoomed = { z -> if (page == pager.currentPage) zoomed = z },
-            )
-        }
-    }
-
-    val insets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
-    Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(insets).padding(12.dp)) {
-        // Top: back · name · position · slideshow · ⋮
-        AnimatedVisibility(
-            visible = barsVisible && !slideshow && current != null,
-            enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { -it / 2 },
-            exit = fadeOut(tween(180)) + slideOutVertically(tween(220)) { -it / 2 },
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            val item = current ?: return@AnimatedVisibility
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().glass().padding(horizontal = 4.dp, vertical = 4.dp),
-            ) {
-                IconButton(onClick = { close() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close") }
-                Column(modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
-                    Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${pager.currentPage + 1} / ${items.size}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = enter.value * (1f - dragFraction() * 0.85f) }
+                .background(MaterialTheme.colorScheme.scrim),
+        )
+        HorizontalPager(
+            state = pager,
+            key = { items.getOrNull(it)?.key ?: it },
+            beyondBoundsPageCount = 1,
+            pageSpacing = 16.dp,
+            userScrollEnabled = !slideshow,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val s = 0.92f + 0.08f * enter.value
+                    val d = 1f - dragFraction() * 0.15f
+                    scaleX = s * d
+                    scaleY = s * d
+                    alpha = enter.value
+                    translationY = dragY
                 }
-                IconButton(
-                    onClick = { slideshow = true },
-                    enabled = items.size > 1,
-                ) { Icon(Icons.Filled.Slideshow, "Slideshow") }
-                Box {
-                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, "More") }
-                    BfeDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Set as…") },
-                            leadingIcon = { Icon(Icons.Filled.Wallpaper, null) },
-                            onClick = { menuOpen = false; setAs(item) },
+                // Swipe down (or up) to close while not zoomed: the photo follows the finger, the backdrop fades.
+                .draggable(
+                    orientation = Orientation.Vertical,
+                    enabled = !zoomed && !slideshow,
+                    state = rememberDraggableState { d -> dragY += d },
+                    onDragStopped = { velocity ->
+                        val far = abs(dragY) > with(density) { 120.dp.toPx() } || abs(velocity) > with(density) { 1600.dp.toPx() }
+                        if (far) close()
+                        else animate(dragY, 0f, animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f)) { v, _ -> dragY = v }
+                    },
+                ),
+        ) { page ->
+            val item = items.getOrNull(page) ?: return@HorizontalPager
+            key(item.key, versions[item.key] ?: 0) {
+                PhotoPage(
+                    item = item,
+                    loader = loader,
+                    rotation = rotations[item.key] ?: 0,
+                    settled = pager.settledPage == page,
+                    onTap = { if (slideshow) { slideshow = false; barsVisible = true } else barsVisible = !barsVisible },
+                    onZoomed = { z -> if (page == pager.currentPage) zoomed = z },
+                )
+            }
+        }
+
+        val insets = WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+        Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(insets).padding(12.dp)) {
+            // Top: back · name · position · slideshow · ⋮
+            AnimatedVisibility(
+                visible = barsVisible && !slideshow && current != null,
+                enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { -it / 2 },
+                exit = fadeOut(tween(180)) + slideOutVertically(tween(220)) { -it / 2 },
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
+                val item = current ?: return@AnimatedVisibility
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().glass().absorbTaps().padding(horizontal = 4.dp, vertical = 4.dp),
+                ) {
+                    IconButton(onClick = { close() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close") }
+                    Column(modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
+                        Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "${pager.currentPage + 1} / ${items.size}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (item.path != null) {
+                    }
+                    IconButton(
+                        onClick = { slideshow = true },
+                        enabled = items.size > 1,
+                    ) { Icon(Icons.Filled.Slideshow, "Slideshow") }
+                    Box {
+                        IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, "More") }
+                        BfeDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                             DropdownMenuItem(
-                                text = { Text("Show in folder") },
-                                leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
-                                onClick = { menuOpen = false; showInFolder(item) },
+                                text = { Text("Set as…") },
+                                leadingIcon = { Icon(Icons.Filled.Wallpaper, null) },
+                                onClick = { menuOpen = false; setAs(item) },
                             )
-                        }
-                        val turned = ((rotations[item.key] ?: 0) % 360) != 0
-                        if (turned && item.path != null && MediaTypes.canSaveRotation(item.name)) {
-                            DropdownMenuItem(
-                                text = { Text("Save rotation") },
-                                leadingIcon = { Icon(Icons.Filled.Save, null) },
-                                onClick = { menuOpen = false; saveRotation(item) },
-                            )
+                            if (item.path != null) {
+                                DropdownMenuItem(
+                                    text = { Text("Show in folder") },
+                                    leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
+                                    onClick = { menuOpen = false; showInFolder(item) },
+                                )
+                            }
+                            val turned = ((rotations[item.key] ?: 0) % 360) != 0
+                            if (turned && item.path != null && MediaTypes.canSaveRotation(item.name)) {
+                                DropdownMenuItem(
+                                    text = { Text("Save rotation") },
+                                    leadingIcon = { Icon(Icons.Filled.Save, null) },
+                                    onClick = { menuOpen = false; saveRotation(item) },
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Bottom: Share · Open with · Rotate · Info · Delete
-        AnimatedVisibility(
-            visible = barsVisible && !slideshow && current != null,
-            enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { it / 2 },
-            exit = fadeOut(tween(180)) + slideOutVertically(tween(220)) { it / 2 },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            val item = current ?: return@AnimatedVisibility
-            Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().glass().padding(horizontal = 6.dp, vertical = 6.dp),
+            // Bottom: Share · Open with · Rotate · Info · Delete
+            AnimatedVisibility(
+                visible = barsVisible && !slideshow && current != null,
+                enter = fadeIn(tween(200)) + slideInVertically(tween(260)) { it / 2 },
+                exit = fadeOut(tween(180)) + slideOutVertically(tween(220)) { it / 2 },
+                modifier = Modifier.align(Alignment.BottomCenter),
             ) {
-                BarAction(Icons.Filled.Share, "Share", onClick = { shareMedia(context, item) })
-                BarAction(Icons.AutoMirrored.Filled.OpenInNew, "Open with", onClick = { openWith = mediaTarget(context, item) })
-                BarAction(Icons.Filled.RotateRight, "Rotate", onClick = { rotate(item) }, active = ((rotations[item.key] ?: 0) % 360) != 0)
-                BarAction(Icons.Filled.Info, "Info", onClick = { details = item })
-                BarAction(
-                    Icons.Filled.Delete,
-                    "Delete",
-                    onClick = { confirmDelete = item },
-                    enabled = remember(item.key) { canDeletePhoto(context, item) },
-                )
+                val item = current ?: return@AnimatedVisibility
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().glass().absorbTaps().padding(horizontal = 6.dp, vertical = 6.dp),
+                ) {
+                    BarAction(Icons.Filled.Share, "Share", onClick = { shareMedia(context, item) })
+                    BarAction(Icons.AutoMirrored.Filled.OpenInNew, "Open with", onClick = { openWith = mediaTarget(context, item) })
+                    BarAction(Icons.Filled.RotateRight, "Rotate", onClick = { rotate(item) }, active = ((rotations[item.key] ?: 0) % 360) != 0)
+                    BarAction(Icons.Filled.Info, "Info", onClick = { details = item })
+                    BarAction(
+                        Icons.Filled.Delete,
+                        "Delete",
+                        onClick = { confirmDelete = item },
+                        enabled = remember(item.key) { canDeletePhoto(context, item) },
+                    )
+                }
             }
         }
-    }
     }
 }
 
