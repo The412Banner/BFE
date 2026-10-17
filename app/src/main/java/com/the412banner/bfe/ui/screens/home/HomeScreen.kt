@@ -58,6 +58,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,9 +83,12 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -148,6 +152,9 @@ internal class HomeTile(
     val style: TileStyle,
     val stats: String?,
     val fraction: Float? = null,
+    // Whether the tile shows a usage bar; true for main storage even before its numbers load, so the
+    // tile's measured height doesn't change when they arrive.
+    val hasBar: Boolean = fraction != null,
     val onClick: () -> Unit,
 )
 
@@ -210,7 +217,7 @@ fun HomeScreen(
 
     val tiles = buildList {
         val main = stats.main
-        add(HomeTile("main", "Main storage", HomeTileStyles.Main, main?.let { capacity(it.used, it.total) }, main?.fraction) {
+        add(HomeTile("main", "Main storage", HomeTileStyles.Main, main?.let { capacity(it.used, it.total) }, main?.fraction, hasBar = true) {
             onOpenFolder(FmLocationRequest.folder(main?.dir ?: File("/storage/emulated/0")))
         })
         stats.removable.forEach { v ->
@@ -271,6 +278,7 @@ fun HomeScreen(
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
             val grid = homeGrid(maxWidth, landscape, sidePadding = 12.dp)
+            val heights = rememberHomeTileHeights(tiles.chunked(grid.tilesAcross), grid.tileWidth)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(grid.columns),
                 contentPadding = PaddingValues(12.dp),
@@ -278,7 +286,7 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(tiles, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile -> HomeTileCard(tile) }
+                items(tiles, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile -> HomeTileCard(tile, heights[tile.key] ?: HOME_TILE_HEIGHT) }
 
                 // Other apps' storage pinned to Home, then a ＋ tile to add another.
                 item(key = "appstorage-header", span = { GridItemSpan(maxLineSpan) }) {
@@ -409,8 +417,8 @@ internal fun HomeAboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit) 
 
 /** A rounded tile, laid out by [HomeTileBody]; the usage bar is a plain progress bar. */
 @Composable
-private fun HomeTileCard(tile: HomeTile) {
-    HomeTileFrame(onClick = tile.onClick, onLongClick = null, wide = true, height = homeDashTileHeight()) {
+private fun HomeTileCard(tile: HomeTile, height: Dp) {
+    HomeTileFrame(onClick = tile.onClick, onLongClick = null, wide = true, height = height) {
         HomeTileBody(tile, iconBackground = tile.style.color.copy(alpha = 0.16f), iconTint = tile.style.color) { f ->
             LinearProgressIndicator(
                 progress = { f },
@@ -422,10 +430,20 @@ private fun HomeTileCard(tile: HomeTile) {
     }
 }
 
+// A dashboard tile's metrics, shared by [HomeTileBody] (drawing) and [rememberHomeTileHeights]
+// (measuring), so the measured height is exactly what the tile draws.
+private val TileNameStyle = TextStyle(fontSize = 16.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+private val TileStatsStyle = TextStyle(fontSize = 11.sp, lineHeight = 13.sp, textAlign = TextAlign.Center)
+private val TileGap = 6.dp
+private val TileIconSize = 36.dp
+private val TileBarHeight = 4.dp
+private val TilePadding = 8.dp   // HomeTileFrame's padding for wide tiles, on every side
+
 /**
  * A dashboard tile's content (Classic and Aurora), all centred: the name across the top, the icon in
  * a tinted circle under it, the stats along the bottom ("2.22 GB" over "5,342 files") and, for
- * storage, a usage bar under those.
+ * storage, a usage bar under those. Any height beyond [rememberHomeTileHeights]' measure (a taller
+ * tile in the same row) goes either side of the icon.
  */
 @Composable
 internal fun ColumnScope.HomeTileBody(
@@ -436,52 +454,80 @@ internal fun ColumnScope.HomeTileBody(
 ) {
     Text(
         tile.label,
+        style = LocalTextStyle.current.merge(TileNameStyle),
         color = MaterialTheme.colorScheme.onSurface,
-        fontSize = 16.sp,
-        lineHeight = 19.sp,
-        fontWeight = FontWeight.SemiBold,
-        textAlign = TextAlign.Center,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.fillMaxWidth(),
     )
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(TileGap))
     Spacer(Modifier.weight(1f))
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.align(Alignment.CenterHorizontally).size(36.dp).clip(CircleShape).background(iconBackground),
+        modifier = Modifier.align(Alignment.CenterHorizontally).size(TileIconSize).clip(CircleShape).background(iconBackground),
     ) {
         Icon(tile.style.icon, null, tint = iconTint, modifier = Modifier.size(20.dp))
     }
     Spacer(Modifier.weight(1f))
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(TileGap))
     Text(
         tile.stats ?: "…",
+        style = LocalTextStyle.current.merge(TileStatsStyle),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontSize = 11.sp,
-        lineHeight = 13.sp,
-        textAlign = TextAlign.Center,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.fillMaxWidth(),
     )
     tile.fraction?.let { f ->
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(TileGap))
         usageBar(f)
     }
 }
 
-/** Dashboard tiles stack name, icon and stats, so they're taller than app tiles and grow with the font size. */
+/**
+ * Each dashboard tile's height, measured rather than guessed, so the tiles fit their content on any
+ * screen size, density and font size with no spare room: the padding, the name at the tile's real
+ * width (one or two lines), the icon, two lines of stats (always, so a tile doesn't grow when its
+ * stats load) and the usage bar if it has one. Tiles in a row share the row's tallest height; [rows]
+ * lists them row by row, and [tileWidth] is one tile's width.
+ */
 @Composable
-internal fun homeDashTileHeight(): Dp = 76.dp + 60.dp * LocalDensity.current.fontScale
+internal fun rememberHomeTileHeights(rows: List<List<HomeTile>>, tileWidth: Dp): Map<String, Dp> {
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val nameStyle = LocalTextStyle.current.merge(TileNameStyle)
+    val statsStyle = LocalTextStyle.current.merge(TileStatsStyle)
+    val shape = rows.map { row -> row.map { Triple(it.key, it.label, it.hasBar) } }
+    return remember(shape, tileWidth, density, nameStyle, statsStyle) {
+        with(density) {
+            // Measured a dp narrower than the tile's text area, and given a dp of slack in height, so
+            // the grid's pixel rounding can never add a line or clip the bottom.
+            val text = Constraints(maxWidth = (tileWidth - TilePadding * 2 - 1.dp).roundToPx().coerceAtLeast(1))
+            fun linesHeight(s: String, style: TextStyle): Dp =
+                measurer.measure(s, style, overflow = TextOverflow.Ellipsis, maxLines = 2, constraints = text).size.height.toDp()
+            val stats = linesHeight("0\n0", statsStyle)
+            buildMap {
+                for (row in rows) {
+                    val height = row.maxOfOrNull { tile ->
+                        TilePadding * 2 + linesHeight(tile.label, nameStyle) + TileGap + TileIconSize + TileGap + stats +
+                            (if (tile.hasBar) TileGap + TileBarHeight else 0.dp) + 1.dp
+                    } ?: continue
+                    row.forEach { put(it.key, height) }
+                }
+            }
+        }
+    }
+}
 
 /**
  * Home's grid. App-storage tiles take [appSpan] columns: as many per row as fit at ~76 dp (portrait) /
  * ~96 dp (landscape), an even count. Dashboard tiles take [tileSpan]: in portrait as many per row as
- * fit at ~98 dp (four on a typical phone), in landscape two app tiles' worth. [columns] is the least
- * common multiple, so both kinds of tile fill whole rows.
+ * fit at ~98 dp (four on a typical phone), in landscape two app tiles' worth; [tileWidth] is one
+ * dashboard tile's width. [columns] is the least common multiple, so both kinds of tile fill whole rows.
  */
-internal class HomeGrid(val columns: Int, val tileSpan: Int, val appSpan: Int)
+internal class HomeGrid(val columns: Int, val tileSpan: Int, val appSpan: Int, val tileWidth: Dp) {
+    val tilesAcross: Int get() = columns / tileSpan
+}
 
 internal fun homeGrid(maxWidth: Dp, landscape: Boolean, sidePadding: Dp): HomeGrid {
     val cells = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12) else (maxWidth / 76.dp).toInt().coerceIn(4, 8)
@@ -490,7 +536,9 @@ internal fun homeGrid(maxWidth: Dp, landscape: Boolean, sidePadding: Dp): HomeGr
     val tilesAcross = if (landscape) appAcross / 2 else ((maxWidth - sidePadding * 2 + 8.dp) / 106.dp).toInt().coerceIn(3, 6)
     var columns = appAcross
     while (columns % tilesAcross != 0) columns += appAcross
-    return HomeGrid(columns, columns / tilesAcross, columns / appAcross)
+    val tileSpan = columns / tilesAcross
+    val cell = (maxWidth - sidePadding * 2 - 8.dp * (columns - 1)) / columns
+    return HomeGrid(columns, tileSpan, columns / appAcross, tileWidth = cell * tileSpan + 8.dp * (tileSpan - 1))
 }
 
 /** Favourite folders (the file manager's ★ list) as a scrolling row; a hint when there are none. */

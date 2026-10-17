@@ -74,6 +74,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.server.ServerManager
@@ -145,6 +146,10 @@ internal fun AuroraHome(
                 AuroraHomeHeader(stats = stats, onOpenServer = onOpenServer)
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                     val grid = homeGrid(maxWidth, landscape, sidePadding = 16.dp)
+                    val heights = rememberHomeTileHeights(
+                        listOf(storage, library, connect).flatMap { it.chunked(grid.tilesAcross) },
+                        grid.tileWidth,
+                    )
                     // Entrance order for the staggered fade-in: tiles in reading order.
                     val order = remember(tiles) { tiles.mapIndexed { i, t -> t.key to i }.toMap() }
                     LazyVerticalGrid(
@@ -160,6 +165,7 @@ internal fun AuroraHome(
                             items(group, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile ->
                                 AuroraHomeTile(
                                     tile,
+                                    heights[tile.key] ?: HOME_TILE_HEIGHT,
                                     Modifier.staggeredEnter(order[tile.key] ?: 0, Unit, enabled = SystemClock.uptimeMillis() - bornAt < 700),
                                     onLaunch = { launchFrom(it) },
                                 )
@@ -299,12 +305,12 @@ private fun HomeMoreButton(onOpenFiles: () -> Unit, onRefresh: () -> Unit, onOpe
 }
 
 /**
- * One Home tile on glass: the same content and metrics as Classic's (HomeTileFrame / HomeTileLabel /
- * HomeTileStats: 107 dp, icon circle, two-line stats, usage bar for storage); pressed tiles dip
- * slightly, and the tile reports its position so the screen it opens can grow from it.
+ * One Home tile on glass: the same content and metrics as Classic's (HomeTileBody, at the row height
+ * from rememberHomeTileHeights); pressed tiles dip slightly, and the tile reports its position so the
+ * screen it opens can grow from it.
  */
 @Composable
-private fun AuroraHomeTile(tile: HomeTile, modifier: Modifier = Modifier, onLaunch: (CoordsHolder) -> Unit) {
+private fun AuroraHomeTile(tile: HomeTile, height: Dp, modifier: Modifier = Modifier, onLaunch: (CoordsHolder) -> Unit) {
     val holder = remember { CoordsHolder() }
     val dark = LocalGlass.current.palette.dark
     // Laid out as Classic's (HomeTileBody: name across the top, icon under it, stats along the bottom).
@@ -312,7 +318,7 @@ private fun AuroraHomeTile(tile: HomeTile, modifier: Modifier = Modifier, onLaun
         onClick = { onLaunch(holder); tile.onClick() },
         onLongClick = null,
         wide = true,
-        height = homeDashTileHeight(),
+        height = height,
         modifier = modifier.onGloballyPositioned { holder.coords = it },
     ) {
         HomeTileBody(
