@@ -240,6 +240,8 @@ private fun MainSettings(
                 trailing = { Switch(checked = ThemeSettings.dynamicColor, onCheckedChange = { ThemeSettings.setDynamic(context, it) }) },
             )
         }
+        // Launcher icon picker (AppIconSetting.kt).
+        AppIconSetting()
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         // ── Files ──

@@ -1,0 +1,26 @@
+{
+  "_comment": "BFE launcher icons, in picker order. id = resource suffix (ic_appicon_<id>*), alias = the launcher activity-alias class (com.the412banner.bfe.icon.<alias>). NEVER rename an alias: the chosen icon is remembered by Android as that component's enabled state, which survives app updates. src = folder under scripts/appicons/src/. Exactly one icon is the default (enabled in the manifest). Run build.py after editing.",
+  "icons": [
+    {"id": "m1", "alias": "M1", "group": "MIXES", "name": "Neon Rim Amber", "code": "M1", "src": "m1-neon-rim-amber"},
+    {"id": "m2", "alias": "M2", "group": "MIXES", "name": "Glass Flap", "code": "M2", "src": "m2-glass-flap"},
+    {"id": "m3", "alias": "M3", "group": "MIXES", "name": "Neon in Glass", "code": "M3", "src": "m3-neon-in-glass"},
+    {"id": "m4", "alias": "M4", "group": "MIXES", "name": "Glass Card Folder", "code": "M4", "src": "m4-glass-card-folder"},
+    {"id": "m5", "alias": "M5", "group": "MIXES", "name": "Glass-Filled Neon", "code": "M5", "src": "m5-glass-filled-neon", "default": true},
+    {"id": "m6", "alias": "M6", "group": "MIXES", "name": "Initials & Spark", "code": "M6", "src": "m6-initials-spark"},
+    {"id": "m7", "alias": "M7", "group": "MIXES", "name": "Trio Cascade", "code": "M7", "src": "m7-trio-cascade"},
+    {"id": "m8", "alias": "M8", "group": "MIXES", "name": "Orbit Lens", "code": "M8", "src": "m8-orbit-lens"},
+    {"id": "o01", "alias": "O01", "group": "ORIGINALS", "name": "Amber Monogram", "code": "01", "src": "o01-amber-monogram"},
+    {"id": "o02", "alias": "O02", "group": "ORIGINALS", "name": "Glass Panes", "code": "02", "src": "o02-glass-panes"},
+    {"id": "o03", "alias": "O03", "group": "ORIGINALS", "name": "Banner Tab", "code": "03", "src": "o03-banner-tab"},
+    {"id": "o04", "alias": "O04", "group": "ORIGINALS", "name": "Explorer Compass", "code": "04", "src": "o04-compass"},
+    {"id": "o05", "alias": "O05", "group": "ORIGINALS", "name": "Unzip", "code": "05", "src": "o05-unzip"},
+    {"id": "o06", "alias": "O06", "group": "ORIGINALS", "name": "Folder B", "code": "06", "src": "o06-folder-b"},
+    {"id": "o07", "alias": "O07", "group": "ORIGINALS", "name": "Layer Stack", "code": "07", "src": "o07-stack"},
+    {"id": "o08", "alias": "O08", "group": "ORIGINALS", "name": "Neon Folder", "code": "08", "src": "o08-neon"},
+    {"id": "o09", "alias": "O09", "group": "ORIGINALS", "name": "Aurora Glass", "code": "09", "src": "o09-aurora-glass"},
+    {"id": "o10", "alias": "O10", "group": "ORIGINALS", "name": "Glass Wordmark", "code": "10", "src": "o10-glass-wordmark"},
+    {"id": "o11", "alias": "O11", "group": "ORIGINALS", "name": "Unboxed", "code": "11", "src": "o11-unboxed"},
+    {"id": "o12", "alias": "O12", "group": "ORIGINALS", "name": "Airwave", "code": "12", "src": "o12-airwave"},
+    {"id": "classic", "alias": "Classic", "group": "CLASSIC", "name": "Classic", "code": "Classic", "src": "classic", "mono_res": "ic_launcher_monochrome"}
+  ]
+}

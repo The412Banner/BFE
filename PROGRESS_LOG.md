@@ -6,6 +6,44 @@ where it stands*.
 
 ---
 
+## In flight: new launcher icon + Settings → App icon (branch `feat/app-icons`, 2026-10-16)
+
+Owner (picking from `BFE-App-Icon-Mixes.html` / `BFE-App-Icon-Options.html`): "Let's use M5 default and
+allow the others as choices in app settings like we did with glass/classic view, squircle." Branched
+from `test/next` (`b2ff378`). **Not merged, not released, not device-run.**
+
+- **Icons (21):** default **M5 Glass-Filled Neon**; choices = the other 7 mixes (M1–M8), the 12 original
+  options (01–12) and **Classic** (the old blue folder, generated from the unchanged
+  `ic_launcher_{background,foreground}.xml`; its themed layer is the old `ic_launcher_monochrome`).
+  Option 09's `background-vivid.svg` variant was not shipped.
+- **Squircle baked in** (the owner's launcher, `com.otp.octopilauncher`, has no icon-shape setting):
+  adaptive background = transparent; foreground = background + foreground artwork inside a superellipse
+  (n = 4) **60 wide on the 108 canvas** (the 72-wide design shrunk ×5/6 about the centre). Its corner
+  reaches 35.7 from the centre, inside the 36-radius viewport circle, so a circle mask never nicks it.
+  Monochrome layers are the masters' own (unshrunk) silhouettes.
+- **Converter:** `scripts/appicons/build.py` (Skia PathOps + fontTools path parser). VectorDrawable
+  `<clip-path>` is not anti-aliased on Android, so it never emits one: anything crossing the squircle
+  or one of the masters' clip paths is cut geometrically (strokes → outline first); everything else is
+  written unchanged; transforms stay as `<group>`s (the masters use non-uniform `scale(1,0.14)` shadow
+  ellipses and a rotate). Gradient opacity is folded into the stops (never fillAlpha + shader). Also
+  writes the 21 mipmaps, `appicon/AppIconCatalog.kt` and the manifest alias block (between markers).
+- **Verification:** `scripts/appicons/check.py` re-renders each generated XML through an independent
+  `vd2svg.py` + rsvg and diffs it against the masters clipped by an independently sampled superellipse:
+  all 21 art + mono layers match (0 pixels off by > 24/255 away from the squircle rim; mean < 0.11).
+  Contact sheets: master | reference | generated | diff ×8 | circle mask | rounded mask | mono | themed,
+  plus dark/light launcher mock-ups.
+- **Switching:** 21 `<activity-alias>`es `com.the412banner.bfe.icon.{M1..M8,O01..O12,Classic}` →
+  MainActivity (MainActivity lost its own LAUNCHER filter; everything else targets it directly, so
+  `EXTRA_OPEN_PATH` etc. are unaffected). `appicon/AppIcons.kt`: new alias ENABLED first, the other
+  manifest-disabled aliases back to DEFAULT (AMS only removes tasks for components whose setting is
+  DISABLED, so BFE is not closed), and the default M5 alias — the only one that needs DISABLED — is
+  hidden once every BFE activity has stopped (flag in prefs, finished from `BfeApp`'s lifecycle
+  callbacks). API 33+ uses the batched `setComponentEnabledSettings`.
+- **UI:** `ui/screens/AppIconSetting.kt`, one call in SettingsScreen's Appearance block: a row with the
+  live icon that expands (animated) into Mixes / Originals / Classic grids of squircle tiles (equal
+  height, 2 reserved label lines, press bounce, animated ring + check); a tile opens a sheet with a big
+  preview (spring pop), the themed preview, the launcher note and *Use this icon*.
+
 ## In flight: BFE's own file & folder icons (branch `feat/file-icons`, 2026-10-16)
 
 Owner: "Folders are to use a proper folder icon, not a blank coloured folder … create our own

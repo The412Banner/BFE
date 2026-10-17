@@ -86,6 +86,30 @@ categories, cloud/remote, favourites, Open with); real thumbnails, APK icons and
 once loaded. The drawables (`res/drawable/ic_bfe_*.xml`) are generated from the masters in
 `scripts/icons/`.
 
+### App icon
+BFE's launcher icon is **Glass-Filled Neon** (M5): a frosted-glass folder traced in blue neon with an
+amber-lit BFE. **Settings → Appearance → App icon** swaps it for any of the others — the other seven
+**Mixes** (Neon Rim Amber, Glass Flap, Neon in Glass, Glass Card Folder, Initials & Spark, Trio Cascade,
+Orbit Lens), the twelve **Originals** (Amber Monogram, Glass Panes, Banner Tab, Explorer Compass, Unzip,
+Folder B, Layer Stack, Neon Folder, Aurora Glass, Glass Wordmark, Unboxed, Airwave) and **Classic**, the
+first blue folder. Tap one for a big preview (and how it looks as an Android 13+ themed icon), then
+*Use this icon*.
+
+- **Squircle on every launcher.** The squircle (a superellipse, n = 4) is part of the artwork: each
+  adaptive icon has a transparent background, and the picture sits in a squircle 60 dp wide on the
+  108 dp canvas — inside the circle a round mask cuts, so circle, squircle, rounded-square and
+  no-mask launchers all show the same squircle. Every icon also has a monochrome layer for themed icons.
+- **How switching works:** each icon is its own launcher entry (an `<activity-alias>` of the main
+  screen, `com.the412banner.bfe.icon.M1` … `O12`, `Classic`); exactly one is enabled. BFE is never closed
+  to switch: the step that hides the default entry waits until you leave BFE. Your launcher can take a
+  few seconds to update, and some launchers drop the home-screen shortcut when an app's icon entry
+  changes — add BFE back from the app drawer. The choice survives updates.
+- **Regenerating:** the SVG masters are in `scripts/appicons/src/`, the list in
+  `scripts/appicons/icons.json`. `scripts/appicons/build.py` writes the drawables, mipmaps, the Kotlin
+  catalog and the manifest aliases; `scripts/appicons/check.py` renders every generated icon next to
+  its master, diffs them and writes contact sheets (needs `skia-pathops`, `fonttools`, `pillow`,
+  `numpy`, `rsvg-convert`).
+
 ### Dual-pane "commander" mode
 - Toolbar toggle → **two fully independent panes side by side** — in landscape *and* portrait. **Drag
   the handle between them** to resize (double-tap it for 50/50); the split is remembered.
@@ -294,7 +318,7 @@ cloud. (Until the Home screen lands it lives at ⋮ → **Settings → Access fr
 
 ### Settings & About
 ⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
-**dynamic color** on Android 12+), **Start on** (Home or the last folder), default apps, Access from
+**dynamic color** on Android 12+), the **app icon** (see [App icon](#app-icon)), **Start on** (Home or the last folder), default apps, Access from
 network, and About — version, source code link, release notes, BFE's license and every bundled
 **open-source license** (7-Zip, innoextract, unarc, FFmpeg, x264, the lzip / lzop / LZ4 / ECM / ALZ /
 ACE / LZX tools, the EGG and OTA-payload credits, NanoHTTPD, Apache FtpServer/MINA, rclone and the Java
@@ -408,6 +432,7 @@ app/src/main/java/com/the412banner/bfe/
 ├─ cloud/      rclone: RcClient (rcd API) · RcloneApi · RcloneDaemon/RcdProcess · RcloneManager (first-use download)
 │              · CloudSetup (add / sign-in flow) · CloudServices (catalog) · CloudTransferService (queue)
 ├─ util/       snackbars, default apps, favourites
+├─ appicon/    AppIcons (launcher-icon switching via activity-aliases) + the generated AppIconCatalog
 ├─ ui/screens/ FileManagerScreen (panes, shared toolbar, dual-pane), archive pane (ArchivePane), Open with sheet, Settings, Unpack screen, dialogs
 │  ├─ home/       Home dashboard (tiles, stats, navigation, folder picker)
 │  ├─ categories/ category browser + MediaStore queries (Images / Audio / Videos / Documents / New files)
@@ -425,6 +450,8 @@ keystore/bfe-test.jks             the (public) BFE signing key
 licenses/                         license and notice texts, also shown in Settings
 scripts/check-signing.sh          CI guard: the APK must carry the BFE certificate
 scripts/icons/                    the file/folder icon masters + generator for res/drawable/ic_bfe_*.xml
+scripts/appicons/                 launcher-icon SVG masters, icons.json, build.py (squircle-baked
+                                  ic_appicon_* + manifest aliases + catalog) and check.py (renders + diffs)
 ```
 
 ## Known limitations
