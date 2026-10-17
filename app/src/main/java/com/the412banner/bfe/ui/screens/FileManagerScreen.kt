@@ -799,7 +799,7 @@ fun FileManagerScreen(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddAppStorageDialog(
+internal fun AddAppStorageDialog(
     onDismiss: () -> Unit,
     onPick: (DocProviderApp?) -> Unit,
     onPickRoot: (InstalledApp) -> Unit,

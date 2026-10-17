@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Description
@@ -237,12 +238,18 @@ fun HomeScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        HomeTopBar(onOpenFiles = onOpenFiles, onOpenSettings = onOpenSettings, onRefresh = { HomeStatsStore.refresh(context, force = true) })
+        val appStorage = rememberHomeAppStorage(refreshKey = resumeTick, onOpen = onOpenFolder)
+        HomeTopBar(
+            onOpenFiles = onOpenFiles,
+            onAddAppStorage = appStorage.add,
+            onOpenSettings = onOpenSettings,
+            onRefresh = { HomeStatsStore.refresh(context, force = true) },
+        )
 
         BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
             val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
             val columns = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12)
-            else (maxWidth / 96.dp).toInt().coerceIn(4, 6)
+            else (maxWidth / 76.dp).toInt().coerceIn(5, 7)
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 contentPadding = PaddingValues(12.dp),
@@ -251,6 +258,21 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(tiles, key = { it.key }) { tile -> HomeTileCard(tile) }
+
+                // Other apps' storage pinned to Home, then a ＋ tile to add another.
+                item(key = "appstorage-header", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "App storage",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                    )
+                }
+                items(appStorage.pins, key = { "pin:" + it.key }) { pin ->
+                    AppStorageTileCard(pin, onClick = { appStorage.open(pin) }, onLongClick = { appStorage.remove(pin) })
+                }
+                item(key = "appstorage-add") { AddAppStorageTile(onClick = appStorage.add) }
 
                 item(key = "favorites", span = { GridItemSpan(maxLineSpan) }) {
                     FavoritesRow(favorites, onOpen = { onOpenFolder(FmLocationRequest.folder(it)) })
@@ -264,7 +286,7 @@ private fun mediaStats(stats: HomeStats, cat: MediaCategory, fmt: (CountSize?) -
     if (!stats.media.containsKey(cat)) null else stats.media[cat]?.let { fmt(it) } ?: "Unavailable"
 
 @Composable
-private fun HomeTopBar(onOpenFiles: () -> Unit, onOpenSettings: () -> Unit, onRefresh: () -> Unit) {
+private fun HomeTopBar(onOpenFiles: () -> Unit, onAddAppStorage: () -> Unit, onOpenSettings: () -> Unit, onRefresh: () -> Unit) {
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
@@ -285,12 +307,18 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onOpenSettings: () -> Unit, onRe
     TopAppBar(
         title = { BrandWordmark() },
         actions = {
-            IconButton(onClick = onOpenFiles) {
-                Icon(Icons.Filled.FolderOpen, "Browse files", tint = MaterialTheme.colorScheme.primary)
+            IconButton(onClick = onAddAppStorage) {
+                Icon(Icons.Filled.Add, "Add app storage", tint = MaterialTheme.colorScheme.primary)
             }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
                 BfeDropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.outlinedMenuCard()) {
+                    DropdownMenuItem(
+                        text = { Text("Open file manager") },
+                        leadingIcon = { Icon(Icons.Filled.FolderOpen, null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = { menu = false; onOpenFiles() },
+                    )
+                    MenuItemDivider()
                     DropdownMenuItem(
                         text = { Text("Refresh") },
                         leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = MaterialTheme.colorScheme.primary) },
@@ -347,52 +375,25 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onOpenSettings: () -> Unit, onRe
 /** A rounded tile: icon in a tinted circle, label, a two-line stats line and (storage) a usage bar. */
 @Composable
 private fun HomeTileCard(tile: HomeTile) {
-    Card(
-        modifier = Modifier.fillMaxWidth().height(107.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = tile.onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 8.dp),
+    HomeTileFrame(onClick = tile.onClick, onLongClick = null) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(32.dp).clip(CircleShape).background(tile.style.color.copy(alpha = 0.16f)),
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.size(36.dp).clip(CircleShape).background(tile.style.color.copy(alpha = 0.16f)),
-            ) {
-                Icon(tile.style.icon, null, tint = tile.style.color, modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                tile.label,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+            Icon(tile.style.icon, null, tint = tile.style.color, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.height(4.dp))
+        HomeTileLabel(tile.label)
+        Spacer(Modifier.height(2.dp))
+        HomeTileStats(tile.stats ?: "…")
+        tile.fraction?.let { f ->
+            Spacer(Modifier.weight(1f))
+            LinearProgressIndicator(
+                progress = { f },
+                color = tile.style.color,
+                trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                modifier = Modifier.fillMaxWidth(0.8f).height(3.dp).clip(RoundedCornerShape(2.dp)),
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                tile.stats ?: "…",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            tile.fraction?.let { f ->
-                Spacer(Modifier.weight(1f))
-                LinearProgressIndicator(
-                    progress = { f },
-                    color = tile.style.color,
-                    trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                    modifier = Modifier.fillMaxWidth(0.8f).height(3.dp).clip(RoundedCornerShape(2.dp)),
-                )
-            }
         }
     }
 }
