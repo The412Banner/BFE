@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -1445,6 +1446,8 @@ fun BrowserPane(
     var operationDeterminate by remember { mutableStateOf(false) }
     var operationProgress by remember { mutableFloatStateOf(0f) }
     val listState = rememberLazyListState()
+    // Hoisted like listState so a refresh keeps the grid where it was and a new folder starts at the top.
+    val gridState = rememberLazyGridState()
     val pullState = rememberPullToRefreshState()
     var favTick by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
@@ -1490,11 +1493,45 @@ fun BrowserPane(
         entries = result.getOrNull() ?: emptyList()
         loadError = if (result.isFailure) "Couldn't read this folder" else null
         loading = false
-        if (reset) { highlightId = null; runCatching { listState.scrollToItem(0) } }
+        if (reset) {
+            highlightId = null
+            runCatching { listState.scrollToItem(0) }
+            runCatching { gridState.scrollToItem(0) }
+        }
         highlightId?.let { id ->
             val idx = entries.indexOfFirst { it.id == id }
-            if (idx >= 0) runCatching { listState.animateScrollToItem(idx) }
+            if (idx >= 0) {
+                runCatching { listState.animateScrollToItem(idx) }
+                runCatching { gridState.animateScrollToItem(idx) }
+            }
         }
+    }
+
+    // Back in the foreground (from another app, or from BFE's own Unpack / viewer screens): re-list the
+    // folder in place — same scroll position, no spinner — so files added, changed or removed meanwhile
+    // show up without scrolling to the top to pull-refresh. A folder that vanished meanwhile falls back
+    // to its nearest existing parent. Archive panes list a fixed index, so they're left alone.
+    val paneLifecycle = LocalLifecycleOwner.current
+    DisposableEffect(paneLifecycle, paneState) {
+        var wasStopped = false
+        val obs = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_STOP -> wasStopped = true
+                Lifecycle.Event.ON_START -> if (wasStopped) {
+                    wasStopped = false
+                    if (!paneState.isAlt && !File(paneState.path).isDirectory) {
+                        var dir: File? = File(paneState.path).parentFile
+                        while (dir != null && !dir.isDirectory) dir = dir.parentFile
+                        paneState.path = dir?.absolutePath?.takeIf { it.startsWith(paneState.rootPath) } ?: paneState.rootPath
+                    } else if (!paneState.isArchive) {
+                        paneState.requestReload()
+                    }
+                }
+                else -> Unit
+            }
+        }
+        paneLifecycle.lifecycle.addObserver(obs)
+        onDispose { paneLifecycle.lifecycle.removeObserver(obs) }
     }
 
     // Pull-to-refresh → re-list, keeping scroll.
@@ -3070,6 +3107,7 @@ fun BrowserPane(
             } else if (paneState.viewMode == FmViewMode.GRID && entries.isNotEmpty()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 104.dp),
+                    state = gridState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(8.dp),
                 ) {
