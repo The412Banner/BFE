@@ -236,6 +236,26 @@ enum class ConflictChoice { OVERWRITE, MERGE, KEEP_BOTH, SKIP }
 enum class FmViewMode { GRID, LIST, COMPACT }
 
 /**
+ * Dual pane has no grid: half-width tiles are too small to be useful, so a grid pane shows as the list
+ * there. The pane keeps its grid setting and gets it back in single pane.
+ */
+internal fun FmViewMode.shownIn(dualPane: Boolean): FmViewMode =
+    if (dualPane && this == FmViewMode.GRID) FmViewMode.LIST else this
+
+/** The view-mode button's cycle: Grid → List → Compact → Grid, or List ⇄ Compact in dual pane. */
+internal fun FmViewMode.nextIn(dualPane: Boolean): FmViewMode = when (shownIn(dualPane)) {
+    FmViewMode.GRID -> FmViewMode.LIST
+    FmViewMode.LIST -> FmViewMode.COMPACT
+    FmViewMode.COMPACT -> if (dualPane) FmViewMode.LIST else FmViewMode.GRID
+}
+
+/**
+ * Below this width (a dual-pane half on a phone) the card rows go narrow: short date over time in small
+ * type, a slimmer ⋮ and tighter padding, so the name keeps most of the row.
+ */
+internal val NARROW_ROW_WIDTH = 400.dp
+
+/**
  * Ordering for the file list. Folders always lead regardless of direction — a descending sort that
  * buries every folder under the files is never what someone means by "Z to A".
  */
@@ -1185,17 +1205,14 @@ private fun SharedToolbar(
 
     @Composable
     fun ViewModeButton() {
-        // View-mode cycle: Grid → List → Compact → Grid. Per-pane; also persists the global default.
+        // View-mode cycle: Grid → List → Compact → Grid (List ⇄ Compact in dual pane). Per-pane; also
+        // persists the global default.
         IconButton(onClick = {
-            active.viewMode = when (active.viewMode) {
-                FmViewMode.GRID -> FmViewMode.LIST
-                FmViewMode.LIST -> FmViewMode.COMPACT
-                FmViewMode.COMPACT -> FmViewMode.GRID
-            }
+            active.viewMode = active.viewMode.nextIn(dualPane)
             prefs.edit().putString("fmViewMode", active.viewMode.name.lowercase()).apply()
         }) {
             Icon(
-                when (active.viewMode) {
+                when (active.viewMode.shownIn(dualPane)) {
                     FmViewMode.GRID -> Icons.Filled.GridView
                     FmViewMode.LIST -> Icons.Filled.ViewList
                     FmViewMode.COMPACT -> Icons.Filled.DensitySmall
@@ -2859,6 +2876,7 @@ fun BrowserPane(
                 operationDeterminate = false
                 paneState.requestReload()
             }) else null,
+            dualPane = dualPane,
             pullState = pullState,
             listState = listState,
             gridState = gridState,
@@ -3189,11 +3207,13 @@ fun BrowserPane(
             )
         } else {
         // ── File list (pull down to refresh) ──
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(pullState.nestedScrollConnection),
         ) {
+            // Measured once per pane (not per row): a dual-pane half on a phone gets the narrow card rows.
+            val narrowRows = maxWidth < NARROW_ROW_WIDTH
             val shownEntries = if (paneState.searchQuery.isBlank()) entries
             else entries.filter { it.name.contains(paneState.searchQuery, ignoreCase = true) }
 
@@ -3222,7 +3242,7 @@ fun BrowserPane(
                     actionLabel = "Clear filter",
                     onAction = { paneState.searchQuery = "" },
                 )
-            } else if (paneState.viewMode == FmViewMode.GRID && entries.isNotEmpty()) {
+            } else if (paneState.viewMode.shownIn(dualPane) == FmViewMode.GRID && entries.isNotEmpty()) {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 104.dp),
                     state = gridState,
@@ -3312,6 +3332,7 @@ fun BrowserPane(
                             file = file,
                             showActions = !pickMode,
                             compact = paneState.compactRows,
+                            narrow = narrowRows,
                             // COMPACT view mode → dense single-line rows (~4× more per screen).
                             dense = paneState.viewMode == FmViewMode.COMPACT,
                             selectionMode = selectionMode,
@@ -3503,6 +3524,9 @@ private fun FileItemRow(
     // COMPACT view mode: render a dense single-line row (no card, ~22dp icon, thin divider) instead of
     // the tall card — ~4× more items per screen. Selection/long-press/multi-select still work.
     dense: Boolean = false,
+    // Narrow pane (dual pane on a phone): short date over time in small type, a slimmer ⋮ and tighter
+    // padding, so the name keeps most of the row.
+    narrow: Boolean = false,
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onLongPress: () -> Unit = {},
@@ -3539,6 +3563,8 @@ private fun FileItemRow(
     val dateLabel = if (modified > 0) DateText.dateTime(context, modified) else ""
     val dateOnlyLabel = if (modified > 0) DateText.date(context, modified) else ""
     val timeLabel = if (modified > 0) DateText.time(context, modified) else ""
+    // The card's date column: the short numeric date in a narrow pane ("3/16/26"), the medium one otherwise.
+    val columnDateLabel = if (narrow && modified > 0) DateText.shortDate(context, modified) else dateOnlyLabel
     // Folders show how many entries they hold. Counted lazily for the rows actually composed, off the
     // main thread and cached by path + mtime (see ChildCount); blank until ready, date-only when the
     // folder can't be read.
@@ -3688,7 +3714,7 @@ private fun FileItemRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp)
+            .padding(horizontal = if (narrow) 6.dp else 12.dp, vertical = 3.dp)
             .combinedClickable(
                 // In selection mode a tap toggles instead of opening, so you can rattle through a
                 // folder without long-pressing every single row.
@@ -3707,30 +3733,44 @@ private fun FileItemRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compact) 3.dp else 8.dp),
+            modifier = Modifier.padding(
+                start = if (narrow) 8.dp else 12.dp,
+                end = if (narrow) 4.dp else 12.dp,
+                top = if (compact) 3.dp else 8.dp,
+                bottom = if (compact) 3.dp else 8.dp,
+            ),
         ) {
             if (selectionMode) {
-                androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
-                Spacer(Modifier.width(4.dp))
+                // A narrow row can't spare the checkbox's 48 dp touch target (a tap on the row toggles anyway).
+                if (narrow) Icon(
+                    if (selected) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
+                    contentDescription = null,
+                    tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 6.dp).size(20.dp),
+                ) else {
+                    androidx.compose.material3.Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
+                    Spacer(Modifier.width(4.dp))
+                }
             }
+            val iconSize = when { compact -> 24.dp; narrow -> 30.dp; else -> 36.dp }
             when {
                 // Show the executable's own embedded icon when we managed to extract one.
                 exeIcon != null -> Image(
                     bitmap = exeIcon!!,
                     contentDescription = null,
-                    modifier = Modifier.size(if (compact) 24.dp else 36.dp),
+                    modifier = Modifier.size(iconSize),
                 )
                 // Real image / video-frame preview. Falls back to the type icon while loading or on failure.
-                isImage || isVideo -> FileThumb(file.name, thumbModel, isVideo, size = 36.dp, corner = 6.dp, badge = !compact)
+                isImage || isVideo -> FileThumb(file.name, thumbModel, isVideo, size = if (narrow) 30.dp else 36.dp, corner = 6.dp, badge = !compact)
                 // BFE's folder / file-type artwork (special folders by name, files by extension).
-                else -> FileTypeIcon(file.name, isDir, size = if (compact) 24.dp else 36.dp)
+                else -> FileTypeIcon(file.name, isDir, size = iconSize)
             }
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(if (narrow) 8.dp else 10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = file.name,
                     color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 14.sp,
+                    fontSize = if (narrow) 13.sp else 14.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -3745,25 +3785,35 @@ private fun FileItemRow(
                 )
             }
             // Date over time, right-aligned beside the name and detail lines.
-            if (dateOnlyLabel.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
+            if (columnDateLabel.isNotEmpty()) {
+                Spacer(Modifier.width(if (narrow) 6.dp else 8.dp))
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = dateOnlyLabel,
+                        text = columnDateLabel,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        fontSize = if (narrow) 10.sp else 11.sp,
                         maxLines = 1,
                     )
                     Text(
                         text = timeLabel,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        fontSize = 11.sp,
+                        fontSize = if (narrow) 10.sp else 11.sp,
                         maxLines = 1,
                     )
                 }
             }
             if (showActions) Box {
-                IconButton(onClick = onMenu) {
+                if (narrow) Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .padding(start = 2.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onMenu)
+                        .semantics { contentDescription = "Actions" },
+                ) {
+                    Icon(Icons.Filled.MoreVert, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                } else IconButton(onClick = onMenu) {
                     Icon(Icons.Filled.MoreVert, "Actions", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 }
                 BfeDropdownMenu(

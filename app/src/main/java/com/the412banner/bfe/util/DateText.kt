@@ -17,6 +17,10 @@ object DateText {
     fun date(context: Context, millis: Long): String =
         android.text.format.DateFormat.getMediumDateFormat(context).format(Date(millis))
 
+    /** The locale's short numeric date ("10/16/26", "16/10/2026"), for tight spots like a dual-pane row. */
+    fun shortDate(context: Context, millis: Long): String =
+        android.text.format.DateFormat.getDateFormat(context).format(Date(millis))
+
     fun time(context: Context, millis: Long): String =
         android.text.format.DateFormat.getTimeFormat(context).format(Date(millis))
 

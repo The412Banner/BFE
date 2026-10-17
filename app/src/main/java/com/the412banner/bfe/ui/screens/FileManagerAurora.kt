@@ -407,6 +407,7 @@ internal fun AuroraPaneLayout(
     onPinCurrent: () -> Unit,
     onJumpFavorite: (File) -> Unit,
     onUnpinFavorite: (File) -> Unit,
+    dualPane: Boolean = false,
 ) {
     val reduced = LocalReducedMotion.current
     val g = LocalGlass.current
@@ -428,7 +429,7 @@ internal fun AuroraPaneLayout(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             )
         }
-        AuroraPaneHeader(paneState, currentLoc, currentFile, onNavigate)
+        AuroraPaneHeader(paneState, currentLoc, currentFile, dualPane, onNavigate)
         AnimatedVisibility(
             visible = paneState.showSearch && !paneState.showFavorites,
             enter = if (reduced) EnterTransition.None else expandVertically(tween(260, easing = BfeMotion.EmphasizedDecelerate)) + fadeIn(),
@@ -508,6 +509,7 @@ internal fun AuroraPaneLayout(
                                 listState = listState,
                                 gridState = gridState,
                                 exitScroll = exitScroll,
+                                dualPane = dualPane,
                             )
                         }
                         if (pullState.verticalOffset > 0.5f || pullState.isRefreshing) {
@@ -547,6 +549,7 @@ private fun AnimatedListing(
     listState: LazyListState,
     gridState: LazyGridState,
     exitScroll: PaneScroll,
+    dualPane: Boolean,
 ) {
     val reduced = LocalReducedMotion.current
     val density = LocalDensity.current
@@ -581,7 +584,7 @@ private fun AnimatedListing(
         val bottom = chrome.listBottomPadding
         if (l.entries.isEmpty() && empty) {
             PaneMessage(icon = Icons.Filled.FolderOpen, iconRes = FileIcons.FOLDER_OPEN, title = "This folder is empty")
-        } else if (paneState.viewMode == FmViewMode.GRID) {
+        } else if (paneState.viewMode.shownIn(dualPane) == FmViewMode.GRID) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 100.dp),
                 state = frozenGrid ?: gridState,
@@ -641,7 +644,7 @@ private fun AnimatedListing(
  * accent), the Favorites star and the view-mode button. In Favorites mode it names the list instead.
  */
 @Composable
-private fun AuroraPaneHeader(paneState: PaneState, currentLoc: Loc, currentFile: File?, onNavigate: (File) -> Unit) {
+private fun AuroraPaneHeader(paneState: PaneState, currentLoc: Loc, currentFile: File?, dualPane: Boolean, onNavigate: (File) -> Unit) {
     val g = LocalGlass.current
     val cs = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -663,19 +666,16 @@ private fun AuroraPaneHeader(paneState: PaneState, currentLoc: Loc, currentFile:
                     PaneCrumbs(paneState, currentFile, onNavigate, Modifier.weight(1f))
                     GlassIconButton(Icons.Filled.StarBorder, "Show favorites", onClick = { paneState.showFavorites = true }, size = 34.dp, iconSize = 18.dp)
                     GlassIconButton(
-                        when (paneState.viewMode) {
+                        when (paneState.viewMode.shownIn(dualPane)) {
                             FmViewMode.GRID -> Icons.Filled.GridView
                             FmViewMode.LIST -> Icons.Filled.ViewList
                             FmViewMode.COMPACT -> Icons.Filled.DensitySmall
                         },
                         "View mode",
                         onClick = {
-                            // Grid → List → Compact → Grid, per pane; also the next fresh pane's default.
-                            paneState.viewMode = when (paneState.viewMode) {
-                                FmViewMode.GRID -> FmViewMode.LIST
-                                FmViewMode.LIST -> FmViewMode.COMPACT
-                                FmViewMode.COMPACT -> FmViewMode.GRID
-                            }
+                            // Grid → List → Compact → Grid (List ⇄ Compact in dual pane), per pane; also
+                            // the next fresh pane's default.
+                            paneState.viewMode = paneState.viewMode.nextIn(dualPane)
                             prefs.edit().putString("fmViewMode", paneState.viewMode.name.lowercase()).apply()
                         },
                         size = 34.dp,
@@ -879,6 +879,11 @@ private fun AuroraFileRow(
     val cs = MaterialTheme.colorScheme
     val reduced = LocalReducedMotion.current
     val v = rememberEntryVisual(file, 96)
+    // Card rows in a narrow pane (dual pane on a phone): short date over time in small type and a slimmer
+    // ⋮, so the name keeps most of the row.
+    val narrow = !dense && paneWidth < NARROW_ROW_WIDTH
+    val context = LocalContext.current
+    val columnDate = if (narrow && file.lastModified > 0) DateText.shortDate(context, file.lastModified) else v.dateOnly
     // Single-line rows: in a narrow pane the time drops off first, then the date, so the name keeps its room.
     val rowDate = when {
         paneWidth >= 410.dp -> v.date
@@ -886,7 +891,7 @@ private fun AuroraFileRow(
         else -> ""
     }
     val wash by animateColorAsState(if (selected || highlighted) g.selection else Color.Transparent, motionTween(reduced, BfeMotion.SHORT), label = "rowWash")
-    val iconSize = when { dense -> 22.dp; compact -> 26.dp; else -> 34.dp }
+    val iconSize = when { dense -> 22.dp; compact -> 26.dp; narrow -> 30.dp; else -> 34.dp }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
@@ -909,7 +914,7 @@ private fun AuroraFileRow(
             SelectionMark(selected, Modifier.padding(end = 10.dp), size = if (dense) 18.dp else 22.dp)
         }
         EntryIcon(file, v, iconSize, corner = if (dense) 4.dp else 8.dp, badge = !dense && !compact)
-        Spacer(Modifier.width(if (dense) 10.dp else 12.dp))
+        Spacer(Modifier.width(when { narrow -> 8.dp; dense -> 10.dp; else -> 12.dp }))
         if (dense) {
             Box(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -926,7 +931,7 @@ private fun AuroraFileRow(
                 Text(
                     file.name,
                     color = cs.onSurface,
-                    fontSize = if (compact) 13.sp else 13.5.sp,
+                    fontSize = if (compact || narrow) 13.sp else 13.5.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -935,11 +940,11 @@ private fun AuroraFileRow(
                 Text(v.detail, color = cs.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             // Date over time, right-aligned beside the name and detail lines (as in Classic).
-            if (v.dateOnly.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
+            if (columnDate.isNotEmpty()) {
+                Spacer(Modifier.width(if (narrow) 6.dp else 8.dp))
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(v.dateOnly, color = cs.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
-                    Text(v.time, color = cs.onSurfaceVariant.copy(alpha = 0.8f), fontSize = 11.sp, maxLines = 1)
+                    Text(columnDate, color = cs.onSurfaceVariant, fontSize = if (narrow) 10.sp else 11.sp, maxLines = 1)
+                    Text(v.time, color = cs.onSurfaceVariant.copy(alpha = 0.8f), fontSize = if (narrow) 10.sp else 11.sp, maxLines = 1)
                 }
             }
         }
@@ -948,8 +953,8 @@ private fun AuroraFileRow(
                 GlassIconButton(
                     Icons.Filled.MoreVert, "Actions",
                     onClick = actions.onMenu,
-                    size = if (dense) 30.dp else 38.dp,
-                    iconSize = if (dense) 16.dp else 19.dp,
+                    size = if (dense || narrow) 30.dp else 38.dp,
+                    iconSize = when { dense -> 16.dp; narrow -> 18.dp; else -> 19.dp },
                 )
                 BfeDropdownMenu(expanded = menuExpanded, onDismissRequest = actions.onDismissMenu) {
                     FileRowMenu(file, isFavorite, actions)
