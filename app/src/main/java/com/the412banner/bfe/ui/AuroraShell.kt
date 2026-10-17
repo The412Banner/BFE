@@ -1,6 +1,7 @@
 package com.the412banner.bfe.ui
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
@@ -108,7 +109,7 @@ fun AuroraRouteHost(route: AppRoute, hidden: Boolean, content: @Composable (AppR
     Box(Modifier.fillMaxSize().auroraCover(hidden)) {
         AnimatedContent(
             targetState = shown,
-            transitionSpec = { routeTransform(initialState, targetState, reduced) },
+            transitionSpec = { routeTransform(reduced) },
             label = "auroraRoute",
         ) { r ->
             if (r != null) {
@@ -118,7 +119,9 @@ fun AuroraRouteHost(route: AppRoute, hidden: Boolean, content: @Composable (AppR
     }
 }
 
-private fun routeTransform(from: AppRoute?, to: AppRoute?, reduced: Boolean): ContentTransform {
+private fun AnimatedContentTransitionScope<AppRoute?>.routeTransform(reduced: Boolean): ContentTransform {
+    val from = initialState
+    val to = targetState
     if (reduced) return (EnterTransition.None togetherWith ExitTransition.None).using(SizeTransform(clip = false))
     val origin = LaunchOrigin.pivot
     val enterTween = tween<Float>(380, easing = BfeMotion.EmphasizedDecelerate)
