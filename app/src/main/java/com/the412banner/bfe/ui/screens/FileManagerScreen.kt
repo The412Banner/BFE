@@ -48,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.Checklist
@@ -240,18 +241,59 @@ private fun elidePathStart(path: String, max: Int): String {
     return if (out.isEmpty()) "…" + path.takeLast(max - 1) else "…$out"
 }
 
-private fun comparatorFor(sortBy: String, desc: Boolean): Comparator<Loc> {
-    val inner: Comparator<Loc> = when (sortBy) {
-        "date" -> compareBy { it.lastModified }
-        // Directory size is meaningless, so folders sort by name within the size ordering
-        // instead of pretending to have one.
-        "size" -> compareBy { if (it.isDir) -1L else it.size }
-        // Group by file type (extension), then by name within each type.
-        "type" -> compareBy<Loc> { File(it.name).extension.lowercase() }.thenBy { it.name.lowercase() }
-        else -> compareBy { it.name.lowercase() }
+/**
+ * "Natural" name order, ignoring case: runs of digits compare as numbers, so "Disc 2" sorts before
+ * "Disc 10" and "file9" before "file10".
+ */
+private val NaturalNameOrder = Comparator<Loc> { a, b -> naturalCompare(a.name, b.name) }
+
+private fun naturalCompare(x: String, y: String): Int {
+    var i = 0
+    var j = 0
+    while (i < x.length && j < y.length) {
+        val cx = x[i]
+        val cy = y[j]
+        if (cx.isDigit() && cy.isDigit()) {
+            val si = i
+            val sj = j
+            while (i < x.length && x[i].isDigit()) i++
+            while (j < y.length && y[j].isDigit()) j++
+            val nx = x.substring(si, i).trimStart('0')
+            val ny = y.substring(sj, j).trimStart('0')
+            if (nx.length != ny.length) return nx.length - ny.length
+            val c = nx.compareTo(ny)
+            if (c != 0) return c
+        } else {
+            val c = cx.lowercaseChar().compareTo(cy.lowercaseChar())
+            if (c != 0) return c
+            i++
+            j++
+        }
     }
-    val directed = if (desc) inner.reversed() else inner
-    return compareBy<Loc> { if (it.isDir) 0 else 1 }.then(directed)
+    return (x.length - i) - (y.length - j)
+}
+
+/**
+ * Folders always come first, each group in its own order: folders by [folderSortBy] ("name" | "date"),
+ * files by [sortBy] ("name" | "date" | "size" | "type"). Ties fall back to the natural name order.
+ */
+private fun comparatorFor(sortBy: String, desc: Boolean, folderSortBy: String, folderDesc: Boolean): Comparator<Loc> {
+    val files: Comparator<Loc> = when (sortBy) {
+        "date" -> compareBy<Loc> { it.lastModified }
+        "size" -> compareBy<Loc> { it.size }
+        // Group by file type (extension), then by name within each type.
+        "type" -> compareBy<Loc> { File(it.name).extension.lowercase() }
+        else -> NaturalNameOrder
+    }.let { if (desc) it.reversed() else it }.then(NaturalNameOrder)
+    val folders: Comparator<Loc> = (if (folderSortBy == "date") compareBy<Loc> { it.lastModified } else NaturalNameOrder)
+        .let { if (folderDesc) it.reversed() else it }.then(NaturalNameOrder)
+    return Comparator { a, b ->
+        when {
+            a.isDir != b.isDir -> if (a.isDir) -1 else 1
+            a.isDir -> folders.compare(a, b)
+            else -> files.compare(a, b)
+        }
+    }
 }
 
 // Image extensions that get a real thumbnail (via Coil) instead of the generic file icon.
@@ -380,6 +422,8 @@ class PaneState(
     initialSortDesc: Boolean = false,
     initialShowHidden: Boolean = true,
     initialCompactRows: Boolean = false,
+    initialFolderSortBy: String = "name",
+    initialFolderSortDesc: Boolean = false,
 ) {
     var path by mutableStateOf(initialPath)             // current File directory (File mode)
     var rootPath by mutableStateOf(initialRootPath)     // up/back floor (the File drive root)
@@ -390,8 +434,11 @@ class PaneState(
     var reloadTick by mutableStateOf(0)
     // Per-pane browse controls, driven by the shared toolbar for whichever pane is active.
     var viewMode by mutableStateOf(initialViewMode)
+    // File order (sortBy/sortDesc) and folder order (folderSortBy/folderDesc); folders always list first.
     var sortBy by mutableStateOf(initialSortBy)
     var sortDesc by mutableStateOf(initialSortDesc)
+    var folderSortBy by mutableStateOf(initialFolderSortBy)
+    var folderSortDesc by mutableStateOf(initialFolderSortDesc)
     var showHidden by mutableStateOf(initialShowHidden)
     var compactRows by mutableStateOf(initialCompactRows)
     var showSearch by mutableStateOf(false)
@@ -439,10 +486,14 @@ private val PaneStateSaver = listSaver<PaneState, String>(
         listOf(
             it.path, it.rootPath, it.viewMode.name, it.sortBy,
             it.sortDesc.toString(), it.showHidden.toString(), it.compactRows.toString(),
+            it.folderSortBy, it.folderSortDesc.toString(),
         )
     },
     restore = {
-        PaneState(it[0], it[1], FmViewMode.valueOf(it[2]), it[3], it[4].toBoolean(), it[5].toBoolean(), it[6].toBoolean())
+        PaneState(
+            it[0], it[1], FmViewMode.valueOf(it[2]), it[3], it[4].toBoolean(), it[5].toBoolean(), it[6].toBoolean(),
+            it.getOrElse(7) { "name" }, it.getOrElse(8) { "false" }.toBoolean(),
+        )
     },
 )
 
@@ -455,8 +506,13 @@ fun rememberPaneState(
     initialSortDesc: Boolean,
     initialShowHidden: Boolean,
     initialCompactRows: Boolean,
+    initialFolderSortBy: String,
+    initialFolderSortDesc: Boolean,
 ): PaneState = rememberSaveable(key = key, saver = PaneStateSaver) {
-    PaneState(initialPath, initialPath, initialViewMode, initialSortBy, initialSortDesc, initialShowHidden, initialCompactRows)
+    PaneState(
+        initialPath, initialPath, initialViewMode, initialSortBy, initialSortDesc, initialShowHidden, initialCompactRows,
+        initialFolderSortBy, initialFolderSortDesc,
+    )
 }
 
 // Fire [onActivate] the instant a touch lands anywhere in this pane (Initial pass, before children
@@ -509,13 +565,16 @@ fun FileManagerScreen(
             else -> if (prefs.getBoolean("fmGridView", true)) FmViewMode.GRID else FmViewMode.LIST
         }
     }
-    val defSortBy = remember { prefs.getString("fmSortBy", "name") ?: "name" }
-    val defSortDesc = remember { prefs.getBoolean("fmSortDesc", false) }
+    // Default order: folders A→Z, then files newest first.
+    val defSortBy = remember { prefs.getString("fmFileSortBy", "date") ?: "date" }
+    val defSortDesc = remember { prefs.getBoolean("fmFileSortDesc", true) }
+    val defFolderSortBy = remember { prefs.getString("fmFolderSortBy", "name") ?: "name" }
+    val defFolderSortDesc = remember { prefs.getBoolean("fmFolderSortDesc", false) }
     val defHidden = remember { prefs.getBoolean("fmShowHidden", true) }
     val defCompact = remember { prefs.getBoolean("fmCompactRows", false) }
 
-    val leftPane = rememberPaneState("fm_pane_left", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact)
-    val rightPane = rememberPaneState("fm_pane_right", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact)
+    val leftPane = rememberPaneState("fm_pane_left", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact, defFolderSortBy, defFolderSortDesc)
+    val rightPane = rememberPaneState("fm_pane_right", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact, defFolderSortBy, defFolderSortDesc)
 
     var dualPane by rememberSaveable { mutableStateOf(prefs.getBoolean("fmDualPane", false)) }
     var splitFraction by remember { mutableFloatStateOf(prefs.getFloat("fmSplitFraction", 0.5f).coerceIn(0.2f, 0.8f)) }
@@ -883,7 +942,12 @@ private fun SharedToolbar(
     var showTools by remember { mutableStateOf(false) }
     // Inside an archive the drive is still the File drive the archive sits on.
     val driveLabel = if (active.isAlt && !active.isArchive) active.altLabel else describeLocation(File(active.path)).driveLabel
-    val folderName = if (active.isAlt) active.currentLoc.name else File(active.path).name.ifBlank { active.path }
+    val folderName = when {
+        active.isAlt -> active.currentLoc.name
+        // At a drive root the chip already names the drive; its raw folder name ("0", "1A2B-3C4D") means nothing.
+        active.path == active.rootPath -> ""
+        else -> File(active.path).name.ifBlank { active.path }
+    }
     val driveChipAlpha = if (active.showFavorites) 0.45f else 1f
     val driveIcon = when {
         active.isArchive -> Icons.Filled.Archive
@@ -1110,19 +1174,53 @@ private fun SharedToolbar(
                 Icon(Icons.Filled.Sort, "Sort", tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
-                listOf("name" to "Name", "date" to "Date modified", "size" to "Size", "type" to "Type")
-                    .forEach { (key, label) ->
-                        DropdownMenuItem(
-                            text = { Text(if (active.sortBy == key) "$label  ${if (active.sortDesc) "↓" else "↑"}" else label) },
-                            onClick = {
-                                if (active.sortBy == key) active.sortDesc = !active.sortDesc
-                                else { active.sortBy = key; active.sortDesc = false }
-                                prefs.edit().putString("fmSortBy", active.sortBy).putBoolean("fmSortDesc", active.sortDesc).apply()
-                                showSortMenu = false
-                                active.requestReload()
-                            },
-                        )
+                // Folders are always listed first; each group has its own order.
+                @Composable
+                fun SortHeader(text: String) = Text(
+                    text,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+                )
+                @Composable
+                fun SortChoice(label: String, checked: Boolean, onPick: () -> Unit) = DropdownMenuItem(
+                    text = { Text(label) },
+                    leadingIcon = {
+                        if (checked) Icon(Icons.Filled.Check, null, tint = MaterialTheme.colorScheme.primary)
+                        else Spacer(Modifier.size(24.dp))
+                    },
+                    onClick = {
+                        onPick()
+                        prefs.edit()
+                            .putString("fmFolderSortBy", active.folderSortBy).putBoolean("fmFolderSortDesc", active.folderSortDesc)
+                            .putString("fmFileSortBy", active.sortBy).putBoolean("fmFileSortDesc", active.sortDesc)
+                            .apply()
+                        showSortMenu = false
+                        active.requestReload()
+                    },
+                )
+                SortHeader("Folders")
+                listOf(
+                    Triple("Name (A → Z)", "name", false), Triple("Name (Z → A)", "name", true),
+                    Triple("Newest first", "date", true), Triple("Oldest first", "date", false),
+                ).forEach { (label, key, desc) ->
+                    SortChoice(label, active.folderSortBy == key && active.folderSortDesc == desc) {
+                        active.folderSortBy = key; active.folderSortDesc = desc
                     }
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                SortHeader("Files")
+                listOf(
+                    Triple("Name (A → Z)", "name", false), Triple("Name (Z → A)", "name", true),
+                    Triple("Newest first", "date", true), Triple("Oldest first", "date", false),
+                    Triple("Largest first", "size", true), Triple("Smallest first", "size", false),
+                    Triple("Type", "type", false),
+                ).forEach { (label, key, desc) ->
+                    SortChoice(label, active.sortBy == key && active.sortDesc == desc) {
+                        active.sortBy = key; active.sortDesc = desc
+                    }
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                 DropdownMenuItem(
                     text = { Text(if (active.compactRows) "Comfortable rows" else "Compact rows") },
@@ -1362,7 +1460,7 @@ fun BrowserPane(
     // A just-created entry to reveal after the next listing: tinted like a selection (without entering
     // selection mode) and scrolled into view. Cleared on navigation.
     var highlightId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(currentLoc.id, paneState.sortBy, paneState.sortDesc, paneState.showHidden, paneState.reloadTick) {
+    LaunchedEffect(currentLoc.id, paneState.sortBy, paneState.sortDesc, paneState.folderSortBy, paneState.folderSortDesc, paneState.showHidden, paneState.reloadTick) {
         val loc = paneState.currentLoc
         val reset = lastLocId.value != loc.id
         lastLocId.value = loc.id
@@ -1386,7 +1484,7 @@ fun BrowserPane(
                     .filter { if (pickDirMode) it.isDir else !pickMode || it.isDir || matchesPickExt(it) }
                     // Dotfiles are noise in a storage root — a toggle rather than a permanent filter.
                     .filter { paneState.showHidden || !it.name.startsWith(".") }
-                    .sortedWith(comparatorFor(paneState.sortBy, paneState.sortDesc))
+                    .sortedWith(comparatorFor(paneState.sortBy, paneState.sortDesc, paneState.folderSortBy, paneState.folderSortDesc))
             }
         }
         entries = result.getOrNull() ?: emptyList()
