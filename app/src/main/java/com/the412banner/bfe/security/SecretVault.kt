@@ -65,6 +65,8 @@ object SecretVault {
     private const val PREF_LOST = "lost"
 
     private val lock = Any()
+    // The lost list has its own lock: the UI reads it while the vault may be busy making a key.
+    private val lostLock = Any()
     private var key: SecretKey? = null
     private var protection: VaultProtection? = null
     private val opened = HashMap<String, String>()
@@ -135,17 +137,17 @@ object SecretVault {
 
     /** Names of entries that were cleared because they could no longer be opened, until [acknowledgeLost]. */
     fun lost(ctx: Context): StateFlow<Set<String>> {
-        if (!lostLoaded) synchronized(lock) { loadLostLocked(ctx) }
+        if (!lostLoaded) synchronized(lostLock) { loadLostLocked(ctx) }
         return _lost
     }
 
     /** Records [name] as lost: for secrets kept outside the vault but locked with one of its entries. */
     fun markLost(ctx: Context, name: String) {
-        synchronized(lock) { addLostLocked(ctx, listOf(name)) }
+        addLost(ctx, listOf(name))
     }
 
     fun acknowledgeLost(ctx: Context) {
-        synchronized(lock) {
+        synchronized(lostLock) {
             prefs(ctx).edit().remove(PREF_LOST).commit()
             _lost.value = emptySet()
             lostLoaded = true
@@ -292,7 +294,7 @@ object SecretVault {
         val e = prefs(ctx).edit()
         names.forEach { e.remove(ENTRY + it) }
         e.commit()
-        addLostLocked(ctx, names)
+        addLost(ctx, names)
     }
 
     private fun loadLostLocked(ctx: Context) {
@@ -301,10 +303,12 @@ object SecretVault {
         lostLoaded = true
     }
 
-    private fun addLostLocked(ctx: Context, names: Collection<String>) {
-        loadLostLocked(ctx)
-        val all = _lost.value + names
-        prefs(ctx).edit().putStringSet(PREF_LOST, all).commit()
-        _lost.value = all
+    private fun addLost(ctx: Context, names: Collection<String>) {
+        synchronized(lostLock) {
+            loadLostLocked(ctx)
+            val all = _lost.value + names
+            prefs(ctx).edit().putStringSet(PREF_LOST, all).commit()
+            _lost.value = all
+        }
     }
 }

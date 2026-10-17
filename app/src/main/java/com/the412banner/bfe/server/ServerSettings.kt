@@ -185,6 +185,13 @@ object ServerPrefs {
         }
     }
 
+    /** "Start HTTP / FTP when BFE opens", without reading the rest (no keystore work at launch). */
+    fun startsOnLaunch(ctx: Context): Pair<Boolean, Boolean> {
+        val p = prefs(ctx)
+        val d = ServerSettings()
+        return p.getBoolean("startHttpOnLaunch", d.startHttpOnLaunch) to p.getBoolean("startFtpOnLaunch", d.startFtpOnLaunch)
+    }
+
     // Which servers the user has switched on. Persisted so a restarted service (after the system
     // reclaimed the process) brings back exactly what was running.
     fun wantHttp(ctx: Context) = prefs(ctx).getBoolean("runHttp", false)

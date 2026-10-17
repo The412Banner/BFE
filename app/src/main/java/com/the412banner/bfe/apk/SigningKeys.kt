@@ -72,8 +72,7 @@ object SigningKeys {
     /** Plain passwords left by BFE 1.1.0 and older go into the vault, then out of prefs. Safe to repeat. */
     fun migrateToVault(ctx: Context) {
         synchronized(lock) {
-            val arr = runCatching { JSONArray(prefs(ctx).getString("keys", "[]") ?: "[]") }.getOrNull() ?: return
-            val objs = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+            val objs = storedJson(ctx)
             val legacy = objs.filter { it.has("storePassword") || it.has("keyPassword") }
             if (legacy.isEmpty()) return
             try {
@@ -85,7 +84,8 @@ object SigningKeys {
                 return
             }
             // Only once every password is sealed: rewrite the list without them.
-            save(ctx, objs.mapNotNull { fromJson(it) })
+            objs.forEach { it.remove("storePassword"); it.remove("keyPassword") }
+            saveJson(ctx, objs)
             Log.i(TAG, "Moved ${legacy.size} signing-key passwords into the vault")
         }
     }
@@ -185,8 +185,10 @@ object SigningKeys {
 
     fun remove(ctx: Context, key: KeyRef) {
         if (key.isBuiltIn) return
-        val remaining = stored(ctx).filter { File(it.storePath).isFile && it.storePath != key.storePath }
-        save(ctx, remaining)
+        // The other entries stay exactly as stored (one the migration hasn't reached keeps its passwords).
+        synchronized(lock) {
+            saveJson(ctx, storedJson(ctx).filter { o -> o.optString("storePath").let { File(it).isFile && it != key.storePath } })
+        }
         runCatching { SecretVault.remove(ctx, vaultName(key.storePath)) }
         File(key.storePath).delete()
     }
@@ -232,14 +234,18 @@ object SigningKeys {
     private fun remember(ctx: Context, ref: KeyRef) {
         // Passwords into the vault first (throws when it's unavailable), then the key into the list.
         SecretVault.put(ctx, vaultName(ref.storePath), sealedPasswords(ref.storePassword, ref.keyPassword))
-        val cur = stored(ctx).filter { File(it.storePath).isFile && it.storePath != ref.storePath }
-        save(ctx, cur + ref)
+        synchronized(lock) {
+            val cur = storedJson(ctx).filter { o -> o.optString("storePath").let { File(it).isFile && it != ref.storePath } }
+            saveJson(ctx, cur + toJson(ref))
+        }
     }
 
     /** The keys in prefs, without the built-in one. Passwords are blank unless an unmigrated entry still has them. */
-    private fun stored(ctx: Context): List<KeyRef> = runCatching {
+    private fun stored(ctx: Context): List<KeyRef> = storedJson(ctx).mapNotNull { fromJson(it) }
+
+    private fun storedJson(ctx: Context): List<JSONObject> = runCatching {
         val arr = JSONArray(prefs(ctx).getString("keys", "[]") ?: "[]")
-        (0 until arr.length()).mapNotNull { fromJson(arr.getJSONObject(it)) }
+        (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
     }.getOrDefault(emptyList())
 
     /** [key] with its passwords from the vault; [strict] throws when the vault can't be read, else they stay as they are. */
@@ -261,9 +267,9 @@ object SigningKeys {
 
     private fun sealedPasswords(store: String, key: String) = JSONObject().put("store", store).put("key", key).toString()
 
-    private fun save(ctx: Context, keys: List<KeyRef>) {
+    private fun saveJson(ctx: Context, keys: List<JSONObject>) {
         val arr = JSONArray()
-        keys.forEach { arr.put(toJson(it)) }
+        keys.forEach { arr.put(it) }
         // commit: the migration drops the plain passwords only after the vault has them.
         prefs(ctx).edit().putString("keys", arr.toString()).commit()
     }

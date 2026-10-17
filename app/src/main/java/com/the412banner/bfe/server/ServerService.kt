@@ -102,9 +102,10 @@ class ServerService : Service() {
         fun startOnLaunch(ctx: Context) {
             val hasFiles = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
             if (!hasFiles) return
-            val s = ServerPrefs.load(ctx)
-            if (s.startHttpOnLaunch || s.startFtpOnLaunch) {
-                setRunning(ctx, http = if (s.startHttpOnLaunch) true else null, ftp = if (s.startFtpOnLaunch) true else null)
+            // Just the two flags: the password is only read (from the vault) once the service applies them.
+            val (http, ftp) = ServerPrefs.startsOnLaunch(ctx)
+            if (http || ftp) {
+                setRunning(ctx, http = if (http) true else null, ftp = if (ftp) true else null)
             }
         }
 
