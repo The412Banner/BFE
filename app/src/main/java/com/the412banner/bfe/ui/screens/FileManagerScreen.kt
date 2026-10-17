@@ -117,6 +117,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -458,14 +459,15 @@ internal fun badgeColors(loc: FavLocation): Pair<Color, Color> {
 /**
  * All the per-pane state the [BrowserPane] and the single shared toolbar coordinate on. The shared
  * toolbar reads and mutates the ACTIVE pane's PaneState (its path/drive, view mode, sort, search,
- * favourites, new-folder), and BrowserPane reacts — so view mode and sort are PER PANE and toggling
- * one never syncs the other. The navigation hooks ([onOpenDir]/[onOpenDrive]) are wired by BrowserPane
+ * favourites, new-folder), and BrowserPane reacts — so sort is PER PANE and toggling it never syncs
+ * the other, while the view mode is one state both panes share, so a split always shows both panes
+ * the same way. The navigation hooks ([onOpenDir]/[onOpenDrive]) are wired by BrowserPane
  * because they need its coroutine scope + pick filtering; they're plain (non-observable) vars.
  */
 class PaneState(
     initialPath: String,
     initialRootPath: String = initialPath,
-    initialViewMode: FmViewMode = FmViewMode.LIST,
+    viewModeState: MutableState<FmViewMode> = mutableStateOf(FmViewMode.LIST),
     initialSortBy: String = "name",
     initialSortDesc: Boolean = false,
     initialShowHidden: Boolean = true,
@@ -480,8 +482,9 @@ class PaneState(
     var altStack by mutableStateOf<List<Loc>>(emptyList())
     var altLabel by mutableStateOf("")                  // the pinned location's friendly label
     var reloadTick by mutableStateOf(0)
-    // Per-pane browse controls, driven by the shared toolbar for whichever pane is active.
-    var viewMode by mutableStateOf(initialViewMode)
+    // Browse controls, driven by the shared toolbar for whichever pane is active. All are per pane
+    // except the view mode, which is the screen's one state shared with the other pane.
+    var viewMode by viewModeState
     // File order (sortBy/sortDesc) and folder order (folderSortBy/folderDesc); folders always list first.
     var sortBy by mutableStateOf(initialSortBy)
     var sortDesc by mutableStateOf(initialSortDesc)
@@ -533,18 +536,19 @@ class PaneState(
     fun altUp() { if (altStack.size > 1) altStack = altStack.dropLast(1) else exitAlt() }
 }
 
-private val PaneStateSaver = listSaver<PaneState, String>(
+// The view mode isn't saved here: it's the screen's shared state, saved once by FileManagerScreen.
+private fun paneStateSaver(viewMode: MutableState<FmViewMode>) = listSaver<PaneState, String>(
     save = {
         listOf(
-            it.path, it.rootPath, it.viewMode.name, it.sortBy,
+            it.path, it.rootPath, it.sortBy,
             it.sortDesc.toString(), it.showHidden.toString(), it.compactRows.toString(),
             it.folderSortBy, it.folderSortDesc.toString(),
         )
     },
     restore = {
         PaneState(
-            it[0], it[1], FmViewMode.valueOf(it[2]), it[3], it[4].toBoolean(), it[5].toBoolean(), it[6].toBoolean(),
-            it.getOrElse(7) { "name" }, it.getOrElse(8) { "false" }.toBoolean(),
+            it[0], it[1], viewMode, it[2], it[3].toBoolean(), it[4].toBoolean(), it[5].toBoolean(),
+            it[6], it[7].toBoolean(),
         )
     },
 )
@@ -553,16 +557,16 @@ private val PaneStateSaver = listSaver<PaneState, String>(
 fun rememberPaneState(
     key: String,
     initialPath: String,
-    initialViewMode: FmViewMode,
+    viewMode: MutableState<FmViewMode>,
     initialSortBy: String,
     initialSortDesc: Boolean,
     initialShowHidden: Boolean,
     initialCompactRows: Boolean,
     initialFolderSortBy: String,
     initialFolderSortDesc: Boolean,
-): PaneState = rememberSaveable(key = key, saver = PaneStateSaver) {
+): PaneState = rememberSaveable(key = key, saver = paneStateSaver(viewMode)) {
     PaneState(
-        initialPath, initialPath, initialViewMode, initialSortBy, initialSortDesc, initialShowHidden, initialCompactRows,
+        initialPath, initialPath, viewMode, initialSortBy, initialSortDesc, initialShowHidden, initialCompactRows,
         initialFolderSortBy, initialFolderSortDesc,
     )
 }
@@ -584,7 +588,8 @@ private fun Modifier.activateOnTouch(active: Boolean, onActivate: () -> Unit): M
  * and one or two file panes below it. The persisted split toggle switches between a single pane and
  * two side-by-side panes (in both orientations). Exactly one pane is active (accent-bordered, focused
  * by a tap); the shared toolbar reflects and controls ONLY the active pane, and its "Copy →"/"Move →"
- * and extraction target the OTHER pane. View mode and sort are per pane. Pick mode uses a single pane.
+ * and extraction target the OTHER pane. Sort is per pane; the view mode is shared, so both panes always
+ * look the same. Pick mode uses a single pane.
  */
 @Composable
 fun FileManagerScreen(
@@ -609,8 +614,8 @@ fun FileManagerScreen(
         (initialDir?.takeIf { it.isDirectory } ?: File("/storage/emulated/0")).absolutePath
     }
 
-    // GLOBAL defaults — used ONLY to initialize a pane's per-pane view/sort. Toggling in the toolbar
-    // updates just the active pane (and rewrites the default for the NEXT fresh pane), never the other.
+    // GLOBAL defaults — used ONLY to initialize the shared view and each pane's sort. A sort change in
+    // the toolbar updates just the active pane (and rewrites the default for the NEXT fresh pane).
     val defViewMode = remember {
         when (prefs.getString("fmViewMode", null)) {
             "list" -> FmViewMode.LIST
@@ -627,8 +632,10 @@ fun FileManagerScreen(
     val defHidden = remember { prefs.getBoolean("fmShowHidden", true) }
     val defCompact = remember { prefs.getBoolean("fmCompactRows", false) }
 
-    val leftPane = rememberPaneState("fm_pane_left", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact, defFolderSortBy, defFolderSortDesc)
-    val rightPane = rememberPaneState("fm_pane_right", startPath, defViewMode, defSortBy, defSortDesc, defHidden, defCompact, defFolderSortBy, defFolderSortDesc)
+    // One view mode for both panes: the view button sets it for both, so a split always matches.
+    val sharedViewMode = rememberSaveable { mutableStateOf(defViewMode) }
+    val leftPane = rememberPaneState("fm_pane_left", startPath, sharedViewMode, defSortBy, defSortDesc, defHidden, defCompact, defFolderSortBy, defFolderSortDesc)
+    val rightPane = rememberPaneState("fm_pane_right", startPath, sharedViewMode, defSortBy, defSortDesc, defHidden, defCompact, defFolderSortBy, defFolderSortDesc)
 
     var dualPane by rememberSaveable { mutableStateOf(prefs.getBoolean("fmDualPane", false)) }
     var splitFraction by remember { mutableFloatStateOf(prefs.getFloat("fmSplitFraction", 0.5f).coerceIn(0.2f, 0.8f)) }
@@ -1205,8 +1212,8 @@ private fun SharedToolbar(
 
     @Composable
     fun ViewModeButton() {
-        // View-mode cycle: Grid → List → Compact → Grid (List ⇄ Compact in dual pane). Per-pane; also
-        // persists the global default.
+        // View-mode cycle: Grid → List → Compact → Grid (List ⇄ Compact in dual pane), for both panes
+        // at once (they share the mode); also persists the global default.
         IconButton(onClick = {
             active.viewMode = active.viewMode.nextIn(dualPane)
             prefs.edit().putString("fmViewMode", active.viewMode.name.lowercase()).apply()

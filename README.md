@@ -68,7 +68,7 @@ Tap any line for the details.
 <details>
 <summary><b>Views, sorting & details</b> — grid, list or compact; folders A→Z then newest files</summary>
 
-- **Grid, List and Compact** views per pane, clickable breadcrumb with free space, search, hidden files.
+- **Grid, List and Compact** views (dual pane: List and Compact, both panes always alike), clickable breadcrumb with free space, search, hidden files.
 - Separate orders for folders and files — default **folders A→Z, then newest files first** — with
   natural name order ("Disc 2" before "Disc 10").
 - Item counts, sizes and **date + time** of the last change on every row (date over time in list cards).

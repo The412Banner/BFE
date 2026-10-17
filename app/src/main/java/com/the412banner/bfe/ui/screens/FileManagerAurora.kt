@@ -673,8 +673,8 @@ private fun AuroraPaneHeader(paneState: PaneState, currentLoc: Loc, currentFile:
                         },
                         "View mode",
                         onClick = {
-                            // Grid → List → Compact → Grid (List ⇄ Compact in dual pane), per pane; also
-                            // the next fresh pane's default.
+                            // Grid → List → Compact → Grid (List ⇄ Compact in dual pane), for both panes
+                            // at once (they share the mode); also the default for a fresh start.
                             paneState.viewMode = paneState.viewMode.nextIn(dualPane)
                             prefs.edit().putString("fmViewMode", paneState.viewMode.name.lowercase()).apply()
                         },
