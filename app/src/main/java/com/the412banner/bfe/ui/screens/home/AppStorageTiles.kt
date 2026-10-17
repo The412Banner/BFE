@@ -58,6 +58,18 @@ import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.ui.screens.AddAppStorageDialog
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.util.AppSnackbar
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import com.the412banner.bfe.ui.components.pressScale
+import com.the412banner.bfe.ui.theme.Glass
+import com.the412banner.bfe.ui.theme.GlassLevel
+import com.the412banner.bfe.ui.theme.glass
+import com.the412banner.bfe.ui.theme.isAurora
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -206,7 +218,10 @@ internal fun AddAppStorageTile(onClick: () -> Unit) {
     }
 }
 
-/** Shared tile chrome for Home: same size, shape and border as the dashboard tiles. */
+/**
+ * Shared tile chrome for Home: same size, shape and border as the dashboard tiles. Aurora Glass: a
+ * glass tile that dips when pressed; the ＋ tile is a clear tile with a dashed accent rim.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun HomeTileFrame(
@@ -214,8 +229,36 @@ internal fun HomeTileFrame(
     onLongClick: (() -> Unit)?,
     dashed: Boolean = false,
     wide: Boolean = false,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    if (isAurora) {
+        val interaction = remember { MutableInteractionSource() }
+        val accent = MaterialTheme.colorScheme.primary
+        Column(
+            horizontalAlignment = if (wide) Alignment.Start else Alignment.CenterHorizontally,
+            verticalArrangement = if (dashed || wide) Arrangement.Center else Arrangement.Top,
+            modifier = modifier
+                .fillMaxWidth()
+                .height(HOME_TILE_HEIGHT)
+                .pressScale(interaction, 0.96f)
+                .then(
+                    if (dashed) Modifier.clip(Glass.Tile).drawBehind {
+                        val w = 1.5.dp.toPx()
+                        drawRoundRect(
+                            accent.copy(alpha = 0.6f),
+                            topLeft = Offset(w / 2, w / 2),
+                            size = Size(size.width - w, size.height - w),
+                            cornerRadius = CornerRadius(18.dp.toPx()),
+                            style = Stroke(width = w, pathEffect = PathEffect.dashPathEffect(floatArrayOf(7.dp.toPx(), 5.dp.toPx()))),
+                        )
+                    } else Modifier.glass(Glass.Tile, GlassLevel.Panel),
+                )
+                .combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = onLongClick)
+                .padding(horizontal = if (wide) 12.dp else 4.dp, vertical = 8.dp),
+        ) { content() }
+        return
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()

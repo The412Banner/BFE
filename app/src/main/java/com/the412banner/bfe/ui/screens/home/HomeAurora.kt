@@ -40,6 +40,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -97,16 +98,19 @@ import com.the412banner.bfe.ui.theme.glass
 import java.io.File
 
 /**
- * Home in Aurora Glass: the same tiles, stats and favourites as Classic, grouped under calm section
- * labels (Storage · Library · Connect · Favorites) on glass over the backdrop, with the wordmark and a
- * one-line summary up top and the actions in the floating pill (portrait) or pill rail (landscape).
- * Tiles keep Classic's compact metrics (107 dp tall, 36 dp icon circle) so the grid stays dense.
+ * Home in Aurora Glass: the same tiles, stats, app storage and favourites as Classic, grouped under
+ * calm section labels (Storage · Library · Connect · App storage · Favorites) on glass over the
+ * backdrop, with the wordmark and a one-line summary up top and the actions in the floating pill
+ * (portrait) or pill rail (landscape): Home, Browse files, ＋ Add app storage, Settings, More.
+ * Same grid as Classic: cells sized for the small app-storage tiles, dashboard tiles two cells wide
+ * (icon left, name + stats right, full-width usage bar), 107 dp tall.
  *
  * Opening a tile records where it was ([LaunchOrigin]) so the next screen grows out of it.
  */
 @Composable
 internal fun AuroraHome(
     tiles: List<HomeTile>,
+    appStorage: HomeAppStorage,
     favorites: List<File>,
     stats: HomeStats,
     onOpenFolder: (FmLocationRequest) -> Unit,
@@ -140,8 +144,11 @@ internal fun AuroraHome(
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 AuroraHomeHeader(stats = stats, onOpenServer = onOpenServer)
                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                    val columns = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12)
-                    else (maxWidth / 96.dp).toInt().coerceIn(4, 6)
+                    // Cells are sized for the small app-storage tiles; dashboard tiles take two cells, so
+                    // the count stays even (no half-empty rows) — as in Classic.
+                    val cells = if (landscape) (maxWidth / 96.dp).toInt().coerceIn(6, 12)
+                    else (maxWidth / 76.dp).toInt().coerceIn(4, 8)
+                    val columns = cells - cells % 2
                     // Entrance order for the staggered fade-in: tiles in reading order.
                     val order = remember(tiles) { tiles.mapIndexed { i, t -> t.key to i }.toMap() }
                     LazyVerticalGrid(
@@ -154,7 +161,7 @@ internal fun AuroraHome(
                         listOf("Storage" to storage, "Library" to library, "Connect" to connect).forEach { (label, group) ->
                             if (group.isEmpty()) return@forEach
                             item(key = "label:$label", span = { GridItemSpan(maxLineSpan) }) { SectionLabel(label) }
-                            items(group, key = { it.key }) { tile ->
+                            items(group, key = { it.key }, span = { GridItemSpan(2) }) { tile ->
                                 AuroraHomeTile(
                                     tile,
                                     Modifier.staggeredEnter(order[tile.key] ?: 0, Unit, enabled = SystemClock.uptimeMillis() - bornAt < 700),
@@ -162,6 +169,15 @@ internal fun AuroraHome(
                                 )
                             }
                         }
+                        // Other apps' storage pinned to Home, then the ＋ tile to add another.
+                        item(key = "label:appstorage", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("App storage") }
+                        items(appStorage.pins, key = { "pin:" + it.key }) { pin ->
+                            val holder = remember { CoordsHolder() }
+                            Box(Modifier.onGloballyPositioned { holder.coords = it }) {
+                                AppStorageTileCard(pin, onClick = { launchFrom(holder); appStorage.open(pin) }, onLongClick = { appStorage.remove(pin) })
+                            }
+                        }
+                        item(key = "appstorage-add") { AddAppStorageTile(onClick = appStorage.add) }
                         item(key = "label:favorites", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Favorites") }
                         item(key = "favorites", span = { GridItemSpan(maxLineSpan) }) {
                             AuroraFavoritesRow(favorites, onOpen = { holder, dir -> launchFrom(holder); onOpenFolder(FmLocationRequest.folder(dir)) })
@@ -178,8 +194,12 @@ internal fun AuroraHome(
                 onClick = { launchFrom(files); onOpenFiles() },
                 modifier = Modifier.onGloballyPositioned { files.coords = it },
             )
+            com.the412banner.bfe.ui.components.AccentFab(
+                Icons.Filled.Add, "Add app storage", onClick = appStorage.add,
+                modifier = Modifier.padding(if (landscape) PaddingValues(vertical = 4.dp) else PaddingValues(horizontal = 4.dp)),
+            )
             GlassIconButton(Icons.Filled.Settings, "Settings", onClick = onOpenSettings)
-            HomeMoreButton(onRefresh = onRefresh, onOpenSettings = onOpenSettings)
+            HomeMoreButton(onOpenFiles = { launchFrom(files); onOpenFiles() }, onRefresh = onRefresh, onOpenSettings = onOpenSettings)
         }
         if (landscape) {
             GlassPillRail(Modifier.align(Alignment.CenterStart).padding(start = 12.dp)) { nav() }
@@ -245,15 +265,21 @@ internal fun SharingChip(onClick: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** The pill's ⋮: the rest of Home's menu (Refresh, Check for updates, About). */
+/** The pill's ⋮: Home's menu (Open file manager, Refresh, Check for updates, About). */
 @Composable
-private fun HomeMoreButton(onRefresh: () -> Unit, onOpenSettings: () -> Unit) {
+private fun HomeMoreButton(onOpenFiles: () -> Unit, onRefresh: () -> Unit, onOpenSettings: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     val checkForUpdates = rememberUpdateCheck()
     Box {
         GlassIconButton(Icons.Filled.MoreVert, "More", onClick = { menu = true })
         BfeDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(
+                text = { Text("Open file manager") },
+                leadingIcon = { Icon(Icons.Filled.FolderOpen, null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { menu = false; onOpenFiles() },
+            )
+            MenuItemDivider()
             DropdownMenuItem(
                 text = { Text("Refresh") },
                 leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = MaterialTheme.colorScheme.primary) },
@@ -277,73 +303,68 @@ private fun HomeMoreButton(onRefresh: () -> Unit, onOpenSettings: () -> Unit) {
 }
 
 /**
- * One Home tile on glass: same content and metrics as Classic's (107 dp, 36 dp icon circle, two-line
- * stats, usage bar for storage), pressed tiles dip slightly, and the tile reports its position so the
- * screen it opens can grow from it.
+ * One Home tile on glass: the same content and metrics as Classic's (HomeTileFrame / HomeTileLabel /
+ * HomeTileStats: 107 dp, icon circle, two-line stats, usage bar for storage); pressed tiles dip
+ * slightly, and the tile reports its position so the screen it opens can grow from it.
  */
 @Composable
 private fun AuroraHomeTile(tile: HomeTile, modifier: Modifier = Modifier, onLaunch: (CoordsHolder) -> Unit) {
     val holder = remember { CoordsHolder() }
-    val interaction = remember { MutableInteractionSource() }
     val dark = LocalGlass.current.palette.dark
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(107.dp)
-            .onGloballyPositioned { holder.coords = it }
-            .pressScale(interaction, 0.96f)
-            .glass(Glass.Tile, GlassLevel.Panel)
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button) { onLaunch(holder); tile.onClick() },
+    // Two cells wide (as Classic): icon circle left, name + one-line stats right, full-width usage bar.
+    HomeTileFrame(
+        onClick = { onLaunch(holder); tile.onClick() },
+        onLongClick = null,
+        wide = true,
+        modifier = modifier.onGloballyPositioned { holder.coords = it },
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 8.dp),
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier.size(36.dp).clip(CircleShape).background(tile.style.color.copy(alpha = if (dark) 0.20f else 0.15f)),
+                modifier = Modifier.size(44.dp).clip(CircleShape).background(tile.style.color.copy(alpha = if (dark) 0.20f else 0.15f)),
             ) {
-                Icon(tile.style.icon, null, tint = if (dark) lerp(tile.style.color, androidx.compose.ui.graphics.Color.White, 0.25f) else tile.style.color, modifier = Modifier.size(20.dp))
+                Icon(tile.style.icon, null, tint = if (dark) lerp(tile.style.color, androidx.compose.ui.graphics.Color.White, 0.25f) else tile.style.color, modifier = Modifier.size(24.dp))
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                tile.label,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                tile.stats ?: "…",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            tile.fraction?.let { f ->
-                Spacer(Modifier.weight(1f))
-                UsageBar(f, tile.style.color, Modifier.fillMaxWidth(0.8f))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    tile.label,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    lineHeight = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    // One line where it fits: "2.22 GB · 5,342 files".
+                    tile.stats?.replace("\n", " · ") ?: "…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
+        }
+        tile.fraction?.let { f ->
+            Spacer(Modifier.height(10.dp))
+            UsageBar(f, tile.style.color, Modifier.fillMaxWidth(), height = 4.dp)
         }
     }
 }
 
 /** A slim rounded usage bar: the tile's colour fading toward the accent. */
 @Composable
-private fun UsageBar(fraction: Float, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier) {
+private fun UsageBar(fraction: Float, color: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier, height: androidx.compose.ui.unit.Dp = 3.dp) {
     val accent = MaterialTheme.colorScheme.tertiary
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-    Box(modifier.height(3.dp).clip(RoundedCornerShape(2.dp)).background(track)) {
+    Box(modifier.height(height).clip(RoundedCornerShape(2.dp)).background(track)) {
         Box(
             Modifier
                 .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(3.dp)
+                .height(height)
                 .clip(RoundedCornerShape(2.dp))
                 .background(Brush.horizontalGradient(listOf(color, lerp(color, accent, 0.5f)))),
         )

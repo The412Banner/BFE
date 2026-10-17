@@ -238,10 +238,14 @@ fun HomeScreen(
         add(HomeTile("network", "Access from network", HomeTileStyles.Network, "HTTP · FTP") { onOpenServer() })
     }
 
+    // Other apps' storage pinned to Home (tiles + the ＋ tile), shared by both looks.
+    val appStorage = rememberHomeAppStorage(refreshKey = resumeTick, onOpen = onOpenFolder)
+
     // Aurora Glass lays the same tiles and favourites out on glass (HomeAurora.kt); Classic below.
     if (isAurora) {
         AuroraHome(
             tiles = tiles,
+            appStorage = appStorage,
             favorites = favorites,
             stats = stats,
             onOpenFolder = onOpenFolder,
@@ -254,7 +258,6 @@ fun HomeScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        val appStorage = rememberHomeAppStorage(refreshKey = resumeTick, onOpen = onOpenFolder)
         HomeTopBar(
             onOpenFiles = onOpenFiles,
             onAddAppStorage = appStorage.add,
