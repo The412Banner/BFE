@@ -303,8 +303,10 @@ starting.
 2. Grant **All files access** on first launch.
 3. Future versions install from inside the app: **Settings → Check now** (or the automatic check).
 
-Every release is built and signed by CI with the same key, so updates install over the previous
-version. **The signing key is committed to this public repository** — only install builds from this
+Every release is built and signed by CI. Since 1.1.1 releases are signed with a **private release key**
+(APK Signature Scheme v3 key rotation): Android 9+ accepts the update from any earlier BFE and from then
+on only accepts the release key, so nobody can publish a look-alike update. Android 8.x devices still
+check the original test key (which is public in this repository) — only install builds from this
 repository's Releases; each release lists its APK SHA-256.
 
 ---

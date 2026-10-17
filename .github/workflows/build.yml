@@ -82,6 +82,20 @@ jobs:
         BFE_KEY_PASSWORD: ${{ secrets.BFE_KEY_PASSWORD }}
       run: ./gradlew --no-daemon --build-cache assembleRelease
 
+    # Signing-key rotation (APK Signature Scheme v3): v1/v2 keep the original key for Android 8.x,
+    # v3 carries the release key + keystore/bfe-lineage.bin for Android 9+. Needs the BFE_RELEASE_*
+    # secrets and fails without them, so an original-key-only APK can't be published.
+    - name: Rotate signature (original key -> release key)
+      env:
+        BFE_RELEASE_KEYSTORE_B64: ${{ secrets.BFE_RELEASE_KEYSTORE_B64 }}
+        BFE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.BFE_RELEASE_KEYSTORE_PASSWORD }}
+        BFE_RELEASE_KEY_ALIAS: ${{ secrets.BFE_RELEASE_KEY_ALIAS }}
+        BFE_RELEASE_KEY_PASSWORD: ${{ secrets.BFE_RELEASE_KEY_PASSWORD }}
+        BFE_KEYSTORE_PASSWORD: ${{ secrets.BFE_KEYSTORE_PASSWORD }}
+        BFE_KEY_ALIAS: ${{ secrets.BFE_KEY_ALIAS }}
+        BFE_KEY_PASSWORD: ${{ secrets.BFE_KEY_PASSWORD }}
+      run: for apk in app/build/outputs/apk/release/*.apk; do scripts/rotate-sign.sh "$apk"; done
+
     # JVM unit tests (pure-Kotlin parts, e.g. the archive-listing parser fed real 7zz output).
     - name: Unit tests
       run: ./gradlew --no-daemon --build-cache testReleaseUnitTest
