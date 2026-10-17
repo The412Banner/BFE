@@ -1751,6 +1751,11 @@ fun BrowserPane(
                     com.the412banner.bfe.HtmlViewerActivity.isHtmlName(loc.name) ->
                         context.startActivity(com.the412banner.bfe.HtmlViewerActivity.intent(context, f?.absolutePath, uri, loc.name))
                     media != null -> openMedia(loc, media, uri, single = fromArchive != null)
+                    // PDF, Office / OpenDocument, EPUB, Markdown, RTF, CSV and text. Old binary .doc / .xls /
+                    // .ppt can't be shown, so they get the sheet's apps instead of an "unsupported" page.
+                    com.the412banner.bfe.DocumentViewer.isDocumentName(loc.name, mime) &&
+                        !com.the412banner.bfe.DocumentViewer.isLegacyOfficeName(loc.name, mime) ->
+                        com.the412banner.bfe.DocumentViewer.open(context, f?.absolutePath, uri, loc.name, mime)
                     else -> openWithReq = OpenWithRequest(loc, uri, mime, fromArchive = fromArchive)
                 }
             }
@@ -1758,8 +1763,9 @@ fun BrowserPane(
     }
 
     // A plain tap on a file: BFE opens it itself when it can — a web page in the HTML viewer, photos /
-    // videos / music in the viewer or player, an archive or disc image browsed like a folder, an APK in
-    // the installer. Anything else gets the Open-with sheet, which ⋮ → Open with shows for every file.
+    // videos / music in the viewer or player, documents and text in the document viewer, an archive or
+    // disc image browsed like a folder, an APK in the installer. Anything else gets the Open-with sheet,
+    // which ⋮ → Open with shows for every file.
     fun openOnTap(loc: Loc) {
         if (loc is Loc.ArchiveLoc) {
             withArchiveCopies(listOf(loc)) { files -> openBuiltInOrSheet(Loc.FileLoc(files.first()), fromArchive = loc) }
