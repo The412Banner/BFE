@@ -400,8 +400,7 @@ private fun HomeTileCard(tile: HomeTile) {
                 Spacer(Modifier.height(2.dp))
                 Text(
                     // One line where it fits: "2.22 GB · 5,342 files".
-                    tile.stats?.replace("
-", " · ") ?: "…",
+                    tile.stats?.replace("\n", " · ") ?: "…",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     lineHeight = 14.sp,
