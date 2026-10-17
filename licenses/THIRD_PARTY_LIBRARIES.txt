@@ -3,17 +3,23 @@ BFE — third-party libraries
 
 BFE is free software under the GNU General Public License v3.0 (see LICENSE_BFE_GPL-3.0.txt).
 Besides the bundled native tools (7-Zip, innoextract, unarc, FFmpeg + x264, lunzip, lzop, lz4,
-unecm, unalz, unace, lzx — see their own notices), the app includes these libraries. All of them are under licences compatible with the
+unecm, unalz, unace, lzx — see their own notices) and libVLC (NOTICE_LIBVLC.txt), the app includes these libraries. All of them are under licences compatible with the
 GPL-3.0.
 
-Android Jetpack / AndroidX (Compose, Activity, Lifecycle, Navigation, Core, AppCompat, Preference)
+Android Jetpack / AndroidX (Compose, Activity, Lifecycle, Navigation, Core, AppCompat, Preference, WebKit)
   https://developer.android.com/jetpack — Apache License 2.0
 Material Components for Android
   https://github.com/material-components/material-components-android — Apache License 2.0
 Kotlin standard library and kotlinx.coroutines
   https://kotlinlang.org — Apache License 2.0
-Coil 2.6.0 (image thumbnails)
+Coil 2.6.0 + coil-video + coil-gif (thumbnails; the photo viewer's GIF / animated WebP / HEIF)
   https://github.com/coil-kt/coil — Apache License 2.0
+telephoto 0.8.0 by Saket Narayan (the photo viewer's zoomable, sub-sampled images)
+  https://github.com/saket/telephoto — Apache License 2.0; with its dependencies Molecule
+  (Cash App, Apache 2.0), Accompanist Drawable Painter (Google, Apache 2.0), Okio (Square,
+  Apache 2.0) and Poko annotations (Drew Hamilton, Apache 2.0)
+AndroidX ExifInterface 1.3.7 (photo details, lossless JPEG rotation) — Apache License 2.0
+libVLC for Android 3.6.5 (the video / audio player) — GNU LGPL v2.1 or later, see NOTICE_LIBVLC.txt
 libsu 6.0.0 by topjohnwu (root storage backend)
   https://github.com/topjohnwu/libsu — Apache License 2.0
 Apache Commons Compress 1.20 (tar for .tzst / .wcp)

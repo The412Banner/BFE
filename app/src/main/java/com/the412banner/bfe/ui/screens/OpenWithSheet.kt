@@ -1,6 +1,7 @@
 package com.the412banner.bfe.ui.screens
 
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -32,9 +33,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.CircularProgressIndicator
@@ -70,14 +73,27 @@ import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.core.StringUtils
+import com.the412banner.bfe.media.MediaLaunch
+import com.the412banner.bfe.media.MediaType
 import com.the412banner.bfe.storage.Loc
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.DefaultApps
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** A BFE action offered at the top of the Open with sheet (Extract, Install, Convert, Properties). */
-internal data class SheetAction(val label: String, val icon: ImageVector, val onClick: () -> Unit)
+/**
+ * A BFE action offered at the top of the Open with sheet (Extract, Install, Convert, Properties…).
+ * [component] marks one of BFE's own viewers (photo viewer, player, HTML viewer): with "Always use"
+ * on it becomes the remembered choice for the extension under [componentLabel], and is then shown
+ * highlighted as the default — like a default app, it is never opened without the sheet.
+ */
+internal data class SheetAction(
+    val label: String,
+    val icon: ImageVector,
+    val component: ComponentName? = null,
+    val componentLabel: String? = null,
+    val onClick: () -> Unit,
+)
 
 /** One "Open as" choice: a chip label and the MIME type the app list is queried with. */
 private data class OpenAs(val label: String, val mime: String)
@@ -190,6 +206,22 @@ internal fun OpenWithSheet(
         onDismiss()
     }
 
+    // A BFE action; one of BFE's own viewers follows the same "Always use" rules as an app.
+    fun runAction(a: SheetAction) {
+        val c = a.component
+        if (c != null && ext.isNotEmpty()) {
+            val label = a.componentLabel ?: a.label
+            if (always) {
+                if (c != savedComponent) AppSnackbar.show(context, "$label is now the default for .$ext files")
+                DefaultApps.set(context, DefaultApps.Entry(ext, c.packageName, c.className, label, selected.mime))
+            } else if (saved != null) {
+                DefaultApps.remove(context, ext)
+            }
+        }
+        onDismiss()
+        a.onClick()
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 84.dp),
@@ -221,17 +253,27 @@ internal fun OpenWithSheet(
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Column {
                         actions.forEach { a ->
+                            val isDefault = a.component != null && a.component == savedComponent
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(8.dp))
-                                    .clickable { onDismiss(); a.onClick() }
+                                    .background(if (isDefault) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                    .clickable { runAction(a) }
                                     .padding(horizontal = 4.dp, vertical = 10.dp),
                             ) {
                                 Icon(a.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                                 Spacer(Modifier.width(16.dp))
-                                Text(a.label, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    a.label,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = if (isDefault) FontWeight.SemiBold else FontWeight.Normal,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (isDefault) {
+                                    Text("Default", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp))
+                                }
                             }
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 8.dp))
@@ -331,4 +373,18 @@ internal object SheetIcons {
     val Convert = Icons.Filled.Movie
     val Properties = Icons.Filled.Info
     val Web = Icons.Filled.Language
+    val View = Icons.Filled.Photo
+    val Play = Icons.Filled.PlayArrow
 }
+
+/**
+ * "View" (photos) / "Play" (video, audio) — BFE's own viewer and player, first in the sheet and
+ * rememberable as the "Always use" choice like any app.
+ */
+internal fun mediaSheetAction(context: Context, type: MediaType, onClick: () -> Unit): SheetAction = SheetAction(
+    label = if (type == MediaType.IMAGE) "View" else "Play",
+    icon = if (type == MediaType.IMAGE) SheetIcons.View else SheetIcons.Play,
+    component = MediaLaunch.component(context, type),
+    componentLabel = MediaLaunch.label(context, type),
+    onClick = onClick,
+)

@@ -5,4 +5,7 @@
     <string name="html_viewer_label">BFE HTML Viewer</string>
     <!-- Second entry in other apps' Open with sheet: one-tap extract into a folder named after the archive. -->
     <string name="quick_extract_label">Extract to ./&lt;Archive name&gt;/</string>
+    <!-- BFE's own photo viewer and video / audio player, as other apps' Open with list shows them. -->
+    <string name="viewer_label">BFE Viewer</string>
+    <string name="player_label">BFE Player</string>
 </resources>

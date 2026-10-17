@@ -196,6 +196,13 @@ import com.the412banner.bfe.ui.screens.home.HomePrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.the412banner.bfe.media.MediaChanges
+import com.the412banner.bfe.media.MediaLaunch
+import com.the412banner.bfe.media.MediaRef
+import com.the412banner.bfe.media.MediaSiblings
+import com.the412banner.bfe.media.MediaType
+import com.the412banner.bfe.media.MediaTypes
+import com.the412banner.bfe.util.naturalCompare
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -249,31 +256,6 @@ private fun elidePathStart(path: String, max: Int): String {
  */
 private val NaturalNameOrder = Comparator<Loc> { a, b -> naturalCompare(a.name, b.name) }
 
-private fun naturalCompare(x: String, y: String): Int {
-    var i = 0
-    var j = 0
-    while (i < x.length && j < y.length) {
-        val cx = x[i]
-        val cy = y[j]
-        if (cx.isDigit() && cy.isDigit()) {
-            val si = i
-            val sj = j
-            while (i < x.length && x[i].isDigit()) i++
-            while (j < y.length && y[j].isDigit()) j++
-            val nx = x.substring(si, i).trimStart('0')
-            val ny = y.substring(sj, j).trimStart('0')
-            if (nx.length != ny.length) return nx.length - ny.length
-            val c = nx.compareTo(ny)
-            if (c != 0) return c
-        } else {
-            val c = cx.lowercaseChar().compareTo(cy.lowercaseChar())
-            if (c != 0) return c
-            i++
-            j++
-        }
-    }
-    return (x.length - i) - (y.length - j)
-}
 
 /**
  * Folders always come first, each group in its own order: folders by [folderSortBy] ("name" | "date"),
@@ -1535,6 +1517,16 @@ fun BrowserPane(
         onDispose { paneLifecycle.lifecycle.removeObserver(obs) }
     }
 
+    // The photo viewer deleted (or re-saved) files. It's a translucent window, so this pane is never
+    // stopped behind it and the refresh above doesn't run: re-list when the viewer reports a change.
+    val seenMediaTick = remember { mutableIntStateOf(MediaChanges.tick) }
+    LaunchedEffect(MediaChanges.tick) {
+        if (MediaChanges.tick != seenMediaTick.intValue) {
+            seenMediaTick.intValue = MediaChanges.tick
+            if (!paneState.isArchive) paneState.requestReload()
+        }
+    }
+
     // Pull-to-refresh → re-list, keeping scroll.
     if (pullState.isRefreshing) {
         LaunchedEffect(true) { paneState.requestReload(); pullState.endRefresh() }
@@ -1680,6 +1672,30 @@ fun BrowserPane(
         if (loc is Loc.ArchiveLoc) { openArchiveEntry(loc); return }
         withViewUri(loc, "Couldn't open ${loc.name}") { uri ->
             openWithReq = OpenWithRequest(loc, uri, guessMime(loc.name, context.contentResolver.getType(uri)))
+        }
+    }
+
+    // "View" / "Play": BFE's photo viewer or player. A file of this folder pages through the folder's
+    // files of the same kind in the order the pane lists them; a cache copy (archive entry, root file)
+    // opens on its own through the Uri the sheet already has.
+    fun openMedia(loc: Loc, type: MediaType, uri: Uri, single: Boolean) {
+        scope.launch {
+            val (items, index) = withContext(Dispatchers.IO) {
+                val inListing = !single && (loc is Loc.FileLoc || loc is Loc.SafLoc) && entries.any { it.id == loc.id }
+                if (!inListing) {
+                    listOf(MediaRef(uri = uri.toString(), name = loc.name, path = (loc as? Loc.FileLoc)?.file?.absolutePath, size = loc.size)) to 0
+                } else {
+                    val (same, i) = MediaSiblings.pick(entries.filter { !it.isDir }, type, loc.id, { it.name }, { it.id })
+                    same.map { l ->
+                        when (l) {
+                            is Loc.FileLoc -> MediaRef.of(l.file)
+                            is Loc.SafLoc -> MediaRef(uri = l.docUri.toString(), name = l.name, size = l.size, modified = l.lastModified)
+                            else -> MediaRef(uri = uri.toString(), name = l.name)
+                        }
+                    } to i
+                }
+            }
+            MediaLaunch.open(context, type, items, index)
         }
     }
 
@@ -2694,9 +2710,18 @@ fun BrowserPane(
             buildList {
                 // Web pages open in BFE's own viewer first (scripts on, relative files load).
                 if (com.the412banner.bfe.HtmlViewerActivity.isHtmlName(loc.name)) {
-                    add(SheetAction("View page", SheetIcons.Web) {
+                    add(SheetAction(
+                        "View page",
+                        SheetIcons.Web,
+                        component = android.content.ComponentName(context, com.the412banner.bfe.HtmlViewerActivity::class.java),
+                        componentLabel = context.getString(com.the412banner.bfe.R.string.html_viewer_label),
+                    ) {
                         context.startActivity(com.the412banner.bfe.HtmlViewerActivity.intent(context, f?.absolutePath, req.uri, loc.name))
                     })
+                }
+                // Photos, videos and music: BFE's own viewer / player first.
+                MediaTypes.typeOf(loc.name, req.mime)?.let { type ->
+                    add(mediaSheetAction(context, type) { openMedia(loc, type, req.uri, single = fromArchive != null) })
                 }
                 if (fromArchive != null) {
                     // BFE's cache copy of an entry inside an archive: browse it when it's an archive

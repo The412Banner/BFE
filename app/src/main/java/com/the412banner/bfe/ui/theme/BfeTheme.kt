@@ -141,11 +141,15 @@ object ThemeSettings {
     }
 }
 
+/**
+ * [forceDark] = true pins the dark scheme whatever Settings says — the photo viewer and video player
+ * always draw their controls over a black backdrop.
+ */
 @Composable
-fun BfeTheme(content: @Composable () -> Unit) {
+fun BfeTheme(forceDark: Boolean = false, content: @Composable () -> Unit) {
     val context = LocalContext.current
     ThemeSettings.load(context)
-    val dark = when (ThemeSettings.mode) {
+    val dark = forceDark || when (ThemeSettings.mode) {
         ThemeSettings.Mode.SYSTEM -> isSystemInDarkTheme()
         ThemeSettings.Mode.LIGHT -> false
         ThemeSettings.Mode.DARK -> true

@@ -544,6 +544,50 @@
             </intent-filter>
         </activity>
 
+        <!-- Built-in photo viewer. Also offered to other apps for images; then it pages through the
+             image's folder when BFE can read it. Translucent (fades in over the caller), so no fixed
+             screenOrientation here. -->
+        <activity
+            android:name="com.the412banner.bfe.PhotoViewerActivity"
+            android:label="@string/viewer_label"
+            android:theme="@style/AppTheme.Viewer"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- Built-in video + audio player (libVLC). Its own task so picture-in-picture floats on its own
+             and a new file from BFE replaces the one playing (onNewIntent). configChanges keep the
+             player alive across rotation and PiP resizes. -->
+        <activity
+            android:name="com.the412banner.bfe.VideoPlayerActivity"
+            android:label="@string/player_label"
+            android:theme="@style/AppTheme.Player"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.the412banner.bfe.player"
+            android:autoRemoveFromRecents="true"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="application/ogg" />
+                <data android:mimeType="application/x-matroska" />
+            </intent-filter>
+        </activity>
+
         <!-- No-UI target of the QuickExtract alias: hands the file to UnpackService and finishes. -->
         <activity
             android:name="com.the412banner.bfe.QuickExtractActivity"

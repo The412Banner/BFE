@@ -114,6 +114,11 @@ import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.ui.screens.SheetAction
 import com.the412banner.bfe.ui.screens.SheetIcons
 import com.the412banner.bfe.ui.screens.guessMime
+import com.the412banner.bfe.ui.screens.mediaSheetAction
+import com.the412banner.bfe.media.MediaLaunch
+import com.the412banner.bfe.media.MediaRef
+import com.the412banner.bfe.media.MediaSiblings
+import com.the412banner.bfe.media.MediaTypes
 import com.the412banner.bfe.ui.screens.home.FolderPickerOverlay
 import com.the412banner.bfe.ui.screens.home.HomeTileStyles
 import com.the412banner.bfe.ui.screens.outlinedMenuCard
@@ -333,6 +338,20 @@ fun CategoryScreen(
             val f = item.file
             val lower = item.name.lowercase()
             buildList {
+                // Photos, videos and music: BFE's viewer / player, paging through this category in the
+                // order it's shown (sort + search).
+                MediaTypes.typeOf(item.name, item.mime)?.let { type ->
+                    add(mediaSheetAction(context, type) {
+                        val list = shown
+                        scope.launch {
+                            val (items, index) = withContext(Dispatchers.IO) {
+                                val (same, i) = MediaSiblings.pick(list, type, item.path, { it.name }, { it.path })
+                                same.map { m -> MediaRef(uri = m.file.toURI().toString(), name = m.name, path = m.path, size = m.size, modified = m.modified) } to i
+                            }
+                            MediaLaunch.open(context, type, items, index)
+                        }
+                    })
+                }
                 add(SheetAction("Show in folder", Icons.Filled.FolderOpen) { f.parentFile?.let(onShowInFolder) })
                 if (lower.endsWith(".apk")) {
                     add(SheetAction("Install", SheetIcons.Install) {

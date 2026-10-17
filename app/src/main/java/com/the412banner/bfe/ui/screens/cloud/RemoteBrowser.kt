@@ -111,6 +111,9 @@ import com.the412banner.bfe.ui.screens.OpenWithSheet
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.ui.screens.SheetAction
 import com.the412banner.bfe.ui.screens.guessMime
+import com.the412banner.bfe.ui.screens.mediaSheetAction
+import com.the412banner.bfe.media.MediaLaunch
+import com.the412banner.bfe.media.MediaTypes
 import com.the412banner.bfe.ui.screens.outlinedMenuCard
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.IncomingFile
@@ -592,15 +595,19 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
 
     opened?.let { o ->
         val actions = remember(o, downloadDir) {
-            listOf(
-                SheetAction("Save to ${File(downloadDir).name}", Icons.Filled.Download) {
+            buildList {
+                // Photos, videos and music: the downloaded copy in BFE's own viewer / player.
+                MediaTypes.typeOf(o.entry.name, o.mime)?.let { type ->
+                    add(mediaSheetAction(context, type) { MediaLaunch.openFile(context, type, o.file) })
+                }
+                add(SheetAction("Save to ${File(downloadDir).name}", Icons.Filled.Download) {
                     scope.launch {
                         val res = withContext(Dispatchers.IO) { runCatching { copyUnique(o.file, File(downloadDir)) } }
                         AppSnackbar.show(context, res.fold({ "Saved to ${it.absolutePath}" }, { "Couldn't save: ${it.message}" }))
                     }
-                },
-                SheetAction("Download to…", Icons.Filled.FolderOpen) { pick = LocalPick.DownloadDir(listOf(o.entry)) },
-            )
+                })
+                add(SheetAction("Download to…", Icons.Filled.FolderOpen) { pick = LocalPick.DownloadDir(listOf(o.entry)) })
+            }
         }
         OpenWithSheet(
             file = Loc.FileLoc(o.file),

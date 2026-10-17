@@ -8,4 +8,22 @@
         <item name="android:statusBarColor">@color/window_background</item>
         <item name="android:navigationBarColor">@color/window_background</item>
     </style>
+
+    <!-- Photo viewer: a translucent window so the viewer's own fade + scale-in plays over the screen
+         it was opened from (no window animation of its own). Never give it a fixed orientation:
+         Android 8.0 rejects that for translucent activities. -->
+    <style name="AppTheme.Viewer" parent="AppTheme">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Video / audio player: opaque black from the first frame. -->
+    <style name="AppTheme.Player" parent="AppTheme">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

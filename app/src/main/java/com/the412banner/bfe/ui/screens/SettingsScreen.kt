@@ -31,7 +31,9 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -73,6 +75,7 @@ import com.the412banner.bfe.ui.theme.ThemeSettings
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.CheckState
 import com.the412banner.bfe.util.DefaultApps
+import com.the412banner.bfe.media.MediaPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
@@ -100,7 +103,8 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("NanoHTTPD", "BSD 3-Clause License", "NOTICE_NANOHTTPD.txt"),
     LicenseDoc("Apache FtpServer + MINA", "Apache License 2.0", "NOTICE_APACHE_FTPSERVER.txt"),
     LicenseDoc("rclone", "MIT; downloaded on first use of Cloud / Remote", "NOTICE_RCLONE.txt"),
-    LicenseDoc("Libraries", "AndroidX, Coil, libsu, Commons Compress, XZ for Java, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
+    LicenseDoc("libVLC for Android", "GNU LGPL v2.1 or later (the video / audio player)", "NOTICE_LIBVLC.txt"),
+    LicenseDoc("Libraries", "AndroidX, Coil, telephoto, libsu, Commons Compress, XZ for Java, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
 )
 
 /**
@@ -282,6 +286,26 @@ private fun MainSettings(
         )
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        // ── Photo viewer & player ──
+        SectionHeader("Photos, video & music")
+        var rememberPos by remember { mutableStateOf(MediaPrefs.rememberPosition(context)) }
+        SettingRow(
+            icon = Icons.Filled.History,
+            title = "Remember playback position",
+            subtitle = "Offers “Resume from …” for videos and tracks longer than a minute. Off also forgets the saved spots.",
+            onClick = { rememberPos = !rememberPos; MediaPrefs.setRememberPosition(context, rememberPos) },
+            trailing = { Switch(checked = rememberPos, onCheckedChange = { rememberPos = it; MediaPrefs.setRememberPosition(context, it) }) },
+        )
+        var pip by remember { mutableStateOf(MediaPrefs.pipOnLeave(context)) }
+        SettingRow(
+            icon = Icons.Filled.PictureInPictureAlt,
+            title = "Picture-in-picture when leaving",
+            subtitle = "A playing video shrinks into a floating window on Home or Back instead of stopping.",
+            onClick = { pip = !pip; MediaPrefs.setPipOnLeave(context, pip) },
+            trailing = { Switch(checked = pip, onCheckedChange = { pip = it; MediaPrefs.setPipOnLeave(context, it) }) },
+        )
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         // ── About ──
         SectionHeader("About")
         SettingRow(
@@ -313,7 +337,7 @@ private fun MainSettings(
         SettingRow(
             icon = Icons.Filled.Gavel,
             title = "Open-source licenses",
-            subtitle = "7-Zip, innoextract, unarc, FFmpeg, x264, NanoHTTPD, Apache FtpServer and libraries",
+            subtitle = "7-Zip, innoextract, unarc, FFmpeg, x264, libVLC, NanoHTTPD, Apache FtpServer and libraries",
             onClick = onOpenLicenses,
             trailing = { Icon(Icons.Filled.ChevronRight, null) },
         )

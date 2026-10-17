@@ -133,6 +133,18 @@ dependencies {
     implementation 'io.coil-kt:coil-compose:2.6.0'
     // Video-frame thumbnails in file lists (VideoFrameDecoder, registered in BfeApp).
     implementation 'io.coil-kt:coil-video:2.6.0'
+    // Photo viewer: GIF / animated WebP + HEIF playback (ImageDecoderDecoder on API 28+, GifDecoder
+    // below), registered on the viewer's own loader so file-list thumbnails stay still.
+    implementation 'io.coil-kt:coil-gif:2.6.0'
+    // Photo viewer: zoomable, sub-sampled images (telephoto, Apache-2.0). 0.8.0 is the release built
+    // against Compose 1.6.1 + Coil 2.5 — exactly this BOM; later ones pull a newer Compose runtime.
+    implementation 'me.saket.telephoto:zoomable-image-coil:0.8.0'
+    // Photo viewer: EXIF details and lossless "Save rotation" for JPEG.
+    implementation 'androidx.exifinterface:exifinterface:1.3.7'
+    // Video / audio player: libVLC for Android (LGPL-2.1-or-later), arm64-v8a only via abiFilters.
+    // Its bundled libc++_shared.so (NDK r27 beta, unstripped) loses to BFE's own r28 copy in jniLibs
+    // (pickFirsts below) — libvlc.so itself is built with r28c.
+    implementation 'org.videolan.android:libvlc-all:3.6.5'
     debugImplementation 'androidx.compose.ui:ui-tooling'
     // JVM unit tests (app/src/test): the archive-listing parser against real 7zz output fixtures.
     testImplementation 'junit:junit:4.13.2'
