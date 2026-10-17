@@ -102,6 +102,7 @@ import com.the412banner.bfe.ui.screens.categories.MediaCategory
 import com.the412banner.bfe.ui.screens.describeLocation
 import com.the412banner.bfe.ui.screens.outlinedMenuCard
 import com.the412banner.bfe.update.UpdateManager
+import com.the412banner.bfe.ui.theme.isAurora
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.FavoritesStore
 import kotlinx.coroutines.Dispatchers
@@ -138,7 +139,7 @@ internal object HomeTileStyles {
 }
 
 /** One cell of the grid: what it shows and what a tap does. */
-private class HomeTile(
+internal class HomeTile(
     val key: String,
     val label: String,
     val style: TileStyle,
@@ -237,6 +238,21 @@ fun HomeScreen(
         add(HomeTile("network", "Access from network", HomeTileStyles.Network, "HTTP · FTP") { onOpenServer() })
     }
 
+    // Aurora Glass lays the same tiles and favourites out on glass (HomeAurora.kt); Classic below.
+    if (isAurora) {
+        AuroraHome(
+            tiles = tiles,
+            favorites = favorites,
+            stats = stats,
+            onOpenFolder = onOpenFolder,
+            onOpenFiles = onOpenFiles,
+            onOpenServer = onOpenServer,
+            onOpenSettings = onOpenSettings,
+            onRefresh = { HomeStatsStore.refresh(context, force = true) },
+        )
+        return
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         val appStorage = rememberHomeAppStorage(refreshKey = resumeTick, onOpen = onOpenFolder)
         HomeTopBar(
@@ -293,19 +309,7 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onAddAppStorage: () -> Unit, onO
     val context = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
-
-    // "Check for updates" reports the outcome here; an available update opens the usual update dialog.
-    var checkAsked by remember { mutableStateOf(false) }
-    val check by UpdateManager.check.collectAsState()
-    LaunchedEffect(check, checkAsked) {
-        if (!checkAsked) return@LaunchedEffect
-        when (check) {
-            is UpdateManager.CheckState.UpToDate -> { checkAsked = false; AppSnackbar.show(context, "$BRAND_NAME ${BuildConfig.VERSION_NAME} is the latest version") }
-            UpdateManager.CheckState.Failed -> { checkAsked = false; AppSnackbar.show(context, "Couldn't reach GitHub. Check your connection.") }
-            is UpdateManager.CheckState.Available -> checkAsked = false
-            else -> Unit
-        }
-    }
+    val checkForUpdates = rememberUpdateCheck()
 
     TopAppBar(
         title = { BrandWordmark() },
@@ -337,7 +341,7 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onAddAppStorage: () -> Unit, onO
                     DropdownMenuItem(
                         text = { Text("Check for updates") },
                         leadingIcon = { Icon(Icons.Filled.SystemUpdate, null, tint = MaterialTheme.colorScheme.primary) },
-                        onClick = { menu = false; checkAsked = true; UpdateManager.checkNow(context) },
+                        onClick = { menu = false; checkForUpdates() },
                     )
                     MenuItemDivider()
                     DropdownMenuItem(
@@ -351,28 +355,54 @@ private fun HomeTopBar(onOpenFiles: () -> Unit, onAddAppStorage: () -> Unit, onO
         colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     )
 
-    if (showAbout) {
-        OutlinedAlertDialog(
-            onDismissRequest = { showAbout = false },
-            icon = { Icon(Icons.Filled.Info, null) },
-            title = { Text("$BRAND_NAME ${BuildConfig.VERSION_NAME}") },
-            text = {
-                Text(
-                    "A file manager and archive tool for Android. Free software under the GPL-3.0.\n\n" +
-                        "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}). Licenses, release notes and " +
-                        "update options are in Settings.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            },
-            confirmButton = { TextButton(onClick = { showAbout = false }) { Text("Close") } },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = { UpdateManager.openUrl(context, UpdateManager.REPO_PAGE) }) { Text("Source code") }
-                    TextButton(onClick = { showAbout = false; onOpenSettings() }) { Text("Settings") }
-                }
-            },
-        )
+    if (showAbout) HomeAboutDialog(onDismiss = { showAbout = false }, onOpenSettings = onOpenSettings)
+}
+
+/**
+ * "Check for updates" from Home: returns the action; the outcome is reported as a message (an
+ * available update opens the usual update dialog). Shared by both looks.
+ */
+@Composable
+internal fun rememberUpdateCheck(): () -> Unit {
+    val context = LocalContext.current
+    var checkAsked by remember { mutableStateOf(false) }
+    val check by UpdateManager.check.collectAsState()
+    LaunchedEffect(check, checkAsked) {
+        if (!checkAsked) return@LaunchedEffect
+        when (check) {
+            is UpdateManager.CheckState.UpToDate -> { checkAsked = false; AppSnackbar.show(context, "$BRAND_NAME ${BuildConfig.VERSION_NAME} is the latest version") }
+            UpdateManager.CheckState.Failed -> { checkAsked = false; AppSnackbar.show(context, "Couldn't reach GitHub. Check your connection.") }
+            is UpdateManager.CheckState.Available -> checkAsked = false
+            else -> Unit
+        }
     }
+    return { checkAsked = true; UpdateManager.checkNow(context) }
+}
+
+/** Home's About box (both looks). */
+@Composable
+internal fun HomeAboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit) {
+    val context = LocalContext.current
+    OutlinedAlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Filled.Info, null) },
+        title = { Text("$BRAND_NAME ${BuildConfig.VERSION_NAME}") },
+        text = {
+            Text(
+                "A file manager and archive tool for Android. Free software under the GPL-3.0.\n\n" +
+                    "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}). Licenses, release notes and " +
+                    "update options are in Settings.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { UpdateManager.openUrl(context, UpdateManager.REPO_PAGE) }) { Text("Source code") }
+                TextButton(onClick = { onDismiss(); onOpenSettings() }) { Text("Settings") }
+            }
+        },
+    )
 }
 
 /** A rounded tile: icon in a tinted circle, label, a two-line stats line and (storage) a usage bar. */

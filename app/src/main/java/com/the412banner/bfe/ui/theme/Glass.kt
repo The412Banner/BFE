@@ -98,6 +98,9 @@ private object Grain {
     val brush: ShaderBrush by lazy { ShaderBrush(ImageShader(bitmap, TileMode.Repeated, TileMode.Repeated)) }
 }
 
+/** The glass grain as a tiling brush (for surfaces that draw their own glass, e.g. animated pane cards). */
+val grainBrush: Brush get() = Grain.brush
+
 /** The fill of a piece of glass at [level], given whether real blur sits behind it. */
 fun GlassTokens.fillFor(level: GlassLevel, blurred: Boolean): Color = when (level) {
     GlassLevel.Panel -> panel

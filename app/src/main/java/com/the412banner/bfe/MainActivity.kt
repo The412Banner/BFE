@@ -72,6 +72,7 @@ import com.the412banner.bfe.ui.theme.AuroraBackdrop
 import com.the412banner.bfe.ui.theme.LookTransitionOverlay
 import com.the412banner.bfe.ui.theme.isAurora
 import com.the412banner.bfe.ui.AuroraRouteHost
+import com.the412banner.bfe.ui.screens.home.AuroraWelcome
 import com.the412banner.bfe.ui.SettingsHost
 import com.the412banner.bfe.ui.auroraScreenLayer
 import androidx.compose.foundation.layout.WindowInsets
@@ -140,6 +141,9 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
     val startOnLast = remember { HomePrefs.startOn(context) == HomePrefs.START_LAST_FOLDER }
     var route by rememberSaveable { mutableStateOf(if (externalRequest != null || startOnLast) AppRoute.FILES else AppRoute.HOME) }
     var category by rememberSaveable { mutableStateOf(MediaCategory.IMAGES) }
+    // Where Back from "Access from network" returns: Home, or the file manager when opened from its
+    // Aurora "Sharing" chip.
+    var serverBack by rememberSaveable { mutableStateOf(AppRoute.HOME) }
     var fmRequest by remember {
         mutableStateOf(if (startOnLast) HomePrefs.lastFolder(context)?.let { FmLocationRequest.folder(it) } else null)
     }
@@ -178,7 +182,7 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
                 onOpenApps = { route = AppRoute.APPS },
                 onOpenCloud = { route = AppRoute.CLOUD },
                 onOpenRemote = { route = AppRoute.REMOTE },
-                onOpenServer = { route = AppRoute.SERVER },
+                onOpenServer = { serverBack = AppRoute.HOME; route = AppRoute.SERVER },
                 onOpenSettings = { showSettings = true },
             )
             AppRoute.CATEGORY -> CategoryScreen(
@@ -189,7 +193,7 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
             AppRoute.APPS -> AppsScreen(onBack = goHome, onBrowseData = { openFiles(it) })
             AppRoute.CLOUD -> CloudScreen(onBack = goHome)
             AppRoute.REMOTE -> RemoteScreen(onBack = goHome)
-            AppRoute.SERVER -> ServerScreen(onBack = goHome)
+            AppRoute.SERVER -> ServerScreen(onBack = { route = serverBack })
             AppRoute.FILES -> Unit
         }
     }
@@ -267,6 +271,25 @@ private fun PermissionGate(content: @Composable () -> Unit) {
         return
     }
 
+    fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                context.startActivity(
+                    Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                        .setData(Uri.parse("package:${context.packageName}"))
+                )
+            }.onFailure {
+                // Some ROMs lack the per-app screen; fall back to the global list.
+                runCatching { context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+            }
+        }
+    }
+
+    if (isAurora) {
+        AuroraWelcome(onAllow = ::requestAllFilesAccess)
+        return
+    }
+
     Column(
         modifier = Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
@@ -292,18 +315,6 @@ private fun PermissionGate(content: @Composable () -> Unit) {
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(24.dp))
-        Button(onClick = {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                runCatching {
-                    context.startActivity(
-                        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                            .setData(Uri.parse("package:${context.packageName}"))
-                    )
-                }.onFailure {
-                    // Some ROMs lack the per-app screen; fall back to the global list.
-                    runCatching { context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
-                }
-            }
-        }) { Text("Allow access to all files") }
+        Button(onClick = { requestAllFilesAccess() }) { Text("Allow access to all files") }
     }
 }
