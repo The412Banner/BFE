@@ -145,6 +145,10 @@ dependencies {
     // Its bundled libc++_shared.so (NDK r27 beta, unstripped) loses to BFE's own r28 copy in jniLibs
     // (pickFirsts below) — libvlc.so itself is built with r28c.
     implementation 'org.videolan.android:libvlc-all:3.6.5'
+    // Aurora Glass: real blur of the content behind floating glass (pill toolbar, selection pill) via
+    // RenderEffect on API 32+, a no-op below. 0.7.0 is the last release built on Compose 1.6.1 / core-ktx
+    // 1.12.0, exactly what this app uses, so adding it bumps nothing (0.7.2+ pull Compose 1.6.7).
+    implementation 'dev.chrisbanes.haze:haze:0.7.0'
     debugImplementation 'androidx.compose.ui:ui-tooling'
     // JVM unit tests (app/src/test): the archive-listing parser against real 7zz output fixtures.
     testImplementation 'junit:junit:4.13.2'

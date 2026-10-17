@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Wifi
@@ -64,14 +65,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.the412banner.bfe.BuildConfig
 import com.the412banner.bfe.ui.components.BRAND_NAME
+import com.the412banner.bfe.ui.components.PalettePicker
 import com.the412banner.bfe.ui.screens.home.HomePrefs
 import com.the412banner.bfe.ui.screens.server.ServerScreen
+import com.the412banner.bfe.ui.theme.LocalGlass
+import com.the412banner.bfe.ui.theme.LookTransition
 import com.the412banner.bfe.ui.theme.ThemeSettings
+import com.the412banner.bfe.ui.theme.UiStyle
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.CheckState
 import com.the412banner.bfe.util.DefaultApps
@@ -104,7 +110,7 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("Apache FtpServer + MINA", "Apache License 2.0", "NOTICE_APACHE_FTPSERVER.txt"),
     LicenseDoc("rclone", "MIT; downloaded on first use of Cloud / Remote", "NOTICE_RCLONE.txt"),
     LicenseDoc("libVLC for Android", "GNU LGPL v2.1 or later (the video / audio player)", "NOTICE_LIBVLC.txt"),
-    LicenseDoc("Libraries", "AndroidX, Coil, telephoto, libsu, Commons Compress, XZ for Java, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
+    LicenseDoc("Libraries", "AndroidX, Coil, telephoto, Haze, libsu, Commons Compress, XZ for Java, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator", "THIRD_PARTY_LIBRARIES.txt"),
 )
 
 /**
@@ -215,6 +221,51 @@ private fun MainSettings(
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         // ── Appearance ──
         SectionHeader("Appearance")
+        // Look: Aurora Glass or the original Classic UI. Switching crossfades from the current screen.
+        val view = LocalView.current
+        val aurora = ThemeSettings.style == UiStyle.AURORA
+        // In Aurora every appearance change crossfades; Classic keeps its instant theme switches.
+        fun change(block: () -> Unit) = if (aurora) LookTransition.run(view, block) else block()
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text("Look", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (aurora) "Frosted glass over a soft, living backdrop." else "BFE's original look.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            val looks = UiStyle.values()
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                looks.forEachIndexed { i, l ->
+                    SegmentedButton(
+                        selected = ThemeSettings.style == l,
+                        onClick = { if (ThemeSettings.style != l) LookTransition.run(view) { ThemeSettings.setStyle(context, l) } },
+                        shape = SegmentedButtonDefaults.itemShape(i, looks.size),
+                    ) { Text(l.label) }
+                }
+            }
+        }
+        if (aurora) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Palette, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(16.dp))
+                    Text("Palette", style = MaterialTheme.typography.bodyLarge)
+                }
+                Spacer(Modifier.height(8.dp))
+                PalettePicker(
+                    selected = ThemeSettings.palette,
+                    dark = LocalGlass.current.palette.dark,
+                    onPick = { p -> if (p != ThemeSettings.palette) change { ThemeSettings.setPalette(context, p) } },
+                )
+            }
+        }
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Palette, null, tint = MaterialTheme.colorScheme.primary)
@@ -227,7 +278,7 @@ private fun MainSettings(
                 modes.forEachIndexed { i, m ->
                     SegmentedButton(
                         selected = ThemeSettings.mode == m,
-                        onClick = { ThemeSettings.setMode(context, m) },
+                        onClick = { change { ThemeSettings.setMode(context, m) } },
                         shape = SegmentedButtonDefaults.itemShape(i, modes.size),
                     ) {
                         Text(when (m) { ThemeSettings.Mode.SYSTEM -> "System"; ThemeSettings.Mode.LIGHT -> "Light"; ThemeSettings.Mode.DARK -> "Dark" })
@@ -239,9 +290,10 @@ private fun MainSettings(
             SettingRow(
                 icon = Icons.Filled.Palette,
                 title = "Dynamic color",
-                subtitle = "Use colors from your wallpaper instead of BFE blue.",
-                onClick = { ThemeSettings.setDynamic(context, !ThemeSettings.dynamicColor) },
-                trailing = { Switch(checked = ThemeSettings.dynamicColor, onCheckedChange = { ThemeSettings.setDynamic(context, it) }) },
+                subtitle = if (aurora) "Tint the accent and the glass with colors from your wallpaper."
+                    else "Use colors from your wallpaper instead of BFE blue.",
+                onClick = { change { ThemeSettings.setDynamic(context, !ThemeSettings.dynamicColor) } },
+                trailing = { Switch(checked = ThemeSettings.dynamicColor, onCheckedChange = { on -> change { ThemeSettings.setDynamic(context, on) } }) },
             )
         }
         // Launcher icon picker (AppIconSetting.kt).

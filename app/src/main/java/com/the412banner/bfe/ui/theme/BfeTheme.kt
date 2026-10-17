@@ -10,10 +10,14 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -22,10 +26,15 @@ import androidx.core.view.WindowCompat
 import androidx.preference.PreferenceManager
 
 /**
- * BFE's Material 3 theme. Screens only read MaterialTheme.colorScheme / typography tokens, so the
- * whole look lives here: a navy + blue brand scheme with EVERY role filled in (the surfaceContainer
- * family included, so toolbars and cards never fall back to the baseline purple tints), plus
- * optional Material You dynamic color on Android 12+ and a System / Light / Dark choice from Settings.
+ * BFE's Material 3 theme, in two looks chosen in Settings → Appearance → Look ([UiStyle]):
+ *  - CLASSIC: the original navy + blue brand scheme below with EVERY role filled in (the
+ *    surfaceContainer family included, so toolbars and cards never fall back to the baseline purple
+ *    tints), plus optional Material You dynamic color on Android 12+. Unchanged from before the
+ *    Aurora Glass redesign.
+ *  - AURORA: frosted glass over a living backdrop, coloured by a [BfePalette] (AuroraTheme.kt).
+ * Both follow the System / Light / Dark choice. Screens read MaterialTheme tokens, so the colours of
+ * anything that is not look-specific follow whichever look is active; [LocalUiStyle] tells
+ * look-specific chrome which variant to draw.
  */
 private val Accent = Color(0xFF3B82F6)
 
@@ -113,10 +122,18 @@ object ThemeSettings {
 
     private const val PREF_MODE = "theme_mode"
     private const val PREF_DYNAMIC = "theme_dynamic_color"
+    private const val PREF_STYLE = "ui_look"
+    private const val PREF_PALETTE = "theme_palette"
 
     var mode by mutableStateOf(Mode.SYSTEM)
         private set
     var dynamicColor by mutableStateOf(false)
+        private set
+    /** The look. Aurora Glass unless the user picked Classic. */
+    var style by mutableStateOf(UiStyle.AURORA)
+        private set
+    /** Aurora's colour palette (Classic keeps its own colours). */
+    var palette by mutableStateOf(BfePalette.NEUTRAL)
         private set
     private var loaded = false
 
@@ -127,6 +144,8 @@ object ThemeSettings {
         val p = PreferenceManager.getDefaultSharedPreferences(ctx)
         mode = runCatching { Mode.valueOf(p.getString(PREF_MODE, Mode.SYSTEM.name)!!) }.getOrDefault(Mode.SYSTEM)
         dynamicColor = p.getBoolean(PREF_DYNAMIC, false)
+        style = runCatching { UiStyle.valueOf(p.getString(PREF_STYLE, UiStyle.AURORA.name)!!) }.getOrDefault(UiStyle.AURORA)
+        palette = runCatching { BfePalette.valueOf(p.getString(PREF_PALETTE, BfePalette.NEUTRAL.name)!!) }.getOrDefault(BfePalette.NEUTRAL)
         loaded = true
     }
 
@@ -139,36 +158,84 @@ object ThemeSettings {
         dynamicColor = on
         PreferenceManager.getDefaultSharedPreferences(ctx).edit().putBoolean(PREF_DYNAMIC, on).apply()
     }
+
+    fun setStyle(ctx: Context, s: UiStyle) {
+        style = s
+        PreferenceManager.getDefaultSharedPreferences(ctx).edit().putString(PREF_STYLE, s.name).apply()
+    }
+
+    fun setPalette(ctx: Context, p: BfePalette) {
+        palette = p
+        PreferenceManager.getDefaultSharedPreferences(ctx).edit().putString(PREF_PALETTE, p.name).apply()
+    }
 }
 
+/** The two looks. Classic is BFE's original UI, kept exactly; Aurora Glass is the redesign. */
+enum class UiStyle(val label: String) { AURORA("Aurora Glass"), CLASSIC("Classic") }
+
+/** Which look the current screen is drawn in. Look-specific chrome branches on this. */
+val LocalUiStyle = staticCompositionLocalOf { UiStyle.CLASSIC }
+
+/** True while the Aurora Glass look is active. */
+val isAurora: Boolean
+    @Composable @ReadOnlyComposable get() = LocalUiStyle.current == UiStyle.AURORA
+
 /**
+ * Wraps a screen in BFE's theme. [style] overrides the persisted look (previews). [edgeToEdge] is set
+ * by the main activity, whose root draws the Aurora backdrop behind the status and navigation bars and
+ * pads its content for them; in Classic the window goes back to fitting the system bars as before.
+ *
  * [forceDark] = true pins the dark scheme whatever Settings says — the photo viewer and video player
  * always draw their controls over a black backdrop.
+ *
+ * [content] is called from ONE place whatever the look, so switching looks recomposes the app in place
+ * (panes, selections and the clipboard survive) instead of rebuilding it.
  */
 @Composable
-fun BfeTheme(forceDark: Boolean = false, content: @Composable () -> Unit) {
+fun BfeTheme(style: UiStyle? = null, edgeToEdge: Boolean = false, forceDark: Boolean = false, content: @Composable () -> Unit) {
     val context = LocalContext.current
     ThemeSettings.load(context)
+    val look = style ?: ThemeSettings.style
     val dark = forceDark || when (ThemeSettings.mode) {
         ThemeSettings.Mode.SYSTEM -> isSystemInDarkTheme()
         ThemeSettings.Mode.LIGHT -> false
         ThemeSettings.Mode.DARK -> true
     }
-    val scheme = when {
+    val view = LocalView.current
+    // The window's own soft-input mode before Aurora asked for adjustResize, restored for Classic.
+    val originalSoftInput = remember {
+        if (view.isInEditMode) 0 else (view.context as? Activity)?.window?.attributes?.softInputMode ?: 0
+    }
+    // Whether this theme turned the window edge-to-edge (so Classic only undoes what Aurora did).
+    val windowMode = remember { WindowModeHolder() }
+    val aurora = if (look == UiStyle.AURORA) rememberAuroraLook(dark) else null
+
+    val scheme = aurora?.scheme ?: when {
         ThemeSettings.dynamicColor && ThemeSettings.dynamicSupported ->
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         dark -> DarkColors
         else -> LightColors
     }
 
-    // System bars follow the app: the status bar takes the toolbar colour, the navigation bar the
-    // page background, and their icons flip light/dark with the theme.
-    val view = LocalView.current
+    // System bars follow the app. Classic: the status bar takes the toolbar colour, the navigation bar
+    // the page background. Aurora: transparent over the backdrop (edge-to-edge main window), or the
+    // backdrop's ground colour elsewhere. Icons flip light/dark with the theme in both.
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? Activity)?.window ?: return@SideEffect
-            window.statusBarColor = scheme.surfaceContainer.toArgb()
-            window.navigationBarColor = scheme.background.toArgb()
+            if (aurora != null) {
+                aurora.applyToWindow(window, edgeToEdge, originalSoftInput)
+                windowMode.edgeToEdge = edgeToEdge
+            } else {
+                if (windowMode.edgeToEdge) {
+                    // Back from Aurora: the window fits the system bars again, keyboard behaviour as before.
+                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                    window.setSoftInputMode(originalSoftInput)
+                    windowMode.edgeToEdge = false
+                }
+                window.statusBarColor = scheme.surfaceContainer.toArgb()
+                window.navigationBarColor = scheme.background.toArgb()
+            }
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !dark
                 isAppearanceLightNavigationBars = !dark
@@ -176,5 +243,19 @@ fun BfeTheme(forceDark: Boolean = false, content: @Composable () -> Unit) {
         }
     }
 
-    MaterialTheme(colorScheme = scheme, content = content)
+    val reduced = rememberReducedMotion()
+    CompositionLocalProvider(
+        LocalUiStyle provides look,
+        LocalGlass provides (aurora?.glass ?: LocalGlass.current),
+        LocalReducedMotion provides reduced,
+    ) {
+        MaterialTheme(
+            colorScheme = scheme,
+            shapes = aurora?.shapes ?: MaterialTheme.shapes,
+            content = content,
+        )
+    }
 }
+
+/** Plain (non-observable) memo of what the theme last did to the window. */
+private class WindowModeHolder(var edgeToEdge: Boolean = false)

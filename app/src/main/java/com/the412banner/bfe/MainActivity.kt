@@ -68,6 +68,15 @@ import com.the412banner.bfe.server.ServerService
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.ui.theme.BfeTheme
+import com.the412banner.bfe.ui.theme.AuroraBackdrop
+import com.the412banner.bfe.ui.theme.LookTransitionOverlay
+import com.the412banner.bfe.ui.theme.isAurora
+import com.the412banner.bfe.ui.AuroraRouteHost
+import com.the412banner.bfe.ui.SettingsHost
+import com.the412banner.bfe.ui.auroraScreenLayer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 
 /**
  * Root of BFE. Hosts the app content with the app-wide [UnpackProgressPill] pinned at the bottom so a
@@ -96,7 +105,7 @@ class MainActivity : ComponentActivity() {
             ServerService.startOnLaunch(this)
         }
         setContent {
-            BfeTheme {
+            BfeTheme(edgeToEdge = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     AppRoot(openPathRequest.value)
                 }
@@ -158,52 +167,66 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
         }
     }
 
+    // The screen for a non-file-manager route; both looks show the same screens.
+    @Composable
+    fun RouteContent(r: AppRoute) {
+        when (r) {
+            AppRoute.HOME -> HomeScreen(
+                onOpenFolder = { openFiles(it) },
+                onOpenFiles = { openFiles(null) },
+                onOpenCategory = { category = it; route = AppRoute.CATEGORY },
+                onOpenApps = { route = AppRoute.APPS },
+                onOpenCloud = { route = AppRoute.CLOUD },
+                onOpenRemote = { route = AppRoute.REMOTE },
+                onOpenServer = { route = AppRoute.SERVER },
+                onOpenSettings = { showSettings = true },
+            )
+            AppRoute.CATEGORY -> CategoryScreen(
+                category = category,
+                onBack = goHome,
+                onShowInFolder = { dir -> openFiles(FmLocationRequest.folder(dir)) },
+            )
+            AppRoute.APPS -> AppsScreen(onBack = goHome, onBrowseData = { openFiles(it) })
+            AppRoute.CLOUD -> CloudScreen(onBack = goHome)
+            AppRoute.REMOTE -> RemoteScreen(onBack = goHome)
+            AppRoute.SERVER -> ServerScreen(onBack = goHome)
+            AppRoute.FILES -> Unit
+        }
+    }
+
+    // Aurora draws glass over a living backdrop, edge-to-edge (the backdrop runs under the system bars;
+    // the content is padded for them and the keyboard). Classic is laid out exactly as before.
+    val aurora = isAurora
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        if (aurora) AuroraBackdrop(Modifier.fillMaxSize())
+        Column(modifier = Modifier.fillMaxSize().then(if (aurora) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)) {
             Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 PermissionGate {
                     // The file manager stays composed under Home and Settings so both panes keep their
                     // place; while another screen covers it, its Back handling is switched off.
                     Box(modifier = Modifier.fillMaxSize()) {
-                        BackScope(active = route == AppRoute.FILES) {
-                            FileManagerScreen(
-                                onOpenSettings = { showSettings = true },
-                                openRequest = fmRequest,
-                                onHome = goHome,
-                                onBackAtRoot = goHome,
-                            )
-                        }
-                        if (route != AppRoute.FILES) {
-                            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                                when (route) {
-                                    AppRoute.HOME -> HomeScreen(
-                                        onOpenFolder = { openFiles(it) },
-                                        onOpenFiles = { openFiles(null) },
-                                        onOpenCategory = { category = it; route = AppRoute.CATEGORY },
-                                        onOpenApps = { route = AppRoute.APPS },
-                                        onOpenCloud = { route = AppRoute.CLOUD },
-                                        onOpenRemote = { route = AppRoute.REMOTE },
-                                        onOpenServer = { route = AppRoute.SERVER },
-                                        onOpenSettings = { showSettings = true },
-                                    )
-                                    AppRoute.CATEGORY -> CategoryScreen(
-                                        category = category,
-                                        onBack = goHome,
-                                        onShowInFolder = { dir -> openFiles(FmLocationRequest.folder(dir)) },
-                                    )
-                                    AppRoute.APPS -> AppsScreen(onBack = goHome, onBrowseData = { openFiles(it) })
-                                    AppRoute.CLOUD -> CloudScreen(onBack = goHome)
-                                    AppRoute.REMOTE -> RemoteScreen(onBack = goHome)
-                                    AppRoute.SERVER -> ServerScreen(onBack = goHome)
-                                    AppRoute.FILES -> Unit
-                                }
+                        Box(
+                            modifier = Modifier.fillMaxSize()
+                                .then(if (aurora) Modifier.auroraScreenLayer(visible = route == AppRoute.FILES && !showSettings) else Modifier),
+                        ) {
+                            BackScope(active = route == AppRoute.FILES) {
+                                FileManagerScreen(
+                                    onOpenSettings = { showSettings = true },
+                                    openRequest = fmRequest,
+                                    onHome = goHome,
+                                    onBackAtRoot = goHome,
+                                )
                             }
                         }
-                        if (showSettings) {
+                        if (aurora) {
+                            AuroraRouteHost(route = route, hidden = showSettings) { r -> RouteContent(r) }
+                        } else if (route != AppRoute.FILES) {
                             Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                                SettingsScreen(onBack = { showSettings = false })
+                                RouteContent(route)
                             }
                         }
+                        // One host for both looks, so switching the look from Settings keeps its page.
+                        SettingsHost(visible = showSettings) { SettingsScreen(onBack = { showSettings = false }) }
                     }
                 }
             }
@@ -215,8 +238,11 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
         }
         SnackbarHost(
             hostState = snackbarHost,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)
+                .then(if (aurora) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier),
         )
+        // The crossfade when the look / palette / theme changes (draws nothing otherwise).
+        LookTransitionOverlay()
     }
     UpdateHost()
 }
