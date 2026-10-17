@@ -68,6 +68,7 @@ import com.the412banner.bfe.storage.ArchivePasswords
 import com.the412banner.bfe.storage.Loc
 import com.the412banner.bfe.unpack.SevenZip
 import com.the412banner.bfe.util.AppSnackbar
+import com.the412banner.bfe.util.DateText
 import com.the412banner.bfe.util.DirPicker
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -472,8 +473,8 @@ internal fun ArchivePropertiesDialog(loc: Loc.ArchiveLoc, onDismiss: () -> Unit)
     val index by produceState<ArchiveIndex?>(null, loc.id) {
         value = withContext(Dispatchers.IO) { ArchiveIndexCache.peek(loc.archive) }
     }
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-    fun date(ms: Long) = if (ms > 0) dateFormat.format(Date(ms)) else "—"
+    val context = LocalContext.current
+    fun date(ms: Long) = if (ms > 0) DateText.dateTime(context, ms) else "—"
 
     OutlinedAlertDialog(
         onDismissRequest = onDismiss,

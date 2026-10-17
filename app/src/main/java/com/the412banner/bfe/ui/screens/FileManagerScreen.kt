@@ -189,6 +189,7 @@ import com.the412banner.bfe.storage.Storage
 import com.the412banner.bfe.storage.StorageTransfer
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.util.AppSnackbar
+import com.the412banner.bfe.util.DateText
 import com.the412banner.bfe.util.FavoritesStore
 import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.ui.screens.home.HomePrefs
@@ -3414,11 +3415,12 @@ private fun FileItemRow(
     onBrowse: () -> Unit = {},
     onExtractTo: () -> Unit = {},
 ) {
-    // Locale-aware medium date ("Oct 13, 2026" / "13 Oct 2026"); the Properties dialog keeps the time.
-    val dateFormat = remember { java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM) }
+    // Last change, as date + time in the phone's 12/24-hour style ("Oct 13, 2026 · 3:42 PM").
+    val context = LocalContext.current
     val isDir = file.isDir
     val modified = file.lastModified
-    val dateLabel = if (modified > 0) dateFormat.format(Date(modified)) else ""
+    val dateLabel = if (modified > 0) DateText.dateTime(context, modified) else ""
+    val dateOnlyLabel = if (modified > 0) DateText.date(context, modified) else ""
     // Folders show how many entries they hold. Counted lazily for the rows actually composed, off the
     // main thread and cached by path + mtime (see ChildCount); blank until ready, date-only when the
     // folder can't be read.
@@ -3487,9 +3489,13 @@ private fun FileItemRow(
                 }
                 Spacer(Modifier.width(10.dp))
                 // One-line detail on the right: "N items · date" (folders) or "size · date" (files).
-                // The date drops off first in a narrow pane so the name keeps its room.
+                // In a narrow pane the time drops off first, then the date, so the name keeps its room.
                 BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                    val wide = maxWidth >= 260.dp
+                    val rowDate = when {
+                        maxWidth >= 330.dp -> dateLabel
+                        maxWidth >= 260.dp -> dateOnlyLabel
+                        else -> ""
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text(
                             text = file.name,
@@ -3499,7 +3505,7 @@ private fun FileItemRow(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        val right = listOf(detailLabel, if (wide) dateLabel else "")
+                        val right = listOf(detailLabel, rowDate)
                             .filter { it.isNotEmpty() }.joinToString("  \u00B7  ")
                         if (right.isNotEmpty()) {
                             Spacer(Modifier.width(8.dp))
@@ -4042,7 +4048,7 @@ private fun FilePropertiesDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    val created = remember(file.absolutePath) { DateText.createdMillis(file) }
     var attrs by remember(file.absolutePath) { mutableStateOf<FileAttrState?>(null) }
     // Guards against a second toggle landing while the first is still being applied off-thread.
     var busy by remember(file.absolutePath) { mutableStateOf(false) }
@@ -4072,7 +4078,8 @@ private fun FilePropertiesDialog(
                     else file.extension.uppercase().let { if (it.isBlank()) "File" else "$it file" },
                 )
                 if (!file.isDirectory) PropertyLine("Size", StringUtils.formatBytes(file.length()))
-                PropertyLine("Modified", dateFormat.format(Date(file.lastModified())))
+                created?.let { PropertyLine("Created", DateText.dateTime(context, it)) }
+                PropertyLine("Modified", DateText.dateTime(context, file.lastModified()))
 
                 Spacer(Modifier.height(10.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outline)

@@ -107,6 +107,7 @@ import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.ui.screens.home.FolderPickerOverlay
 import com.the412banner.bfe.ui.screens.outlinedMenuCard
 import com.the412banner.bfe.util.AppSnackbar
+import com.the412banner.bfe.util.DateText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -524,7 +525,7 @@ private fun AppIcon(pkg: String, sizeDp: Int) {
 
 @Composable
 private fun AppRow(app: AppEntry, size: AppSize?, showSystemBadge: Boolean, onClick: () -> Unit) {
-    val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(10.dp),
@@ -558,7 +559,7 @@ private fun AppRow(app: AppEntry, size: AppSize?, showSystemBadge: Boolean, onCl
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    if (app.wasUpdated) "Updated ${dateFormat.format(Date(app.lastUpdate))}" else "Installed ${dateFormat.format(Date(app.firstInstall))}",
+                    if (app.wasUpdated) "Updated ${DateText.dateTime(context, app.lastUpdate)}" else "Installed ${DateText.dateTime(context, app.firstInstall)}",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -581,7 +582,6 @@ private fun AppActionsSheet(
     onBrowseData: () -> Unit,
 ) {
     val context = LocalContext.current
-    val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
     val launchIntent = remember(app.packageName) { context.packageManager.getLaunchIntentForPackage(app.packageName) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -607,7 +607,7 @@ private fun AppActionsSheet(
                     }
                 )
                 if (app.isSplit) add("Split install · ${app.splitDirs.size + 1} APKs")
-                add("Installed ${dateFormat.format(Date(app.firstInstall))}" + if (app.wasUpdated) " · updated ${dateFormat.format(Date(app.lastUpdate))}" else "")
+                add("Installed ${DateText.dateTime(context, app.firstInstall)}" + if (app.wasUpdated) " · updated ${DateText.dateTime(context, app.lastUpdate)}" else "")
             }
             details.forEach { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 8.dp))

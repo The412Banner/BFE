@@ -118,6 +118,7 @@ import com.the412banner.bfe.ui.screens.home.FolderPickerOverlay
 import com.the412banner.bfe.ui.screens.home.HomeTileStyles
 import com.the412banner.bfe.ui.screens.outlinedMenuCard
 import com.the412banner.bfe.util.AppSnackbar
+import com.the412banner.bfe.util.DateText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -694,7 +695,7 @@ private fun MediaListRow(
     onMove: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val dateFormat = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
+    val context = LocalContext.current
     val folder = remember(item.path) { File(item.path).parentFile?.name.orEmpty() }
     Card(
         modifier = Modifier
@@ -719,7 +720,7 @@ private fun MediaListRow(
                 Text(
                     listOfNotNull(
                         StringUtils.formatBytes(item.size),
-                        date.takeIf { it > 0 }?.let { dateFormat.format(Date(it)) },
+                        date.takeIf { it > 0 }?.let { DateText.dateTime(context, it) },
                         folder.takeIf { it.isNotEmpty() },
                     ).joinToString("  ·  "),
                     fontSize = 11.sp,
