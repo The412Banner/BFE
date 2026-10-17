@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Info
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import com.the412banner.bfe.ui.icons.FileTypeIcon
+import com.the412banner.bfe.DocumentViewer
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.media.MediaLaunch
 import com.the412banner.bfe.media.MediaType
@@ -398,6 +401,8 @@ internal object SheetIcons {
     val Web = Icons.Filled.Language
     val View = Icons.Filled.Photo
     val Play = Icons.Filled.PlayArrow
+    val Document = Icons.Filled.Description
+    val Text = Icons.Filled.TextSnippet
 }
 
 /**
@@ -411,3 +416,21 @@ internal fun mediaSheetAction(context: Context, type: MediaType, onClick: () -> 
     componentLabel = MediaLaunch.label(context, type),
     onClick = onClick,
 )
+
+/**
+ * "View document" (PDF, office documents, RTF, Markdown, EPUB, CSV — and the older Office formats,
+ * which the viewer explains) / "View text" (logs, configs, code): BFE's document viewer, first in the
+ * sheet and rememberable as the "Always use" choice like any app. Null when the viewer can't show
+ * [name] (by extension, else [mime]).
+ */
+internal fun documentSheetAction(context: Context, name: String, mime: String?, onClick: () -> Unit): SheetAction? {
+    if (!DocumentViewer.isDocumentName(name, mime)) return null
+    val text = DocumentViewer.isTextName(name, mime)
+    return SheetAction(
+        label = if (text) "View text" else "View document",
+        icon = if (text) SheetIcons.Text else SheetIcons.Document,
+        component = DocumentViewer.component(context),
+        componentLabel = DocumentViewer.label(context),
+        onClick = onClick,
+    )
+}

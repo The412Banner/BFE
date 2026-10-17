@@ -20,6 +20,10 @@ telephoto 0.8.0 by Saket Narayan (the photo viewer's zoomable, sub-sampled image
   Apache 2.0) and Poko annotations (Drew Hamilton, Apache 2.0)
 AndroidX ExifInterface 1.3.7 (photo details, lossless JPEG rotation) — Apache License 2.0
 libVLC for Android 3.6.5 (the video / audio player) — GNU LGPL v2.1 or later, see NOTICE_LIBVLC.txt
+commonmark-java 0.21.0 (+ gfm-tables, gfm-strikethrough, task-list-items, autolink extensions) and
+autolink-java 0.10.0 by Robin Stocker (the document viewer's Markdown rendering)
+  https://github.com/commonmark/commonmark-java — BSD 2-Clause License;
+  https://github.com/robinst/autolink-java — MIT License (both texts in NOTICE_COMMONMARK.txt)
 Haze 0.7.0 by Chris Banes (Aurora Glass: real backdrop blur under floating glass on Android 12L+)
   https://github.com/chrisbanes/haze — Apache License 2.0
 libsu 6.0.0 by topjohnwu (root storage backend)

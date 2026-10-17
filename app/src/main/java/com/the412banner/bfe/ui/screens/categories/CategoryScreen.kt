@@ -119,6 +119,7 @@ import com.the412banner.bfe.ui.screens.SheetAction
 import com.the412banner.bfe.ui.screens.SheetIcons
 import com.the412banner.bfe.ui.screens.guessMime
 import com.the412banner.bfe.ui.screens.mediaSheetAction
+import com.the412banner.bfe.ui.screens.documentSheetAction
 import com.the412banner.bfe.media.MediaLaunch
 import com.the412banner.bfe.media.MediaRef
 import com.the412banner.bfe.media.MediaSiblings
@@ -342,6 +343,10 @@ fun CategoryScreen(
             val f = item.file
             val lower = item.name.lowercase()
             buildList {
+                // Documents (the Documents category) and text: BFE's document viewer first.
+                documentSheetAction(context, item.name, req.mime) {
+                    com.the412banner.bfe.DocumentViewer.open(context, item.path, req.uri, item.name, req.mime)
+                }?.let { add(it) }
                 // Photos, videos and music: BFE's viewer / player, paging through this category in the
                 // order it's shown (sort + search).
                 MediaTypes.typeOf(item.name, item.mime)?.let { type ->

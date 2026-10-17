@@ -545,6 +545,49 @@
             </intent-filter>
         </activity>
 
+        <!-- Built-in document viewer (PDF, OpenDocument, Office Open XML, RTF, Markdown, EPUB, CSV / TSV,
+             plain text). Also offered to other apps as "BFE Documents". Older binary .doc / .xls / .ppt are
+             recognised inside BFE but not claimed here: the viewer can only explain them. -->
+        <activity
+            android:name="com.the412banner.bfe.DocumentViewerActivity"
+            android:label="@string/documents_label"
+            android:theme="@style/AppTheme"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/vnd.oasis.opendocument.text" />
+                <data android:mimeType="application/vnd.oasis.opendocument.text-template" />
+                <data android:mimeType="application/vnd.oasis.opendocument.text-flat-xml" />
+                <data android:mimeType="application/vnd.oasis.opendocument.spreadsheet" />
+                <data android:mimeType="application/vnd.oasis.opendocument.spreadsheet-template" />
+                <data android:mimeType="application/vnd.oasis.opendocument.presentation" />
+                <data android:mimeType="application/vnd.oasis.opendocument.presentation-template" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.template" />
+                <data android:mimeType="application/vnd.ms-word.document.macroenabled.12" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.template" />
+                <data android:mimeType="application/vnd.ms-excel.sheet.macroenabled.12" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.presentationml.slideshow" />
+                <data android:mimeType="application/vnd.ms-powerpoint.presentation.macroenabled.12" />
+                <data android:mimeType="application/rtf" />
+                <data android:mimeType="text/rtf" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="text/tab-separated-values" />
+                <data android:mimeType="application/epub+zip" />
+            </intent-filter>
+        </activity>
+
         <!-- Built-in photo viewer. Also offered to other apps for images; then it pages through the
              image's folder when BFE can read it. Translucent (fades in over the caller), so no fixed
              screenOrientation here. -->

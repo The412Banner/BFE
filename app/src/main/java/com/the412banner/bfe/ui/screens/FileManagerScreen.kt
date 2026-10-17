@@ -2736,6 +2736,11 @@ fun BrowserPane(
             val lower = loc.name.lowercase()
             val fromArchive = req.fromArchive
             buildList {
+                // Documents, text and logs: BFE's document viewer first (a real path when there is one,
+                // else the Uri; archive entries open as their cache copy).
+                documentSheetAction(context, loc.name, req.mime) {
+                    com.the412banner.bfe.DocumentViewer.open(context, f?.absolutePath, req.uri, loc.name, req.mime)
+                }?.let { add(it) }
                 // Web pages open in BFE's own viewer first (scripts on, relative files load).
                 if (com.the412banner.bfe.HtmlViewerActivity.isHtmlName(loc.name)) {
                     add(SheetAction(

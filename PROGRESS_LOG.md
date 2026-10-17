@@ -6,6 +6,50 @@ where it stands*.
 
 ---
 
+## In flight: built-in document viewer (branch `feat/document-viewer`, 2026-10-17)
+
+Owner: "Can we add document open support to the file manager?" — no app on the phone opened his
+`.odt` (or .docx / .pdf) properly. BFE now opens documents itself, offline. **Not merged, not released,
+not device-run.** Converters JVM-tested against real files; PDF rendering and the WebView display are
+compile-only.
+
+- **Entry:** `DocumentViewerActivity` + `DocumentViewer` (`isDocumentName(name, mime)`, `isTextName`,
+  `intent(ctx, path, uri, name, mime)`, `open`, `component`, `label`). "View document" (or "View text"
+  for logs / configs / code) is the FIRST BFE action in the Open with sheet via
+  `documentSheetAction()` (OpenWithSheet.kt) at all three sheet sites: file manager (incl. archive
+  cache copies), category screens, cloud downloads. Rememberable with "Always use" like the photo
+  viewer (component = the activity, label "BFE Documents"). Plain-tap routing is left to
+  `fix/dual-pane-density`'s `openBuiltInOrSheet`. System VIEW filter for PDF, ODF, OOXML (+ macro /
+  template variants), RTF, Markdown, text/plain, CSV / TSV, EPUB — not the legacy Office MIMEs.
+- **Converters** (`docs/`, pure Kotlin, no Android imports): SAX → small XEl tree (`Xml.kt`, namespaces
+  by URI, external entities refused; Strict OOXML handled); `DocZip` with 96 MB per-part caps.
+  ODF (odt / ods / odp / fodt, styles + parent chains, list styles, spans, notes, frames, million-row
+  trimming), DOCX (styles, numbering with counters, vMerge / gridSpan, fields, footnotes, drawings /
+  VML, text boxes), XLSX (streamed sheets, shared strings, NumFmt for built-in + custom formats incl.
+  dates / % / currency / sections), PPTX (slide order, title first then top-to-bottom, bullets by
+  level, tables, notes), RTF (own tokenizer: code pages + \u, fields, tables, footnotes, \pict
+  PNG / JPEG), Markdown (commonmark-java 0.21.0 + GFM tables / strikethrough / task lists / autolink;
+  0.22+ needs Java 11 APIs), EPUB (OPF spine, nav / NCX TOC, chapters rewritten by regex: pictures to
+  assets, chapter links to page files, scripts dropped, book CSS filtered to layout), CSV / TSV
+  (delimiter sniffing, 5000-row table), text (`TextDoc`: memory-mapped, row index, 4 KB row split,
+  BOM / UTF-16 / UTF-8 / Windows-1252 detection, find).
+- **Display:** pages wrapped by `ReadingStyle` (theme colours baked in from the Compose scheme;
+  document colours adapted in dark: dark text lifted, light fills sunk), written to
+  `cache/docview/<sha>/page-N.html` + `res/` pictures, shown in a WebView with JavaScript off, network
+  blocked, force-dark off. Sheets → tabs, EPUB → previous / contents / next (+ last chapter
+  remembered). PDF: own virtualised Layout (zoom + scrollY + panX all read in layout, so a pinch keeps
+  the point under the fingers), PdfRenderer on one worker thread, 96 MB bitmap LRU, ~5 MP per page
+  cap, night mode, Go to page, scrubber, print via PrintDocumentAdapter. Text: LazyColumn rows,
+  line numbers, wrap toggle, find with highlights.
+- **Looks:** Classic = TopAppBar + full-bleed page + toolbar-colour bottom bar; Aurora = clear app bar,
+  content on a raised glass card, bottom controls as a GlassPillBar, glass page chip / find bar / sheet.
+  Menus `BfeDropdownMenu`, dialogs `OutlinedAlertDialog`.
+- **Fixtures:** `scripts/docfixtures/make_fixtures.sh` (pandoc 3.9 + make_office.py) →
+  `app/src/test/resources/docs/`; `libreoffice-interview.odt` is the owner's real LibreOffice file with
+  every word replaced (styles / structure kept) so his draft never lands in the public repo.
+- **Libraries added:** commonmark-java 0.21.0 (+4 extensions) and autolink-java 0.10.0 (~230 KB jars);
+  credited in licenses/NOTICE_COMMONMARK.txt, Settings → Open-source licenses, README.
+
 ## In flight: Aurora Glass redesign + Classic look (branch `feat/aurora-glass`, 2026-10-16)
 
 Owner picked scheme 1 "Aurora Glass" from `/sdcard/Download/BFE-UI-Schemes-Preview.html`: frosted

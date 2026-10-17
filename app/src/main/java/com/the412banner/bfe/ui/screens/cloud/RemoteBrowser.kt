@@ -117,6 +117,7 @@ import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.ui.screens.SheetAction
 import com.the412banner.bfe.ui.screens.guessMime
 import com.the412banner.bfe.ui.screens.mediaSheetAction
+import com.the412banner.bfe.ui.screens.documentSheetAction
 import com.the412banner.bfe.media.MediaLaunch
 import com.the412banner.bfe.media.MediaTypes
 import com.the412banner.bfe.ui.screens.outlinedMenuCard
@@ -606,6 +607,10 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
     opened?.let { o ->
         val actions = remember(o, downloadDir) {
             buildList {
+                // Documents and text: the downloaded copy in BFE's document viewer.
+                documentSheetAction(context, o.entry.name, o.mime) {
+                    com.the412banner.bfe.DocumentViewer.open(context, o.file.absolutePath, o.uri, o.entry.name, o.mime)
+                }?.let { add(it) }
                 // Photos, videos and music: the downloaded copy in BFE's own viewer / player.
                 MediaTypes.typeOf(o.entry.name, o.mime)?.let { type ->
                     add(mediaSheetAction(context, type) { MediaLaunch.openFile(context, type, o.file) })

@@ -218,6 +218,27 @@ starting.
 </details>
 
 <details>
+<summary><b>Document viewer</b> — PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, Markdown, RTF and text, offline</summary>
+
+- **PDF**: pages top to bottom, pinch / double-tap zoom up to 5× (re-rendered sharp), page counter with
+  Go to page, fast-scroll handle, night mode, print. Password-protected or damaged files say so.
+- **Word (.docx) and OpenDocument text (.odt / .fodt)**: headings, bold / italic / underline / strike,
+  colours and sizes, bulleted and numbered lists, tables with merged cells, links, footnotes, pictures,
+  text boxes and page breaks — converted on the device, nothing is uploaded.
+- **Excel (.xlsx) and .ods**: one tab per sheet, numbers, dates, percentages and currency as formatted,
+  merged cells, row and column headers. **PowerPoint (.pptx) and .odp**: one card per slide with its
+  text, pictures, tables and speaker notes.
+- **EPUB** books with contents, chapter by chapter, remembering where you were; **Markdown** with tables
+  and task lists; **RTF**; **CSV / TSV** as a table.
+- **Text, logs, configs and code**: a fast viewer for multi-megabyte files with line numbers, wrapping,
+  search and encoding detection (UTF-8, UTF-16, Latin-1).
+- Search in the document, text size, share, open with, print; light and dark in both looks. Older
+  binary .doc / .xls / .ppt files are recognised and handed to another app. Offered to other apps as
+  **BFE Documents**.
+
+</details>
+
+<details>
 <summary><b>HTML viewer</b> — open local web pages with scripts and their assets</summary>
 
 - Renders `.html` / `.htm` / `.xhtml` / `.svg` with JavaScript and relative images, styles and scripts.
@@ -314,7 +335,7 @@ repository's Releases; each release lists its APK SHA-256.
 ## Building from source
 ```bash
 ./gradlew assembleRelease        # signed with the repository key
-./gradlew testReleaseUnitTest    # JVM unit tests (archive listing, media logic, …)
+./gradlew testReleaseUnitTest    # JVM unit tests (archive listing, media logic, document converters, …)
 ```
 Toolchain: AGP 8.8, Kotlin 2.0.21, Compose BOM 2024.02, Java 17, compileSdk 34, minSdk 26,
 targetSdk 28. The native engines are prebuilt binaries in `app/src/main/jniLibs/arm64-v8a/` and are
@@ -343,6 +364,8 @@ app/src/main/java/com/the412banner/bfe/
 ├─ cloud/       rclone engine manager, rc API client, account setup, transfer service
 ├─ server/      Wi-Fi HTTP (NanoHTTPD) and FTP (Apache FtpServer) servers and service
 ├─ apk/         APK cloner, editor and signer
+├─ docs/        document viewer converters: OpenDocument, Office Open XML, RTF, Markdown, EPUB,
+│               CSV and text indexing (pure Kotlin, unit-tested against real files)
 ├─ video/       FFmpeg converter and ConvertService
 ├─ update/      in-app updater
 ├─ appicon/     launcher-icon switching
@@ -364,6 +387,9 @@ app/src/main/java/com/the412banner/bfe/
   has no background notification yet.
 - **Cloud / Remote:** remotes open in their own browser rather than as file-manager panes; files open as
   downloaded copies. rclone's shared Google Drive key is being retired in 2026 — use your own client ID.
+- **Document viewer:** documents are converted for reading, not laid out page for page (no exact fonts,
+  columns, headers / footers or charts); PDFs can't be searched, protected PDFs don't open, and deep
+  zoom is limited by page memory; legacy .doc / .xls / .ppt aren't shown.
 - **Network server:** plain HTTP and FTP (no HTTPS / FTPS or WebDAV) — intended for home networks and
   your own hotspot.
 - **Storage:** apps without a document provider (and `Android/data`) need root to browse; the category
@@ -427,6 +453,8 @@ BFE stands on the work of these projects and their authors.
 | [Apache FtpServer](https://mina.apache.org/ftpserver-project/) + Apache MINA | Apache Software Foundation | Apache-2.0 |
 | [SLF4J](https://www.slf4j.org) | QOS.ch | MIT |
 | [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) | Project Nayuki | MIT |
+| [commonmark-java](https://github.com/commonmark/commonmark-java) (+ GFM tables, strikethrough, task lists, autolink) | Atlassian and contributors | BSD-2-Clause |
+| [autolink-java](https://github.com/robinst/autolink-java) | Robin Stocker | MIT |
 
 **Format references**
 - [EggDotNet](https://www.nuget.org/packages/EggDotNet) by Andrew Kolman (MIT) and ESTsoft's EGG
@@ -435,3 +463,5 @@ BFE stands on the work of these projects and their authors.
 - AOSP update_engine `update_metadata.proto` (Apache-2.0) — the OTA `payload.bin` format.
 - Test archives from EggDotNet, xunazo, patool, acefile-testdata and Sembiance's format samples were used
   to verify the decoders (not shipped).
+- The document viewer's test files were written with [pandoc](https://pandoc.org) and small scripts
+  (`scripts/docfixtures/`); they are not shipped.
