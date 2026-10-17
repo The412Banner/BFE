@@ -1657,40 +1657,6 @@ fun BrowserPane(
     // An archive inside the archive: pull it out, then browse the copy.
     fun browseArchiveEntry(loc: Loc.ArchiveLoc) = withArchiveCopies(listOf(loc)) { files -> browseArchive(files.first()) }
 
-    // A plain tap on a file: BFE opens it itself when it can — a web page in the HTML viewer, photos /
-    // videos / music in the viewer or player, an archive or disc image browsed like a folder, an APK in
-    // the installer. Anything else gets the Open-with sheet, which ⋮ → Open with shows for every file.
-    fun openOnTap(loc: Loc) {
-        if (loc is Loc.ArchiveLoc) {
-            withArchiveCopies(listOf(loc)) { files -> openBuiltInOrSheet(Loc.FileLoc(files.first()), fromArchive = loc) }
-            return
-        }
-        openBuiltInOrSheet(loc, fromArchive = null)
-    }
-
-    fun openBuiltInOrSheet(loc: Loc, fromArchive: Loc.ArchiveLoc?) {
-        val f = (loc as? Loc.FileLoc)?.file
-        if (loc.name.lowercase().endsWith(".apk")) { installApk(loc); return }
-        scope.launch {
-            // Archives by EXTENSION only: .docx / .odt / .epub / .apk are zips too and must not open as
-            // folders. Inno / GOG installers are unpack-only, so they get the sheet (Unpack / Install).
-            val browsable = f != null && withContext(Dispatchers.IO) {
-                com.the412banner.bfe.unpack.SevenZip.isSupported(f) && !com.the412banner.bfe.unpack.SevenZip.isInnoSetup(f)
-            }
-            if (browsable) { browseArchive(f!!); return@launch }
-            withViewUri(loc, "Couldn't open ${loc.name}") { uri ->
-                val mime = guessMime(loc.name, context.contentResolver.getType(uri))
-                val media = MediaTypes.typeOf(loc.name, mime)
-                when {
-                    com.the412banner.bfe.HtmlViewerActivity.isHtmlName(loc.name) ->
-                        context.startActivity(com.the412banner.bfe.HtmlViewerActivity.intent(context, f?.absolutePath, uri, loc.name))
-                    media != null -> openMedia(loc, media, uri, single = fromArchive != null)
-                    else -> openWithReq = OpenWithRequest(loc, uri, mime, fromArchive = fromArchive)
-                }
-            }
-        }
-    }
-
     // "Open with": BFE's own sheet (OpenWithSheet) — built-in actions for this file plus every app
     // that can VIEW it (⋮ → Open with; a tap lands here when BFE has no viewer of its own). The Uri is
     // resolved first (root files are staged to cache), then the sheet is shown by the block near the
@@ -1765,6 +1731,41 @@ fun BrowserPane(
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         })
+    }
+
+    // openOnTap's routing for a real file, or for the cache copy of an archive entry ([fromArchive]).
+    fun openBuiltInOrSheet(loc: Loc, fromArchive: Loc.ArchiveLoc?) {
+        val f = (loc as? Loc.FileLoc)?.file
+        if (loc.name.lowercase().endsWith(".apk")) { installApk(loc); return }
+        scope.launch {
+            // Archives by EXTENSION only: .docx / .odt / .epub / .apk are zips too and must not open as
+            // folders. Inno / GOG installers are unpack-only, so they get the sheet (Unpack / Install).
+            val browsable = f != null && withContext(Dispatchers.IO) {
+                com.the412banner.bfe.unpack.SevenZip.isSupported(f) && !com.the412banner.bfe.unpack.SevenZip.isInnoSetup(f)
+            }
+            if (browsable) { browseArchive(f!!); return@launch }
+            withViewUri(loc, "Couldn't open ${loc.name}") { uri ->
+                val mime = guessMime(loc.name, context.contentResolver.getType(uri))
+                val media = MediaTypes.typeOf(loc.name, mime)
+                when {
+                    com.the412banner.bfe.HtmlViewerActivity.isHtmlName(loc.name) ->
+                        context.startActivity(com.the412banner.bfe.HtmlViewerActivity.intent(context, f?.absolutePath, uri, loc.name))
+                    media != null -> openMedia(loc, media, uri, single = fromArchive != null)
+                    else -> openWithReq = OpenWithRequest(loc, uri, mime, fromArchive = fromArchive)
+                }
+            }
+        }
+    }
+
+    // A plain tap on a file: BFE opens it itself when it can — a web page in the HTML viewer, photos /
+    // videos / music in the viewer or player, an archive or disc image browsed like a folder, an APK in
+    // the installer. Anything else gets the Open-with sheet, which ⋮ → Open with shows for every file.
+    fun openOnTap(loc: Loc) {
+        if (loc is Loc.ArchiveLoc) {
+            withArchiveCopies(listOf(loc)) { files -> openBuiltInOrSheet(Loc.FileLoc(files.first()), fromArchive = loc) }
+            return
+        }
+        openBuiltInOrSheet(loc, fromArchive = null)
     }
 
     // Extraction into a SAF/root pane: the native engines need a real app-owned path, so we extract
