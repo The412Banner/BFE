@@ -79,6 +79,15 @@ import com.the412banner.bfe.appicon.AppIcon
 import com.the412banner.bfe.appicon.AppIcons
 import com.the412banner.bfe.ui.components.BRAND_NAME
 import com.the412banner.bfe.util.AppSnackbar
+import androidx.compose.material3.BottomSheetDefaults
+import com.the412banner.bfe.ui.components.AccentButton
+import com.the412banner.bfe.ui.theme.Glass
+import com.the412banner.bfe.ui.theme.GlassLevel
+import com.the412banner.bfe.ui.theme.LocalGlass
+import com.the412banner.bfe.ui.theme.WindowBlurBehind
+import com.the412banner.bfe.ui.theme.glass
+import com.the412banner.bfe.ui.theme.isAurora
+import com.the412banner.bfe.ui.theme.rememberWindowBlurAvailable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -102,7 +111,12 @@ fun AppIconSetting() {
     var previewId by rememberSaveable { mutableStateOf<String?>(null) }
     val chevron by animateFloatAsState(if (expanded) 180f else 0f, label = "appIconChevron")
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            // Aurora Glass: the section is a glass card like the other settings.
+            .then(if (isAurora) Modifier.padding(horizontal = 12.dp, vertical = 3.dp).glass(Glass.Chip, GlassLevel.Panel) else Modifier),
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -235,7 +249,19 @@ private fun AppIconSheet(icon: AppIcon, inUse: Boolean, onDismiss: () -> Unit, o
     val pop = remember(icon.id) { Animatable(0.82f) }
     LaunchedEffect(icon.id) { pop.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessLow)) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    // Aurora Glass: a frosted sheet (the system blurs the screen behind it on Android 12+).
+    val aurora = isAurora
+    val g = LocalGlass.current
+    val blur = rememberWindowBlurAvailable()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = if (aurora) Glass.Sheet else BottomSheetDefaults.ExpandedShape,
+        containerColor = if (aurora) (if (blur) g.dialogOverBlur else g.sheet) else BottomSheetDefaults.ContainerColor,
+        tonalElevation = if (aurora) 0.dp else BottomSheetDefaults.Elevation,
+        scrimColor = if (aurora) Color.Black.copy(alpha = if (blur) 0.22f else 0.42f) else BottomSheetDefaults.ScrimColor,
+    ) {
+        if (aurora) WindowBlurBehind(enabled = blur, radius = 24.dp, dimAmount = 0f)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 24.dp, end = 24.dp, bottom = 16.dp),
@@ -279,23 +305,29 @@ private fun AppIconSheet(icon: AppIcon, inUse: Boolean, onDismiss: () -> Unit, o
             Spacer(Modifier.height(16.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = close, modifier = Modifier.weight(1f)) { Text(if (inUse) "Close" else "Cancel") }
-                Button(
+                val apply: () -> Unit = {
+                    applying = true
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { AppIcons.apply(context, icon) }
+                        applying = false
+                        if (ok) {
+                            AppSnackbar.show(context, "App icon changed to ${icon.name}")
+                            sheetState.hide()
+                            onApplied(icon)
+                        } else {
+                            AppSnackbar.show(context, "Couldn't change the app icon")
+                        }
+                    }
+                }
+                if (aurora) AccentButton(
+                    if (inUse) "In use" else "Use this icon",
+                    onClick = apply,
+                    enabled = !inUse && !applying,
+                    modifier = Modifier.weight(1f).height(40.dp),
+                ) else Button(
                     enabled = !inUse && !applying,
                     modifier = Modifier.weight(1f),
-                    onClick = {
-                        applying = true
-                        scope.launch {
-                            val ok = withContext(Dispatchers.IO) { AppIcons.apply(context, icon) }
-                            applying = false
-                            if (ok) {
-                                AppSnackbar.show(context, "App icon changed to ${icon.name}")
-                                sheetState.hide()
-                                onApplied(icon)
-                            } else {
-                                AppSnackbar.show(context, "Couldn't change the app icon")
-                            }
-                        }
-                    },
+                    onClick = apply,
                 ) { Text(if (inUse) "In use" else "Use this icon") }
             }
         }

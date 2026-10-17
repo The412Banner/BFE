@@ -111,6 +111,35 @@ first blue folder. Tap one for a big preview (and how it looks as an Android 13+
   its master, diffs them and writes contact sheets (needs `skia-pathops`, `fonttools`, `pillow`,
   `numpy`, `rsvg-convert`).
 
+### Look & theming — Aurora Glass or Classic
+Settings → Appearance → **Look** switches between two complete looks, instantly and with a soft
+crossfade (a snapshot of the screen fades over the new look, so the panes, selections and scroll
+positions carry straight over). Every feature works the same in both.
+- **Aurora Glass** (the default): frosted glass panels with hairline rims over a soft, slowly drifting
+  backdrop. The file manager's toolbar floats at the bottom as a **glass pill** in portrait (in thumb
+  reach) and as a **vertical pill rail** on the left in landscape; multi-select actions rise as a
+  second pill above it. Panes are glass cards — the active one brightens with an accent rim and glow —
+  and the dual-pane divider is a glass grip that springs onto ⅓ · ½ · ⅔ (double-tap = 50/50).
+  Home, sheets, menus, dialogs, progress and snackbars are glass too.
+- **Palettes** (Aurora): **Neutral** (default — graphite glass with a faint cool tint and one blue
+  accent; the colour comes from the accent and BFE's icons), **Aurora** (blue / teal / violet),
+  **Ocean**, **Ember**, **Forest** and **Rose**, each in light and dark. **Dynamic color** (Android
+  12+) tints the accent and the glass with your wallpaper's colours.
+- **Classic**: BFE's original UI — the shared top toolbar, solid cards and outlined menus, the navy +
+  blue scheme (or dynamic color).
+- **How the glass is made:** panels resting on the backdrop are translucent fills with a top sheen, a
+  fine grain and a rim that catches the light (the backdrop is already soft, so they look the same on
+  every Android version). Floating glass over content — the pill toolbar and selection pill — really
+  blurs the list behind it on Android 12L / 13+ (API 32+, via [Haze](https://github.com/chrisbanes/haze));
+  below that it uses a denser frosted fill so nothing reads through. Dialogs and sheets ask the system
+  to blur the screen behind them on Android 12+ (when the device and battery saver allow).
+- **Motion:** emphasized easing and gentle springs, 250–400 ms: folders slide in from the side you're
+  heading (into → from the right, up → from the left) with a staggered fade-in, sorting and filtering
+  re-flow in place, screens opened from a Home tile grow out of that tile, the selection pill and
+  sheets spring in, progress bars shimmer. The backdrop drifts ~15 times a second, only while BFE is
+  in the foreground. With Android's **Remove animations** on, everything snaps and the backdrop and
+  shimmer stand still.
+
 ### Dual-pane "commander" mode
 - Toolbar toggle → **two fully independent panes side by side** — in landscape *and* portrait. **Drag
   the handle between them** to resize (double-tap it for 50/50); the split is remembered.
@@ -369,7 +398,8 @@ cloud. (Until the Home screen lands it lives at ⋮ → **Settings → Access fr
   backups are off, so they never leave the device.
 
 ### Settings & About
-⋮ → **Settings**: automatic update checks + "Check now", theme (System / Light / Dark, plus
+⋮ → **Settings**: automatic update checks + "Check now", **Look** (Aurora Glass / Classic), Aurora's
+**palette**, theme (System / Light / Dark, plus
 **dynamic color** on Android 12+), the **app icon** (see [App icon](#app-icon)), **Start on** (Home or the last folder), default apps, Access from
 network, **Photos, video & music** (remember playback position, picture-in-picture when leaving the
 player), and About — version, source code link, release notes, BFE's license and every bundled
@@ -501,7 +531,10 @@ app/src/main/java/com/the412banner/bfe/
 │              AGSL sharpen, film grain), Glass (the frosted panels) — PhotoViewerActivity /
 │              VideoPlayerActivity sit at the package root next to HtmlViewerActivity
 ├─ ui/icons/   FileIcons: name → BFE icon (special folders, file types), FileTypeIcon / BfeIcon
-└─ ui/         progress pills, update dialogs, theme, components
+├─ ui/theme/   BfeTheme (Look switch, Classic scheme), Aurora palettes + glass tokens, Glass (Modifier.glass),
+│              AuroraBackdrop, Motion tokens, LookTransition (crossfade), GlassWindow (blur behind dialogs)
+└─ ui/         progress pills, update dialogs, AuroraShell (screen transitions), components (Aurora
+               controls, BfeDropdownMenu, wordmark, palette picker); *Aurora.kt files = the Aurora layouts
 app/src/main/resources/…/server/web/  the Access-from-network web page's app.css + app.js
 app/src/main/jniLibs/arm64-v8a/   prebuilt lib7zz / libinnoextract / libunarc / libffmpeg + dependency closure,
                                   liblunzip / liblzop / liblz4 / libunecm / libunalz / libunace / liblzx
@@ -549,6 +582,11 @@ scripts/appicons/                 launcher-icon SVG masters, icons.json, build.p
 - Photo viewer: only JPEG / PNG / WebP are sub-sampled; HEIC / AVIF / BMP / GIF decode whole at up to
   2560 px (sharp to ~2× zoom on big photos). HEIC needs Android 9+, AVIF Android 12+. Rotation is
   view-only except "Save rotation" for JPEG.
+- Aurora Glass: real blur behind the floating pills needs Android 12L / 13+ (API 32+; Android 12.0 has a
+  platform RenderEffect bug) — older versions get the dense frosted fill instead; blur behind dialogs
+  and sheets needs Android 12+ and is switched off by the system under battery saver. The "tile grows
+  into the screen" transition is emulated (scale + fade from the tile), since Compose 1.6 has no
+  shared-element API.
 - The Home category tiles and browser read Android's media library, so they only see files it has
   indexed: not folders marked `.nomedia`, and on Android 10 and older not files written straight to
   storage (e.g. by an extraction) until the system scans them. Documents and New files skip hidden
@@ -575,6 +613,8 @@ Craig-Wood and contributors, plus the licence of every Go module in the download
 `THIRD_PARTY_LIBRARIES.txt`.
 
 ### Credits
+Aurora Glass's backdrop blur uses **Haze** by Chris Banes (Apache-2.0).
+
 BFE's extra archive formats stand on these projects (licences and exact versions in the notices):
 - **lunzip** by Antonio Diaz Diaz (GPL-2.0+) — lzip.
 - **lzop** and **LZO** by Markus F.X.J. Oberhumer (GPL-2.0+) — lzop.
