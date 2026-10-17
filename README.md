@@ -120,7 +120,8 @@ positions carry straight over). Every feature works the same in both.
   reach) and as a **vertical pill rail** on the left in landscape; multi-select actions rise as a
   second pill above it. Panes are glass cards — the active one brightens with an accent rim and glow —
   and the dual-pane divider is a glass grip that springs onto ⅓ · ½ · ⅔ (double-tap = 50/50).
-  Home, sheets, menus, dialogs, progress and snackbars are glass too.
+  Home, sheets, menus, dialogs, progress and snackbars are glass too, and so are the photo viewer's
+  and player's bars and sheets (over the picture, never blurring it).
 - **Palettes** (Aurora): **Neutral** (default — graphite glass with a faint cool tint and one blue
   accent; the colour comes from the accent and BFE's icons), **Aurora** (blue / teal / violet),
   **Ocean**, **Ember**, **Forest** and **Rose**, each in light and dark. **Dynamic color** (Android

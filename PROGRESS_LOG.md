@@ -72,7 +72,10 @@ both looks ship. **Not merged, not released, not device-run (CI-compiled only).*
   `bfeCardColors` / `bfeCardBorder` (selection-aware), `bfeBarBackground`, `BfePage` (backdrop page for
   overlays / other activities) applied to Category, Apps, Cloud, Remote, Add account, transfers,
   Network, Settings (glass rows/blocks), Unpack, HTML viewer, folder picker; the App icon setting is a
-  glass card with a frosted preview sheet.
+  glass card with a frosted preview sheet; the photo viewer / player chrome (`ui/media` `glass()`:
+  bars, buttons, effects sheet, pills) takes the Aurora recipe over the picture (dense palette ground +
+  sheen + grain + rim, no blur, video surfaces untouched) and the photo details sheet is the frosted
+  sheet with blur behind on 12+; Classic keeps the viewer as merged.
 - **Proof:** CI green per stage — 1 foundation: run 38988770664 (`ff9889d`, pre-rebase); 2 Home:
   38989741389 (`5de92ab`); 3 file manager + Home app-storage carry-over: 38991064047 (`0d928da`);
   4 overlays: 38991518372 (`c692107`); 5 screens + App icon + docs: RUN5. `@Preview`s: glass levels, backdrop, palette picker,
