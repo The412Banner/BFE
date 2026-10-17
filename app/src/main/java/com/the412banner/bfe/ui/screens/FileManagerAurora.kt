@@ -3,6 +3,7 @@ package com.the412banner.bfe.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
@@ -508,7 +509,7 @@ internal fun AuroraPaneLayout(
 @Immutable
 private class Listing(val dirId: String, val depth: Int, val entries: List<Loc>)
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 @Composable
 private fun AnimatedListing(
     paneState: PaneState,
@@ -1314,6 +1315,7 @@ internal fun AuroraFmChrome(
         slideOutVertically(tween(260, easing = BfeMotion.EmphasizedAccelerate)) { it + it / 2 } + fadeOut(tween(180))
 
     BoxWithConstraints(modifier.fillMaxSize()) {
+        val availableWidth = maxWidth
         if (landscape) {
             val size = ((maxHeight - 40.dp) / 8.4f).coerceIn(34.dp, 42.dp)
             GlassPillRail(Modifier.align(Alignment.CenterStart).padding(start = 12.dp)) { buttons(true, size) }
@@ -1331,7 +1333,7 @@ internal fun AuroraFmChrome(
                     shownSelection?.let { SelectionPill(it, wide = false, modifier = Modifier.padding(bottom = 8.dp)) }
                 }
                 val count = 4 + (if (onHome != null) 1 else 0) + (if (!pickMode) 2 else 0)
-                val size = ((maxWidth - 24.dp - 16.dp - 8.dp) / (count + 0.3f)).coerceIn(36.dp, 44.dp)
+                val size = ((availableWidth - 24.dp - 16.dp - 8.dp) / (count + 0.3f)).coerceIn(36.dp, 44.dp)
                 GlassPillBar { buttons(false, size) }
             }
         }
