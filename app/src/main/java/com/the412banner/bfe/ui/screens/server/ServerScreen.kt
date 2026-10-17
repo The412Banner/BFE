@@ -1,5 +1,8 @@
 package com.the412banner.bfe.ui.screens.server
 
+import com.the412banner.bfe.ui.components.bfeTopBarColors
+import com.the412banner.bfe.ui.components.bfeCardColors
+import com.the412banner.bfe.ui.components.bfeCardBorder
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -134,7 +137,7 @@ fun ServerScreen(onBack: () -> Unit) {
         TopAppBar(
             title = { Text("Access from network") },
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
         )
         Column(
             modifier = Modifier
@@ -483,7 +486,7 @@ private fun SharesCard(settings: ServerSettings, commit: (ServerSettings) -> Uni
             ) {
                 OutlinedButton(
                     onClick = { picker.launch(DirPicker.buildDirIntent()) },
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                 ) {
                     Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
@@ -692,8 +695,8 @@ private fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
+        border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp), content = content)
     }

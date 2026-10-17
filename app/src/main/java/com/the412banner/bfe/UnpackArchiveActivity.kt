@@ -1,5 +1,6 @@
 package com.the412banner.bfe
 
+import com.the412banner.bfe.ui.components.BfePage
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -68,7 +69,7 @@ class UnpackArchiveActivity : ComponentActivity() {
         val autoStart = intent.getBooleanExtra(EXTRA_AUTO_START, false)
         setContent {
             BfeTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                BfePage {
                     var stage by remember {
                         mutableStateOf<Stage>(if (explicitPath != null) Stage.Ready(explicitPath, initialDest) else Stage.Resolving)
                     }

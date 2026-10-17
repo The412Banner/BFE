@@ -1,5 +1,6 @@
 package com.the412banner.bfe.ui.screens.home
 
+import com.the412banner.bfe.ui.components.BfePage
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,7 +35,7 @@ import java.io.File
 @Composable
 fun FolderPickerOverlay(title: String, start: File? = null, onPick: (File) -> Unit, onDismiss: () -> Unit) {
     BackHandler(onBack = onDismiss)
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    BfePage {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

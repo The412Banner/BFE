@@ -2,6 +2,7 @@
 
 package com.the412banner.bfe.ui.screens.cloud
 
+import com.the412banner.bfe.ui.components.bfeCardColors
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -92,7 +93,7 @@ fun CloudTransferPill(modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+        colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {

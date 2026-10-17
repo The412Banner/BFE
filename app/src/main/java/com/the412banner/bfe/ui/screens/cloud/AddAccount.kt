@@ -2,6 +2,10 @@
 
 package com.the412banner.bfe.ui.screens.cloud
 
+import com.the412banner.bfe.ui.components.bfeTopBarColors
+import com.the412banner.bfe.ui.components.bfeCardColors
+import com.the412banner.bfe.ui.components.bfeScreenColor
+import androidx.compose.material3.TopAppBarDefaults
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -131,8 +135,10 @@ internal fun AddAccountPage(section: CloudSection, prefill: CloudSetup.Session?,
 @Composable
 private fun PageScaffold(title: String, onBack: () -> Unit, content: @Composable (PaddingValues) -> Unit) {
     Scaffold(
+        containerColor = bfeScreenColor(MaterialTheme.colorScheme.background),
         topBar = {
             TopAppBar(
+                colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
                 title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
             )
@@ -167,7 +173,7 @@ private fun ServicePicker(section: CloudSection, onPick: (CloudService) -> Unit,
 private fun ServiceTile(label: String, blurb: String, avatar: @Composable () -> Unit, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(14.dp)) {

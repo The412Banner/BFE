@@ -1,5 +1,8 @@
 package com.the412banner.bfe
 
+import com.the412banner.bfe.ui.components.bfeTopBarColors
+import com.the412banner.bfe.ui.components.BfePage
+import androidx.compose.material3.TopAppBarDefaults
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -88,7 +91,7 @@ class HtmlViewerActivity : ComponentActivity() {
         if (uri == null && explicitPath == null) { finish(); return }
         setContent {
             BfeTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                BfePage {
                     HtmlViewerScreen(uri, explicitPath, name, onClose = { finish() })
                 }
             }
@@ -187,6 +190,7 @@ private fun HtmlViewerScreen(uri: Uri?, explicitPath: String?, name: String?, on
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
+            colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
             navigationIcon = {
                 IconButton(onClick = { close() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             },
@@ -301,7 +305,7 @@ private fun HtmlViewerScreen(uri: Uri?, explicitPath: String?, name: String?, on
                 )
             }
             if (showSource) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                BfePage {
                     SelectionContainer {
                         Text(
                             sourceText ?: "Loading…",

@@ -2,6 +2,10 @@
 
 package com.the412banner.bfe.ui.screens.cloud
 
+import com.the412banner.bfe.ui.components.bfeTopBarColors
+import com.the412banner.bfe.ui.components.bfeCardColors
+import com.the412banner.bfe.ui.components.bfeScreenColor
+import androidx.compose.material3.TopAppBarDefaults
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -175,7 +179,8 @@ private fun RcloneSection(section: CloudSection, onBack: () -> Unit) {
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    // The screen itself (not an overlay): clear in Aurora so the shared backdrop shows through.
+    Surface(modifier = Modifier.fillMaxSize(), color = bfeScreenColor(MaterialTheme.colorScheme.background)) {
         val remote = openRemote
         when {
             install !is RcloneManager.State.Installed -> InstallGate(section, install, onBack)
@@ -214,8 +219,10 @@ private fun InstallGate(section: CloudSection, state: RcloneManager.State, onBac
     val local = remember(state) { RcloneManager.localCopy() }
     val mb = { b: Long -> String.format(java.util.Locale.ENGLISH, "%.1f", b / 1048576.0) }
     Scaffold(
+        containerColor = bfeScreenColor(MaterialTheme.colorScheme.background),
         topBar = {
             TopAppBar(
+                colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
                 title = { Text(sectionTitle(section)) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
             )
@@ -245,7 +252,7 @@ private fun InstallGate(section: CloudSection, state: RcloneManager.State, onBac
             )
             Spacer(Modifier.height(20.dp))
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(16.dp)) {
@@ -346,8 +353,10 @@ private fun AccountsPage(
     }
 
     Scaffold(
+        containerColor = bfeScreenColor(MaterialTheme.colorScheme.background),
         topBar = {
             TopAppBar(
+                colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
                 title = { Text(sectionTitle(section)) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, "Back") } },
                 actions = {
@@ -557,7 +566,7 @@ private fun AccountCard(
     Card(
         onClick = onOpen,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp)) {
             ServiceAvatar(icon, color)

@@ -1,5 +1,6 @@
 package com.the412banner.bfe.ui.screens
 
+import com.the412banner.bfe.ui.components.bfeTopBarColors
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -75,6 +76,11 @@ import com.the412banner.bfe.ui.components.PalettePicker
 import com.the412banner.bfe.ui.screens.home.HomePrefs
 import com.the412banner.bfe.ui.screens.server.ServerScreen
 import com.the412banner.bfe.ui.theme.LocalGlass
+import com.the412banner.bfe.ui.theme.Glass
+import com.the412banner.bfe.ui.theme.GlassLevel
+import com.the412banner.bfe.ui.theme.glass
+import com.the412banner.bfe.ui.theme.isAurora
+import com.the412banner.bfe.ui.components.SectionLabel
 import com.the412banner.bfe.ui.theme.LookTransition
 import com.the412banner.bfe.ui.theme.ThemeSettings
 import com.the412banner.bfe.ui.theme.UiStyle
@@ -157,7 +163,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                 }) { Icon(Icons.Filled.ArrowBack, "Back") }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+            colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
         )
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -218,7 +224,7 @@ private fun MainSettings(
             },
         )
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SettingsDivider()
         // ── Appearance ──
         SectionHeader("Appearance")
         // Look: Aurora Glass or the original Classic UI. Switching crossfades from the current screen.
@@ -226,7 +232,7 @@ private fun MainSettings(
         val aurora = ThemeSettings.style == UiStyle.AURORA
         // In Aurora every appearance change crossfades; Classic keeps its instant theme switches.
         fun change(block: () -> Unit) = if (aurora) LookTransition.run(view, block) else block()
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.settingsBlock()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(16.dp))
@@ -252,7 +258,7 @@ private fun MainSettings(
             }
         }
         if (aurora) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(modifier = Modifier.settingsBlock()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Palette, null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(16.dp))
@@ -266,7 +272,7 @@ private fun MainSettings(
                 )
             }
         }
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.settingsBlock()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Palette, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(16.dp))
@@ -299,11 +305,11 @@ private fun MainSettings(
         // Launcher icon picker (AppIconSetting.kt).
         AppIconSetting()
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SettingsDivider()
         // ── Files ──
         SectionHeader("Files")
         // Which screen BFE opens on: the Home dashboard, or straight into the last folder you had open.
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.settingsBlock()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Home, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(16.dp))
@@ -337,7 +343,7 @@ private fun MainSettings(
             trailing = { Icon(Icons.Filled.ChevronRight, null) },
         )
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SettingsDivider()
         // ── Photo viewer & player ──
         SectionHeader("Photos, video & music")
         var rememberPos by remember { mutableStateOf(MediaPrefs.rememberPosition(context)) }
@@ -357,7 +363,7 @@ private fun MainSettings(
             trailing = { Switch(checked = pip, onCheckedChange = { pip = it; MediaPrefs.setPipOnLeave(context, it) }) },
         )
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        SettingsDivider()
         // ── About ──
         SectionHeader("About")
         SettingRow(
@@ -399,6 +405,10 @@ private fun MainSettings(
 
 @Composable
 private fun SectionHeader(text: String) {
+    if (isAurora) {
+        SectionLabel(text, Modifier.padding(start = 16.dp, end = 16.dp))
+        return
+    }
     Text(
         text,
         style = MaterialTheme.typography.labelLarge,
@@ -419,6 +429,8 @@ private fun SettingRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            // Aurora Glass: each row is its own glass card.
+            .then(if (isAurora) Modifier.padding(horizontal = 12.dp, vertical = 3.dp).glass(Glass.Chip, GlassLevel.Panel) else Modifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
@@ -435,6 +447,19 @@ private fun SettingRow(
             trailing()
         }
     }
+}
+
+/** A settings block (a heading + its control). Classic: padded on the page. Aurora: a glass card. */
+@Composable
+private fun Modifier.settingsBlock(): Modifier =
+    if (isAurora) padding(horizontal = 12.dp, vertical = 3.dp).glass(Glass.Chip, GlassLevel.Panel).padding(horizontal = 16.dp, vertical = 12.dp)
+    else padding(horizontal = 16.dp, vertical = 8.dp)
+
+/** The rule between settings sections. Aurora: space instead (the cards separate themselves). */
+@Composable
+private fun SettingsDivider() {
+    if (isAurora) Spacer(Modifier.height(4.dp))
+    else HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
@@ -474,6 +499,8 @@ private fun LicenseText(asset: String) {
                 lineHeight = 15.sp,
                 modifier = Modifier
                     .fillMaxSize()
+                    // Aurora: the notice reads on a glass panel over the backdrop.
+                    .then(if (isAurora) Modifier.padding(12.dp).glass(Glass.Card, GlassLevel.Raised) else Modifier)
                     .verticalScroll(rememberScrollState())
                     .horizontalScroll(rememberScrollState())
                     .padding(16.dp),

@@ -2,6 +2,11 @@
 
 package com.the412banner.bfe.ui.screens.cloud
 
+import com.the412banner.bfe.ui.components.bfeBarBackground
+import com.the412banner.bfe.ui.components.bfeTopBarColors
+import com.the412banner.bfe.ui.components.bfeScreenColor
+import com.the412banner.bfe.ui.components.BfePage
+import androidx.compose.material3.TopAppBarDefaults
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -359,9 +364,11 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
+            containerColor = bfeScreenColor(MaterialTheme.colorScheme.background),
             topBar = {
                 when {
                     selected.isNotEmpty() -> TopAppBar(
+                        colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
                         title = { Text("${selected.size} selected") },
                         navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Filled.Close, "Clear selection") } },
                         actions = {
@@ -375,6 +382,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                         val focus = remember { FocusRequester() }
                         LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
                         TopAppBar(
+                            colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
                             title = {
                                 TextField(
                                     value = query,
@@ -394,6 +402,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                         )
                     }
                     else -> TopAppBar(
+                        colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
                         title = {
                             Column {
                                 Text(remote.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -534,9 +543,10 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
             // Registered before the file manager's own handler, so Back walks up its folders first
             // and only closes the picker at the top.
             BackHandler { pick = null }
-            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            BfePage {
                 Column(Modifier.fillMaxSize()) {
                     TopAppBar(
+                        colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors()),
                         title = {
                             Text(
                                 when (pk) {
@@ -741,7 +751,7 @@ private fun Breadcrumb(remoteName: String, path: String, onGo: (String) -> Unit)
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .bfeBarBackground(MaterialTheme.colorScheme.surfaceContainer)
             .horizontalScroll(scroll)
             .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {

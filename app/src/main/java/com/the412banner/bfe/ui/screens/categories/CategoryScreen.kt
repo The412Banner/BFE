@@ -6,6 +6,10 @@
 
 package com.the412banner.bfe.ui.screens.categories
 
+import com.the412banner.bfe.ui.components.bfeBarBackground
+import com.the412banner.bfe.ui.components.bfeTopBarColors
+import com.the412banner.bfe.ui.components.bfeCardColors
+import com.the412banner.bfe.ui.components.bfeCardBorder
 import android.content.Context
 import android.content.Intent
 import android.media.MediaScannerConnection
@@ -463,7 +467,7 @@ fun CategoryScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .bfeBarBackground(MaterialTheme.colorScheme.surfaceContainer)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -596,7 +600,7 @@ private fun CategoryTopBar(
                 }
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
     )
 }
 
@@ -677,10 +681,13 @@ private fun MediaGridCell(
     Card(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onTap, onLongClick = onLongPress),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceContainer,
+        colors = bfeCardColors(
+            CardDefaults.cardColors(
+                containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceContainer,
+            ),
+            selected,
         ),
-        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+        border = bfeCardBorder(BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline), selected),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth().padding(8.dp)) {
             Box {
@@ -722,10 +729,13 @@ private fun MediaListRow(
             .padding(horizontal = 12.dp, vertical = 3.dp)
             .combinedClickable(onClick = onTap, onLongClick = onLongPress),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceContainer,
+        colors = bfeCardColors(
+            CardDefaults.cardColors(
+                containerColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceContainer,
+            ),
+            selected,
         ),
-        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+        border = bfeCardBorder(BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline), selected),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)) {
             if (selectionMode) {

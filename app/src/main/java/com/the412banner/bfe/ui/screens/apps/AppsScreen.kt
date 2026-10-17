@@ -2,6 +2,10 @@
 
 package com.the412banner.bfe.ui.screens.apps
 
+import com.the412banner.bfe.ui.components.bfeTopBarColors
+import com.the412banner.bfe.ui.components.bfeCardColors
+import com.the412banner.bfe.ui.components.bfeCardBorder
+import com.the412banner.bfe.ui.components.bfeBarBackground
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -410,7 +414,7 @@ fun AppsScreen(onBack: () -> Unit, onBrowseData: (FmLocationRequest) -> Unit) {
             // Running backup / share staging, or reading an APK for the cloner.
             val progressLabel = backup?.let { "Backing up ${it.label}…  ${(it.done * 100 / it.total.coerceAtLeast(1)).toInt()}%" } ?: busyLabel
             if (progressLabel != null) {
-                Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.fillMaxWidth().bfeBarBackground(MaterialTheme.colorScheme.surfaceContainer).padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(progressLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(4.dp))
                     val b = backup
@@ -484,7 +488,7 @@ private fun AppsTopBar(
                 }
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+        colors = bfeTopBarColors(TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
     )
 }
 
@@ -529,8 +533,8 @@ private fun AppRow(app: AppEntry, size: AppSize?, showSystemBadge: Boolean, onCl
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp).clickable(onClick = onClick),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
+        border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             AppIcon(app.packageName, 40)

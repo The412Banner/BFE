@@ -1,5 +1,8 @@
 package com.the412banner.bfe.ui.screens
 
+import com.the412banner.bfe.ui.components.bfeBarBackground
+import com.the412banner.bfe.ui.components.bfeCardColors
+import com.the412banner.bfe.ui.components.bfeCardBorder
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -303,7 +306,7 @@ fun UnpackArchiveScreen(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .bfeBarBackground(MaterialTheme.colorScheme.surfaceContainer)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
             IconButton(onClick = onClose) {
@@ -394,7 +397,7 @@ fun UnpackArchiveScreen(
                 OutlinedButton(
                     enabled = !running,
                     onClick = { destPicker.launch(DirPicker.buildDirIntent()) },
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                    border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                 ) {
                     BfeIcon(FileIcons.FOLDER, size = 18.dp)
                     Spacer(Modifier.width(6.dp))
@@ -450,7 +453,7 @@ fun UnpackArchiveScreen(
                         OutlinedButton(
                             enabled = !running,
                             onClick = { bufferMenu = true },
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                         ) { Text(buffer.label, color = MaterialTheme.colorScheme.onBackground) }
                         BfeDropdownMenu(expanded = bufferMenu, onDismissRequest = { bufferMenu = false }) {
                             ReadBuffer.entries.forEach { b ->
@@ -540,7 +543,7 @@ fun UnpackArchiveScreen(
                                     )
                                 }
                             },
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                         ) { Text("App settings", color = MaterialTheme.colorScheme.onBackground) }
                         Spacer(Modifier.width(8.dp))
                         OutlinedButton(
@@ -548,7 +551,7 @@ fun UnpackArchiveScreen(
                                 oemHintDismissed = true
                                 prefs.edit().putBoolean("unpackOemHintDismissed", true).apply()
                             },
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                         ) { Text("Got it", color = MaterialTheme.colorScheme.onBackground) }
                     }
                 }
@@ -698,7 +701,7 @@ fun UnpackArchiveScreen(
                             val extractable = probe.partitions.filter { !it.incremental }.map { it.name }.toSet()
                             OutlinedButton(
                                 onClick = { chosenParts = if (chosenParts.size == extractable.size) emptySet() else extractable },
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                             ) {
                                 Text(if (chosenParts.size == extractable.size) "None" else "All", color = MaterialTheme.colorScheme.onBackground)
                             }
@@ -876,8 +879,8 @@ private fun SectionCard(content: @Composable androidx.compose.foundation.layout.
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)),
+        border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(14.dp), content = content)
     }
