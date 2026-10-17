@@ -43,6 +43,16 @@ from `test/next` (`b2ff378`). **Not merged, not released, not device-run.**
   live icon that expands (animated) into Mixes / Originals / Classic grids of squircle tiles (equal
   height, 2 reserved label lines, press bounce, animated ring + check); a tile opens a sheet with a big
   preview (spring pop), the themed preview, the launcher note and *Use this icon*.
+- **CI:** `918968b` (rebased on test/next `8107962`) → build.yml run 38990487949 green. The first run
+  (38990226115, `c09762d`) failed to compile: an `AnimatedVisibility` in a `Box` inside a `Column`
+  resolved to `ColumnScope.AnimatedVisibility`; the check badge now animates with `graphicsLayer`.
+  Built APK: aapt shows 21 `icon.*` aliases with MAIN/LAUNCHER (only `icon.M5` enabled), none on
+  MainActivity, every adaptive icon with a transparent (`@android:color/transparent`) background.
+  Size 31,825,254 B vs 31,598,851 B for test/next `8107962` (+226 KB: 238 new res entries = 133 KB
+  compressed, resources.arsc +28 KB, dex +23 KB).
+- **Owner should know:** the first update onto this build changes BFE's launcher entry from
+  MainActivity to `icon.M5`; Launcher3-style launchers move the home-screen shortcut over, others may
+  drop it (add BFE back from the drawer once). The same can happen on each icon switch.
 
 ## In flight: BFE's own file & folder icons (branch `feat/file-icons`, 2026-10-16)
 
@@ -357,6 +367,10 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
 - **A `/*` inside a Kotlin block comment cannot be escaped** — the glob `lib/**\/*.so` in a KDoc opened
   nested comments that swallowed the rest of two files, producing a cascade of bogus "unresolved
   reference" errors. Diagnose "Unclosed comment" *first*; check `/\*` vs `\*/` balance per file.
+- **`AnimatedVisibility` inside a `Box` that sits in a `Column`/`Row` resolves to the
+  `ColumnScope`/`RowScope` extension** (outer implicit receiver beats the top-level function) and then
+  fails to compile ("cannot be called in this context with an implicit receiver"). Animate with
+  `graphicsLayer`, or call it where the Column/Row scope is the innermost one.
 - Material3 `SegmentedButton` / `ExposedDropdownMenu` / `PullToRefresh` need `@OptIn(ExperimentalMaterial3Api)`;
   a refactor can silently drop a function-level opt-in — prefer file-level.
 - `apksigner verify` reports `v1: false` at minSdk ≥ 24 even when v1 is present/valid — use
