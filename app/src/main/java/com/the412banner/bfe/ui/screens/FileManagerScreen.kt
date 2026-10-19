@@ -67,7 +67,10 @@ import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Edit
@@ -845,6 +848,7 @@ fun FileManagerScreen(
                 onUnpin = { p -> PinnedStorage.remove(context, p); pinnedTick++ },
                 onOpenSettings = onOpenSettings,
                 onHome = onHome,
+                selection = selectionUi,
             )
 
             if (!effectiveDual) {
@@ -1059,6 +1063,9 @@ private fun SharedToolbar(
     onUnpin: (PinnedLocation) -> Unit,
     onOpenSettings: () -> Unit,
     onHome: (() -> Unit)? = null,
+    // A pane's multi-select: the ⋮ becomes a ☰ with the selection actions (no extra bar, so the list
+    // keeps its size) and the folder name gives way to the count.
+    selection: PaneSelectionUi? = null,
 ) {
     val context = LocalContext.current
     var showDriveMenu by remember { mutableStateOf(false) }
@@ -1160,7 +1167,17 @@ private fun SharedToolbar(
     @Composable
     fun FolderName(modifier: Modifier) {
         // Current folder name (or the Favorites label) — takes whatever width the row has left.
-        if (active.showFavorites) {
+        if (selection != null) {
+            Text(
+                "${selection.count} selected",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = modifier,
+            )
+        } else if (active.showFavorites) {
             Text(
                 "★ Favorites",
                 color = MaterialTheme.colorScheme.primary,
@@ -1273,6 +1290,10 @@ private fun SharedToolbar(
 
     @Composable
     fun ToolsOverflow() {
+        if (selection != null) {
+            SelectionMenuButton(selection)
+            return
+        }
         // Overflow: New, APK tools that aren't tied to a file in the list, and Settings / About.
         Box {
             IconButton(onClick = { showTools = true }) {
@@ -1345,6 +1366,59 @@ private fun SharedToolbar(
                     if (showSplitAndTools) Box(modifier = Modifier.align(Alignment.CenterVertically)) { ToolsOverflow() }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Classic's multi-select menu: the ☰ that stands in for the toolbar's ⋮ while items are picked. Opens
+ * the same outlined dropdown as a row's ⋮ — select all / none, the single item's own extras when only
+ * one is picked, the selection actions, Delete, then Done (leave multi-select).
+ */
+@Composable
+private fun SelectionMenuButton(sel: PaneSelectionUi) {
+    var open by remember { mutableStateOf(false) }
+    val cs = MaterialTheme.colorScheme
+
+    @Composable
+    fun Item(label: String, icon: ImageVector, enabled: Boolean = true, tone: SelTone = SelTone.NORMAL, action: () -> Unit) {
+        val color = when (tone) {
+            SelTone.DANGER -> cs.error
+            SelTone.ACCENT -> cs.primary
+            SelTone.NORMAL -> cs.onSurface
+        }
+        DropdownMenuItem(
+            text = { Text(label, color = if (enabled) color else color.copy(alpha = 0.38f)) },
+            leadingIcon = {
+                val tint = if (tone == SelTone.DANGER) cs.error else cs.primary
+                Icon(icon, null, tint = if (enabled) tint else tint.copy(alpha = 0.38f))
+            },
+            enabled = enabled,
+            onClick = { open = false; action() },
+        )
+    }
+
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Filled.Menu, "Selection actions", tint = cs.primary)
+        }
+        BfeDropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.outlinedMenuCard()) {
+            Item(if (sel.allSelected) "Select none" else "Select all", if (sel.allSelected) Icons.Filled.Deselect else Icons.Filled.SelectAll, action = sel.onToggleAll)
+            if (sel.single.isNotEmpty()) {
+                MenuItemDivider()
+                sel.single.forEach { a -> Item(a.label, a.icon, a.enabled, a.tone, a.onClick) }
+            }
+            val (danger, rest) = sel.actions.partition { it.tone == SelTone.DANGER }
+            if (rest.isNotEmpty()) {
+                MenuItemDivider()
+                rest.forEach { a -> Item(a.label, a.icon, a.enabled, a.tone, a.onClick) }
+            }
+            if (danger.isNotEmpty()) {
+                MenuItemDivider()
+                danger.forEach { a -> Item(a.label, a.icon, a.enabled, a.tone, a.onClick) }
+            }
+            MenuItemDivider()
+            Item("Done", Icons.Filled.Close, action = sel.onDone)
         }
     }
 }
@@ -2806,6 +2880,56 @@ fun BrowserPane(
         )
     }
 
+    // The selection actions: Aurora's floating pill and Classic's toolbar ☰ menu both show these.
+    val selection: PaneSelectionUi? = if (!selectionMode) null else {
+        fun picked() = entries.filter { it.id in selectedIds }
+        val any = selectedIds.isNotEmpty()
+        val other = if (dualPane) otherPaneDir() else null
+        val arrow = if (paneState.isRightPane) "\u2190" else "\u2192"
+        val acts = buildList {
+            add(SelAction("Copy", Icons.Filled.FileCopy, any) {
+                clipboard = picked(); isCutOperation = false; selectionMode = false; selectedIds = emptySet()
+            })
+            if (paneState.isArchive) add(SelAction("Extract\u2026", Icons.Filled.Unarchive, any, SelTone.ACCENT) {
+                archivePane.extractTargets = picked().filterIsInstance<Loc.ArchiveLoc>()
+            })
+            else add(SelAction("Cut", Icons.Filled.ContentCut, any) {
+                clipboard = picked(); isCutOperation = true; selectionMode = false; selectedIds = emptySet()
+            })
+            if (other != null) {
+                add(SelAction(if (paneState.isArchive) "Extract $arrow" else "Copy $arrow", Icons.Filled.FileCopy, any, SelTone.ACCENT) { crossPaneTransfer(cut = false) })
+                if (!paneState.isArchive) add(SelAction("Move $arrow", Icons.Filled.ContentCut, any, SelTone.ACCENT) { crossPaneTransfer(cut = true) })
+            }
+            add(SelAction("Share", Icons.Filled.Share, entries.any { !it.isDir && it.id in selectedIds }) { shareFiles(picked()) })
+            if (!pickMode && !paneState.isArchive) {
+                add(SelAction("Compress", Icons.Filled.Archive, any) { compressTargets = picked() })
+                fun videoSel() = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
+                if (videoSel().isNotEmpty()) add(SelAction("Convert", Icons.Filled.Movie, true) { convertTargets = videoSel() })
+            }
+            if (!paneState.isArchive) add(SelAction("Delete", Icons.Filled.Delete, any, SelTone.DANGER) { pendingBulkDelete = picked() })
+        }
+        // Exactly one item picked: its own extras too (Classic's ☰ menu lists them first).
+        val one = picked().singleOrNull()
+        val single = if (one == null) emptyList() else buildList {
+            if (!one.isDir) add(SelAction("Open with…", Icons.Filled.OpenInNew, true) { picked().singleOrNull()?.let { openWith(it) } })
+            if (!paneState.isArchive && !pickMode) add(SelAction("Rename", Icons.Filled.Edit, true) { renameTarget = picked().singleOrNull() })
+            if (one is Loc.FileLoc || one is Loc.ArchiveLoc) add(SelAction("Properties", Icons.Filled.Info, true) { propertiesTarget = picked().singleOrNull() })
+        }
+        PaneSelectionUi(
+            count = selectedIds.size,
+            allSelected = entries.isNotEmpty() && selectedIds.size == entries.size,
+            targetName = other?.name?.ifBlank { "/" },
+            actions = acts,
+            onToggleAll = { selectedIds = if (selectedIds.size == entries.size) emptySet() else entries.map { it.id }.toSet() },
+            onDone = { selectionMode = false; selectedIds = emptySet() },
+            single = single,
+        )
+    }
+    SideEffect { paneState.selectionUi = selection }
+    DisposableEffect(paneState) { onDispose { paneState.selectionUi = null } }
+    // Classic has no selection bar to tap Done on: Back leaves multi-select.
+    BackHandler(enabled = selectionMode && !isAurora) { selectionMode = false; selectedIds = emptySet() }
+
     // ── Aurora Glass layout (FileManagerAurora.kt). Same state, same actions; Classic below. ──
     if (isAurora) {
         // Everything a row / tile can do, built once per entry from this pane's actions.
@@ -2854,46 +2978,6 @@ fun BrowserPane(
             onBrowse = { if (file is Loc.ArchiveLoc) browseArchiveEntry(file) else (file as? Loc.FileLoc)?.let { browseArchive(it.file) } },
             onExtractTo = { showMenuFor = null; (file as? Loc.ArchiveLoc)?.let { archivePane.extractTargets = listOf(it) } },
         )
-
-        // The selection actions, for the floating pill (same set and rules as Classic's selection bar).
-        val selection: PaneSelectionUi? = if (!selectionMode) null else {
-            fun picked() = entries.filter { it.id in selectedIds }
-            val any = selectedIds.isNotEmpty()
-            val other = if (dualPane) otherPaneDir() else null
-            val arrow = if (paneState.isRightPane) "\u2190" else "\u2192"
-            val acts = buildList {
-                add(SelAction("Copy", Icons.Filled.FileCopy, any) {
-                    clipboard = picked(); isCutOperation = false; selectionMode = false; selectedIds = emptySet()
-                })
-                if (paneState.isArchive) add(SelAction("Extract\u2026", Icons.Filled.Unarchive, any, SelTone.ACCENT) {
-                    archivePane.extractTargets = picked().filterIsInstance<Loc.ArchiveLoc>()
-                })
-                else add(SelAction("Cut", Icons.Filled.ContentCut, any) {
-                    clipboard = picked(); isCutOperation = true; selectionMode = false; selectedIds = emptySet()
-                })
-                if (other != null) {
-                    add(SelAction(if (paneState.isArchive) "Extract $arrow" else "Copy $arrow", Icons.Filled.FileCopy, any, SelTone.ACCENT) { crossPaneTransfer(cut = false) })
-                    if (!paneState.isArchive) add(SelAction("Move $arrow", Icons.Filled.ContentCut, any, SelTone.ACCENT) { crossPaneTransfer(cut = true) })
-                }
-                add(SelAction("Share", Icons.Filled.Share, entries.any { !it.isDir && it.id in selectedIds }) { shareFiles(picked()) })
-                if (!pickMode && !paneState.isArchive) {
-                    add(SelAction("Compress", Icons.Filled.Archive, any) { compressTargets = picked() })
-                    fun videoSel() = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
-                    if (videoSel().isNotEmpty()) add(SelAction("Convert", Icons.Filled.Movie, true) { convertTargets = videoSel() })
-                }
-                if (!paneState.isArchive) add(SelAction("Delete", Icons.Filled.Delete, any, SelTone.DANGER) { pendingBulkDelete = picked() })
-            }
-            PaneSelectionUi(
-                count = selectedIds.size,
-                allSelected = entries.isNotEmpty() && selectedIds.size == entries.size,
-                targetName = other?.name?.ifBlank { "/" },
-                actions = acts,
-                onToggleAll = { selectedIds = if (selectedIds.size == entries.size) emptySet() else entries.map { it.id }.toSet() },
-                onDone = { selectionMode = false; selectedIds = emptySet() },
-            )
-        }
-        SideEffect { paneState.selectionUi = selection }
-        DisposableEffect(paneState) { onDispose { paneState.selectionUi = null } }
 
         AuroraPaneLayout(
             modifier = modifier,
@@ -3051,116 +3135,6 @@ fun BrowserPane(
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
-
-        // ── Selection bar ── replaces the paste banner while picking items.
-        if (selectionMode) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Text(
-                    "${selectedIds.size} selected",
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(end = 8.dp),
-                )
-                // Compact outlined buttons on a FlowRow: when the strip is too narrow for all of them
-                // (seven buttons + the count in a half-width dual pane) they WRAP onto another line
-                // instead of scrolling off-screen — every primary action stays visible.
-                val selBarPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            selectedIds = if (selectedIds.size == entries.size) emptySet()
-                            else entries.map { it.id }.toSet()
-                        },
-                        contentPadding = selBarPadding,
-                    ) { Text(if (selectedIds.size == entries.size) "None" else "All", fontSize = 12.sp) }
-                    OutlinedButton(
-                        enabled = selectedIds.isNotEmpty(),
-                        onClick = {
-                            clipboard = entries.filter { it.id in selectedIds }
-                            isCutOperation = false
-                            selectionMode = false
-                            selectedIds = emptySet()
-                        },
-                        contentPadding = selBarPadding,
-                    ) { Text("Copy", fontSize = 12.sp) }
-                    // Inside an archive (read-only): Extract… instead of Cut, and Copy → extracts.
-                    if (paneState.isArchive) OutlinedButton(
-                        enabled = selectedIds.isNotEmpty(),
-                        onClick = { archivePane.extractTargets = entries.filter { it.id in selectedIds }.filterIsInstance<Loc.ArchiveLoc>() },
-                        contentPadding = selBarPadding,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                    ) { Text("Extract\u2026", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
-                    else OutlinedButton(
-                        enabled = selectedIds.isNotEmpty(),
-                        onClick = {
-                            clipboard = entries.filter { it.id in selectedIds }
-                            isCutOperation = true
-                            selectionMode = false
-                            selectedIds = emptySet()
-                        },
-                        contentPadding = selBarPadding,
-                    ) { Text("Cut", fontSize = 12.sp) }
-                    // Cross-pane: copy / move the selection straight into the OTHER pane's directory.
-                    if (dualPane && otherPaneDir() != null) {
-                            OutlinedButton(
-                            enabled = selectedIds.isNotEmpty(),
-                            onClick = { crossPaneTransfer(cut = false) },
-                            contentPadding = selBarPadding,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                        ) { Text(if (paneState.isArchive) "Extract →" else "Copy →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
-                            if (!paneState.isArchive) OutlinedButton(
-                            enabled = selectedIds.isNotEmpty(),
-                            onClick = { crossPaneTransfer(cut = true) },
-                            contentPadding = selBarPadding,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                        ) { Text("Move →", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp) }
-                    }
-                    OutlinedButton(
-                        enabled = entries.any { !it.isDir && it.id in selectedIds },
-                        onClick = {
-                            shareFiles(entries.filter { it.id in selectedIds })
-                        },
-                        contentPadding = selBarPadding,
-                    ) { Text("Share", fontSize = 12.sp) }
-                    // Compress the selection into a new archive (zip/7z/tar/…/wcp) here or in the other pane.
-                    if (!pickMode && !paneState.isArchive) {
-                            OutlinedButton(
-                            enabled = selectedIds.isNotEmpty(),
-                            onClick = { compressTargets = entries.filter { it.id in selectedIds } },
-                            contentPadding = selBarPadding,
-                        ) { Text("Compress", fontSize = 12.sp) }
-                        // Batch video → MP4 (only the video files among the selection are offered).
-                        val videoSel = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
-                        if (videoSel.isNotEmpty()) {
-                            OutlinedButton(
-                                onClick = { convertTargets = videoSel },
-                                contentPadding = selBarPadding,
-                            ) { Text("Convert", fontSize = 12.sp) }
-                        }
-                    }
-                    if (!paneState.isArchive) OutlinedButton(
-                        enabled = selectedIds.isNotEmpty(),
-                        onClick = { pendingBulkDelete = entries.filter { it.id in selectedIds } },
-                        contentPadding = selBarPadding,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
-                    ) { Text("Delete", color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-                    OutlinedButton(
-                        onClick = { selectionMode = false; selectedIds = emptySet() },
-                        contentPadding = selBarPadding,
-                    ) { Text("Done", fontSize = 12.sp) }
-                }
-            }
-        }
 
         // ── Paste banner ──
         if (clipboard.isNotEmpty()) {

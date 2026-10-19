@@ -236,6 +236,8 @@ class PaneSelectionUi(
     val actions: List<SelAction>,
     val onToggleAll: () -> Unit,
     val onDone: () -> Unit,
+    /** With exactly one item picked: its own extras (Open with, Rename, Properties) for Classic's ☰ menu. */
+    val single: List<SelAction> = emptyList(),
 ) {
     companion object {
         /**
@@ -248,7 +250,8 @@ class PaneSelectionUi(
                 if (a == null || b == null) a === b
                 else a.count == b.count && a.allSelected == b.allSelected && a.targetName == b.targetName &&
                     a.actions.size == b.actions.size &&
-                    a.actions.indices.all { i -> a.actions[i].label == b.actions[i].label && a.actions[i].enabled == b.actions[i].enabled && a.actions[i].tone == b.actions[i].tone }
+                    a.actions.indices.all { i -> a.actions[i].label == b.actions[i].label && a.actions[i].enabled == b.actions[i].enabled && a.actions[i].tone == b.actions[i].tone } &&
+                    a.single.map { it.label } == b.single.map { it.label }
         }
     }
 }
