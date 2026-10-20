@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -89,6 +90,7 @@ import com.the412banner.bfe.ui.theme.ThemeSettings
 import com.the412banner.bfe.ui.theme.UiStyle
 import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.CheckState
+import com.the412banner.bfe.util.ScreenRotation
 import com.the412banner.bfe.util.DefaultApps
 import com.the412banner.bfe.media.MediaPrefs
 import com.the412banner.bfe.security.SecretVault
@@ -307,6 +309,36 @@ private fun MainSettings(
                 onClick = { change { ThemeSettings.setDynamic(context, !ThemeSettings.dynamicColor) } },
                 trailing = { Switch(checked = ThemeSettings.dynamicColor, onCheckedChange = { on -> change { ThemeSettings.setDynamic(context, on) } }) },
             )
+        }
+        // Screen rotation lock for every BFE screen (ScreenRotation.kt); the video player keeps its own.
+        Column(modifier = Modifier.settingsBlock()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.ScreenRotation, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column {
+                    Text("Screen rotation", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        when (ScreenRotation.mode) {
+                            ScreenRotation.Mode.AUTO -> "Follows your device's rotation setting."
+                            ScreenRotation.Mode.PORTRAIT -> "BFE always stays upright."
+                            ScreenRotation.Mode.LANDSCAPE -> "BFE always stays sideways."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            val rotations = ScreenRotation.Mode.values()
+            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                rotations.forEachIndexed { i, r ->
+                    SegmentedButton(
+                        selected = ScreenRotation.mode == r,
+                        onClick = { if (ScreenRotation.mode != r) ScreenRotation.set(context, r) },
+                        shape = SegmentedButtonDefaults.itemShape(i, rotations.size),
+                    ) { Text(r.label) }
+                }
+            }
         }
         // Launcher icon picker (AppIconSetting.kt).
         AppIconSetting()
