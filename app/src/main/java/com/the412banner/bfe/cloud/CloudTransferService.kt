@@ -234,6 +234,8 @@ class CloudTransferService : Service() {
                 }
                 attempt++
                 Log.w(TAG, "${item.name}: try ${attempt - 1} failed (${outcome.error}); retrying")
+                // Otherwise the re-run would pick up the same dead pooled SMB connections.
+                if (RcloneApi.isDroppedConnection(outcome.error)) api.clearFsCache()
                 CloudTransfers.update(item.id) { it.copy(attempt = attempt, speed = 0.0, etaSec = -1) }
                 refresh(force = true)
                 // A short back-off (a NAS waking up, Wi-Fi coming back); Cancel still works meanwhile.

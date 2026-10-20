@@ -142,20 +142,37 @@ class RcloneApi(val rc: RcClient) {
     fun list(remote: String, path: String): List<RcEntry> = listFs(fsOf(remote), path)
 
     /**
-     * One folder's entries. A dropped connection (a NAS closing an idle or surplus SMB session, a Wi-Fi
-     * blip) is tried once more after a short pause before the error reaches the user.
+     * One folder's entries. After a dropped connection (a NAS closing an idle or surplus SMB session, a
+     * Wi-Fi blip) rclone's cached remotes are dropped ([clearFsCache]) and the listing is tried again,
+     * up to [LIST_RETRIES] times, before the error reaches the user.
      */
     fun listFs(fs: String, path: String): List<RcEntry> {
         val params = JSONObject().put("fs", fs).put("remote", path)
-        val out = try {
-            rc.call("operations/list", params)
-        } catch (e: RcException) {
-            if (!isDroppedConnection(e.message)) throw e
-            Thread.sleep(LIST_RETRY_DELAY_MS)
-            rc.call("operations/list", params)
+        var tries = 0
+        var out: JSONObject? = null
+        while (out == null) {
+            try {
+                out = rc.call("operations/list", params)
+            } catch (e: RcException) {
+                if (!isDroppedConnection(e.message) || tries >= LIST_RETRIES) throw e
+                tries++
+                clearFsCache()
+                Thread.sleep(LIST_RETRY_DELAY_MS)
+            }
         }
         val arr = out.optJSONArray("list") ?: JSONArray()
         return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { parseEntry(it) } }
+    }
+
+    /**
+     * Drops rclone's cached remotes (`fscache/clear`). rclone keeps each remote's SMB connections in a
+     * pool and hands a pooled one out again without checking it, so after the network drops every call
+     * would get a dead connection until the pool runs dry. Clearing shuts the cached remotes down (an
+     * SMB remote closes its idle connections) and the next call connects afresh. Jobs already running
+     * keep the remote they started with. Never throws.
+     */
+    fun clearFsCache() {
+        runCatching { rc.call("fscache/clear", readTimeoutMs = 15_000) }
     }
 
     /** The entry at [path], or null if nothing is there. */
@@ -279,15 +296,17 @@ class RcloneApi(val rc: RcClient) {
 
     companion object {
         private const val LIST_RETRY_DELAY_MS = 1_500L
+        private const val LIST_RETRIES = 2
 
         /**
-         * True when rclone's error says the connection to the server was cut ("connection error: EOF"
-         * from SMB, a reset or broken pipe), as opposed to a refusal, a wrong password or a missing path.
+         * True when rclone's error says the connection to the server was cut (any SMB transport error,
+         * "connection error: …", an abort, a reset or broken pipe), as opposed to a refusal, a wrong
+         * password or a missing path.
          */
         fun isDroppedConnection(message: String?): Boolean {
             val m = message.orEmpty()
-            return m.contains("connection error: EOF") || m.contains("unexpected EOF") ||
-                m.contains("connection reset") || m.contains("broken pipe") ||
+            return m.contains("connection error:") || m.contains("unexpected EOF") ||
+                m.contains("connection reset") || m.contains("connection abort") || m.contains("broken pipe") ||
                 m.contains("use of closed network connection") || m.trimEnd().endsWith(": EOF")
         }
 

@@ -63,6 +63,12 @@ class LogScrubTest {
         assertGone(scrub("at \\\\NAS\\Share\\docs or C:\\Users\\Jane\\x.txt or WORKGROUP\\jane"), "Share", "Users", "Jane", "WORKGROUP")
     }
 
+    /** A tester's real SMB error (rclone prints the share path with backslashes). */
+    @Test fun smbAbortFromATester() {
+        val out = scrub("error in ListJSON: open Photos\\PhotoLibrary: connection error: read tcp 192.168.50.224:56516->192.168.50.100:445: read: software caused connection abort")
+        assertEquals("error in ListJSON: open <path>: connection error: read tcp <ip>-><ip>: read: software caused connection abort", out)
+    }
+
     @Test fun credentials() {
         val out = scrub("password=hunter2 token: abcDEF1234567890abcdef12 Authorization: Bearer eyJhbGc.xyz user=bob")
         assertGone(out, "hunter2", "abcDEF1234567890abcdef12", "eyJhbGc", "bob")
@@ -74,6 +80,7 @@ class LogScrubTest {
         assertTrue(RcloneApi.isDroppedConnection("error in ListJSON: connection error: EOF"))
         assertTrue(RcloneApi.isDroppedConnection("read tcp 10.0.0.2:5000->10.0.0.9:445: read: connection reset by peer"))
         assertTrue(RcloneApi.isDroppedConnection("write: broken pipe"))
+        assertTrue(RcloneApi.isDroppedConnection("error in ListJSON: open x: connection error: read tcp 10.0.0.2:5000->10.0.0.9:445: read: software caused connection abort"))
         assertFalse(RcloneApi.isDroppedConnection("dial tcp 10.0.0.9:445: connect: connection refused"))
         assertFalse(RcloneApi.isDroppedConnection("directory not found"))
         assertFalse(RcloneApi.isDroppedConnection(null))

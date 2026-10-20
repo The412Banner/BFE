@@ -55,7 +55,8 @@ object LogScrub {
         s = lookup.replace(s) { "${it.groupValues[1]} <host>" }
         s = uncPath.replace(s, "<path>")
         s = winPath.replace(s, "<path>")
-        s = domainUser.replace(s, "<user>")
+        // WORKGROUP\user style is a user; Photos\Library (an SMB path as rclone prints it) is a path.
+        s = domainUser.replace(s) { if (it.value.substringBefore('\\').all { c -> !c.isLetter() || c.isUpperCase() }) "<user>" else "<path>" }
         s = ipv4.replace(s, "<ip>")
         s = ipv6.replace(s) { if (it.value.count { c -> c == ':' } >= 2) "<ip>" else it.value }
         s = userAt.replace(s, "<user>@")
