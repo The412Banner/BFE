@@ -62,8 +62,8 @@ internal fun SvgViewerScreen(path: String?, uri: Uri?, name: String, onClose: ()
     var bg by rememberSaveable { mutableStateOf(if (dark) SvgBackground.DARK else SvgBackground.LIGHT) }
 
     LaunchedEffect(path, uri) {
-        state = withContext(Dispatchers.IO) {
-            runCatching {
+        state = withContext<SvgState>(Dispatchers.IO) {
+            runCatching<SvgState> {
                 val file = ToolFiles.readable(context, path, uri, name, "svg")
                 if (file.length() > MAX_SVG) return@runCatching SvgState.Failed("Too big to show", "SVG files up to 32 MB can be shown.")
                 val bytes = readSvg(file)

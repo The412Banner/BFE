@@ -115,8 +115,8 @@ internal fun HexEditorScreen(path: String?, uri: Uri?, name: String, allowWrite:
     var state by remember { mutableStateOf<HexState>(HexState.Loading) }
 
     LaunchedEffect(path, uri) {
-        state = withContext(Dispatchers.IO) {
-            runCatching { HexState.Ready(HexDoc.open(context, path, uri, allowWrite)) }
+        state = withContext<HexState>(Dispatchers.IO) {
+            runCatching<HexState> { HexState.Ready(HexDoc.open(context, path, uri, allowWrite)) }
                 .getOrElse { HexState.Failed(it.message ?: "The file couldn't be read.") }
         }
     }

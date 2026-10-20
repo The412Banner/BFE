@@ -58,8 +58,8 @@ internal fun FontViewerScreen(path: String?, uri: Uri?, name: String, onClose: (
     var sample by remember { mutableStateOf("The quick brown fox jumps over the lazy dog") }
 
     LaunchedEffect(path, uri) {
-        state = withContext(Dispatchers.IO) {
-            runCatching {
+        state = withContext<FontState>(Dispatchers.IO) {
+            runCatching<FontState> {
                 val file = ToolFiles.readable(context, path, uri, name, "font")
                 val info = FontInfoReader.read(file)
                     ?: return@runCatching FontState.Failed("This isn't a font file", "It doesn't start like a TrueType or OpenType font.")
