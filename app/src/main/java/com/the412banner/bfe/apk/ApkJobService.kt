@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import com.the412banner.bfe.apk.internals.ApkPatch
 import com.the412banner.bfe.MainActivity
 import org.json.JSONObject
 import java.io.File
@@ -31,6 +32,8 @@ data class ApkJobRequest(
     val key: KeyRef,
     val schemes: SignSchemes,
     val installAfter: Boolean,
+    /** PATCH only: APK entry name → absolute path of the file holding its new bytes. */
+    val replacements: Map<String, String> = emptyMap(),
 ) {
     fun toJson(): String = JSONObject().apply {
         put("kind", kind.name); put("input", input); put("output", output); put("installAfter", installAfter)
@@ -54,6 +57,7 @@ data class ApkJobRequest(
             put("displayName", key.displayName)
         })
         put("v1", schemes.v1); put("v2", schemes.v2); put("v3", schemes.v3)
+        if (replacements.isNotEmpty()) put("replacements", JSONObject().apply { replacements.forEach { (k, v) -> put(k, v) } })
     }.toString()
 
     companion object {
@@ -84,6 +88,7 @@ data class ApkJobRequest(
                 ),
                 schemes = SignSchemes(o.getBoolean("v1"), o.getBoolean("v2"), o.getBoolean("v3")),
                 installAfter = o.getBoolean("installAfter"),
+                replacements = o.optJSONObject("replacements")?.let { r -> r.keys().asSequence().associateWith { r.getString(it) } } ?: emptyMap(),
             )
         }
     }
@@ -93,7 +98,9 @@ data class ApkJobRequest(
  * Foreground service for the APK clone / edit / sign pipeline — the third sibling of
  * UnpackService / PackService: worker thread, wake lock, ongoing notification with Cancel, one job
  * at a time, progress by stage into [ApkJobManager] (the File Manager's pill + result dialog read
- * it). Stages: parse → (merge splits) → rewrite → (icon) → write+align → sign → verify.
+ * it). Stages: parse → (merge splits) → rewrite → (icon) → write+align → sign → verify; a PATCH job
+ * (APK-internals save) copies the APK with its edited entries swapped in, then signs. When a PATCH
+ * overwrites its own input, the signed APK is written beside it and only replaces it once verified.
  * Cancel is polled between stages; a cancelled or failed job deletes its partial output.
  */
 class ApkJobService : Service() {
@@ -179,7 +186,10 @@ class ApkJobService : Service() {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bfe:apk").apply { setReferenceCounted(false); acquire() }
             val startMs = SystemClock.elapsedRealtime()
-            val out = File(req.output)
+            val finalOut = File(req.output)
+            // Overwriting the input: sign next to it, swap in place only after it verifies.
+            val inPlace = finalOut.absoluteFile == File(req.input).absoluteFile
+            val out = if (inPlace) File(finalOut.parentFile, ".${finalOut.name}.bfe-saving") else finalOut
             val unsigned = File(cacheDir, "apkjob-$jobId/unsigned.apk")
             fun stage(s: ApkJobStage) {
                 ApkJobManager.update { it.copy(stage = s, elapsedMs = SystemClock.elapsedRealtime() - startMs) }
@@ -194,6 +204,12 @@ class ApkJobService : Service() {
                     stage(ApkJobStage.PARSING)
                     extractNative = runCatching { ApkRewriter.inspect(File(req.input)).extractNativeLibs }.getOrNull()
                     toSign = File(req.input)
+                } else if (req.kind == ApkJobKind.PATCH) {
+                    stage(ApkJobStage.WRITING)
+                    ApkPatch.write(File(req.input), req.replacements.mapValues { File(it.value) }, unsigned) { cancelled }
+                    fixups += req.replacements.keys.sorted().map { "Replaced $it" }
+                    extractNative = runCatching { ApkRewriter.inspect(unsigned).extractNativeLibs }.getOrNull()
+                    toSign = unsigned
                 } else {
                     val r = ApkRewriter.rewrite(
                         File(req.input), req.splits.map { File(it) }, req.edits ?: ApkEdits(null, null, null, null, null, null, null, null, null, null),
@@ -218,9 +234,10 @@ class ApkJobService : Service() {
                 fixups += "Signed with ${req.key.displayName} (" + listOfNotNull(
                     "v1".takeIf { v.v1 }, "v2".takeIf { v.v2 }, "v3".takeIf { v.v3 },
                 ).joinToString("+") + ")"
-                val meta = runCatching { ApkRewriter.inspect(out) }.getOrNull()
+                if (inPlace && !out.renameTo(finalOut)) throw IOException("Couldn't replace ${finalOut.name} (is its folder writable?)")
+                val meta = runCatching { ApkRewriter.inspect(finalOut) }.getOrNull()
                 val report = ApkJobReport(
-                    outputPath = out.absolutePath, fixups = fixups, warnings = warnings,
+                    outputPath = finalOut.absolutePath, fixups = fixups, warnings = warnings,
                     verified = v.verified, v1 = v.v1, v2 = v.v2, v3 = v.v3, signerDn = v.signerDn,
                     packageName = meta?.packageName, label = meta?.label, versionCode = meta?.versionCode, versionName = meta?.versionName,
                 )
@@ -243,6 +260,9 @@ class ApkJobService : Service() {
                 postTerminal(ApkJobManager.current)
             } finally {
                 unsigned.parentFile?.deleteRecursively()
+                // The edited entries were staged in the cache for this job only.
+                req.replacements.values.mapNotNull { File(it).parentFile }.distinct()
+                    .filter { it.absolutePath.startsWith(cacheDir.absolutePath + "/") }.forEach { it.deleteRecursively() }
                 stopForeground(Service.STOP_FOREGROUND_DETACH)
                 wakeLock?.let { if (it.isHeld) runCatching { it.release() } }
                 wakeLock = null
@@ -266,7 +286,7 @@ class ApkJobService : Service() {
         val cancel = PendingIntent.getService(
             this, 1, Intent(this, ApkJobService::class.java).apply { action = ACTION_CANCEL }, PendingIntent.FLAG_IMMUTABLE,
         )
-        val title = when (s.kind) { ApkJobKind.CLONE -> "Cloning"; ApkJobKind.EDIT -> "Editing"; ApkJobKind.SIGN -> "Signing" } + " ${s.sourceName}"
+        val title = s.kind.verb + " ${s.sourceName}"
         return Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle(title)

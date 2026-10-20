@@ -596,6 +596,11 @@
             android:exported="false"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode" />
         <activity
+            android:name="com.the412banner.bfe.ApkInternalsActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode" />
+        <activity
             android:name="com.the412banner.bfe.FontViewerActivity"
             android:theme="@style/AppTheme"
             android:exported="false"

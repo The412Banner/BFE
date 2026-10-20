@@ -108,7 +108,7 @@ internal const val CLONE_CAVEATS =
 // ── Key picker row (shared by the editor + sign dialog) ──
 
 @Composable
-private fun KeyAndSchemesRows(
+internal fun KeyAndSchemesRows(
     keys: List<KeyRef>,
     key: KeyRef,
     onKey: (KeyRef) -> Unit,
@@ -552,7 +552,7 @@ internal fun InstalledAppPickerDialog(onDismiss: () -> Unit, onPick: (InstalledA
 // ── Result ──
 
 @Composable
-internal fun ApkResultDialog(report: ApkJobReport, onInstall: () -> Unit, onDismiss: () -> Unit) {
+internal fun ApkResultDialog(report: ApkJobReport, onInstall: () -> Unit, onDismiss: () -> Unit, caveats: String? = CLONE_CAVEATS) {
     OutlinedAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("APK ready") },
@@ -578,8 +578,10 @@ internal fun ApkResultDialog(report: ApkJobReport, onInstall: () -> Unit, onDism
                     Text("Warnings", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                     report.warnings.forEach { Text("• $it", fontSize = 12.sp) }
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(CLONE_CAVEATS, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (caveats != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(caveats, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         },
         confirmButton = { TextButton(onClick = onInstall) { Text("Install") } },

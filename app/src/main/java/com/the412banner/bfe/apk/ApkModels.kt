@@ -61,8 +61,11 @@ data class KeyRef(
     val isBuiltIn: Boolean get() = displayName == SigningKeys.BUILT_IN_NAME
 }
 
-/** The kind of job the APK service runs. */
-enum class ApkJobKind { CLONE, EDIT, SIGN }
+/**
+ * The kind of job the APK service runs; [verb] heads its notification and progress pill. PATCH saves
+ * entries edited in the APK-internals tools (manifest, resources, res XML, dex) back into an APK.
+ */
+enum class ApkJobKind(val verb: String) { CLONE("Cloning"), EDIT("Editing"), SIGN("Signing"), PATCH("Saving") }
 
 /** Where the job is; also the notification/pill text. */
 enum class ApkJobStage(val label: String) {

@@ -44,7 +44,6 @@ import com.the412banner.bfe.video.ConvertPhase
 import com.the412banner.bfe.video.ConvertService
 import androidx.compose.material.icons.filled.Movie
 import com.the412banner.bfe.apk.ApkJobService
-import com.the412banner.bfe.apk.ApkJobKind
 import androidx.compose.material.icons.filled.Android
 import com.the412banner.bfe.unpack.UnpackManager
 import com.the412banner.bfe.unpack.UnpackPhase
@@ -265,7 +264,7 @@ fun ApkJobPill(modifier: Modifier = Modifier) {
         AuroraPillSlot(state.isRunning, modifier) {
             AuroraJobPill(
                 icon = Icons.Filled.Android,
-                title = when (state.kind) { ApkJobKind.CLONE -> "Cloning "; ApkJobKind.EDIT -> "Editing "; ApkJobKind.SIGN -> "Signing " } + state.sourceName,
+                title = state.kind.verb + " " + state.sourceName,
                 detail = state.stage.label + "…",
                 progress = state.fraction,
                 onClick = null,
@@ -288,7 +287,7 @@ fun ApkJobPill(modifier: Modifier = Modifier) {
                 Spacer(Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        when (state.kind) { ApkJobKind.CLONE -> "Cloning "; ApkJobKind.EDIT -> "Editing "; ApkJobKind.SIGN -> "Signing " } + state.sourceName,
+                        state.kind.verb + " " + state.sourceName,
                         color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Medium,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )

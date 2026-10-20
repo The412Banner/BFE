@@ -15,10 +15,10 @@ import androidx.compose.ui.text.input.VisualTransformation
  * Light, line-by-line code colouring for the text viewer and editor: comments, strings, numbers,
  * keywords, variables, keys and section headers for the formats people edit on a handheld — configs
  * (ini / cfg / conf / reg / properties / toml / yaml), scripts (sh / bat / ps1 / py / lua), JSON, XML /
- * HTML, and C-like code. Each line is coloured on its own (a block comment spanning lines only colours
+ * HTML, C-like code, and smali (Dalvik assembly). Each line is coloured on its own (a block comment spanning lines only colours
  * its first line), which keeps it instant on big files.
  */
-internal enum class CodeLang { INI, SHELL, BATCH, POWERSHELL, PYTHON, LUA, JSON, YAML, XML, CLIKE, NONE }
+internal enum class CodeLang { INI, SHELL, BATCH, POWERSHELL, PYTHON, LUA, JSON, YAML, XML, CLIKE, SMALI, NONE }
 
 internal object Syntax {
     private val byExt: Map<String, CodeLang> = buildMap {
@@ -33,6 +33,7 @@ internal object Syntax {
         listOf("xml", "html", "htm", "xhtml", "svg", "plist", "xaml", "csproj", "vcxproj", "manifest").forEach { put(it, CodeLang.XML) }
         listOf("c", "h", "cpp", "cc", "cxx", "hpp", "hh", "java", "kt", "kts", "js", "mjs", "ts", "tsx", "jsx", "cs", "go", "rs",
             "swift", "dart", "gradle", "glsl", "hlsl", "frag", "vert", "php", "css", "scss").forEach { put(it, CodeLang.CLIKE) }
+        put("smali", CodeLang.SMALI)
     }
 
     /** The language for [name], else a guess from the first line (a shebang, an XML / JSON start). */
@@ -42,6 +43,7 @@ internal object Syntax {
         return when {
             head.startsWith("#!") && ("python" in head) -> CodeLang.PYTHON
             head.startsWith("#!") -> CodeLang.SHELL
+            head.startsWith(".class ") -> CodeLang.SMALI
             head.startsWith("<?xml") || head.startsWith("<!DOCTYPE", ignoreCase = true) || head.startsWith("<html", ignoreCase = true) -> CodeLang.XML
             head.startsWith("{") || head.startsWith("[{") || head.startsWith("[\"") -> CodeLang.JSON
             head.startsWith("[") && head.trimEnd().endsWith("]") -> CodeLang.INI
@@ -85,6 +87,7 @@ internal object Syntax {
             CodeLang.JSON -> json(text, b, p)
             CodeLang.YAML -> yaml(text, b, p)
             CodeLang.XML -> xml(text, b, p)
+            CodeLang.SMALI -> smali(text, b, p)
             CodeLang.NONE -> Unit
         }
         return b.toAnnotatedString()
@@ -206,6 +209,57 @@ internal object Syntax {
             }
             i++
         }
+    }
+
+    /**
+     * smali: `.directives` as keywords, the opcode that starts an instruction line, registers (v0, p1),
+     * `:labels`, type descriptors (`Lcom/example/Foo;`), strings, numbers and `#` comments.
+     */
+    private fun smali(t: String, b: AnnotatedString.Builder, p: SyntaxPalette) {
+        val lead = t.indexOfFirst { !it.isWhitespace() }.takeIf { it >= 0 } ?: return
+        var i = lead
+        // The first word: a directive, a label, or an opcode (move-result-object, invoke-virtual/range …).
+        when (t[lead]) {
+            '.' -> { i = wordEnd(t, lead + 1); b.paint(p.keyword, lead, i) }
+            ':' -> { i = wordEnd(t, lead + 1); b.paint(p.section, lead, i) }
+            '#' -> { b.paint(p.comment, lead, t.length); return }
+            else -> if (t[lead].isLetter()) {
+                var j = lead
+                while (j < t.length && (t[j].isLetterOrDigit() || t[j] in "-/_")) j++
+                if (j == t.length || t[j].isWhitespace()) { b.paint(p.function, lead, j); i = j }
+            }
+        }
+        while (i < t.length) {
+            val c = t[i]
+            when {
+                c == '#' -> { b.paint(p.comment, i, t.length); return }
+                c == '"' || c == '\'' -> { val e = stringEnd(t, i, c); b.paint(p.string, i, e); i = e }
+                c == ':' && i + 1 < t.length && (t[i + 1].isLetterOrDigit() || t[i + 1] == '_') -> { val e = wordEnd(t, i + 1); b.paint(p.section, i, e); i = e }
+                (c == 'v' || c == 'p') && (i == 0 || !t[i - 1].isLetterOrDigit()) && i + 1 < t.length && t[i + 1].isDigit() -> {
+                    var e = i + 1
+                    while (e < t.length && t[e].isDigit()) e++
+                    if (e == t.length || !t[e].isLetterOrDigit()) b.paint(p.variable, i, e)
+                    i = e
+                }
+                c == 'L' && (i == 0 || t[i - 1] in " \t,({[)>-:") -> {
+                    val semi = t.indexOf(';', i)
+                    if (semi > i && t.substring(i, semi).none { it.isWhitespace() || it == '"' }) { b.paint(p.key, i, semi + 1); i = semi + 1 } else i++
+                }
+                (c.isDigit() || (c == '-' && i + 1 < t.length && t[i + 1].isDigit())) && (i == 0 || !t[i - 1].isLetterOrDigit()) -> {
+                    val s0 = i; i++
+                    while (i < t.length && (t[i].isLetterOrDigit() || t[i] == '.')) i++
+                    b.paint(p.number, s0, i)
+                }
+                c == '.' && i + 1 < t.length && t[i + 1].isLetter() && (i == 0 || t[i - 1].isWhitespace()) -> { val e = wordEnd(t, i + 1); b.paint(p.keyword, i, e); i = e }
+                else -> i++
+            }
+        }
+    }
+
+    private fun wordEnd(t: String, from: Int): Int {
+        var j = from
+        while (j < t.length && (t[j].isLetterOrDigit() || t[j] in "-_$")) j++
+        return j
     }
 
     /** Generic tokenizer: comments, strings, numbers, keywords and $variables. */
