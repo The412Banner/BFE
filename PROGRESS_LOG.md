@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI-green, partly device-tested)
+## 2026-10-20 — Remote dropped-connection message + error logs (`fix/remote-connection-error`, MERGED to main a834f21, unreleased)
 
 **Why:** a 1.2.0 tester copied 7 files from a NAS (SMB) to local storage. Both panes then showed
 `error in ListJSON: connection error: EOF` with the hint "It may need permissions BFE doesn't have, or
@@ -57,7 +57,14 @@ Settings toggle.
 **Mistakes:** I installed without asking and the test intent brought BFE over the owner's game (PUBG in
 the foreground). Owner's rule from now on: stage in Download/, hash-check, then ASK before every install.
 
-**Next:** CI result → stage test APK → device check (Settings toggle, an SMB/remote failure writes a
+**Merged (owner: "merge it to main"):** fast-forward main 5a15a37 → a834f21; app tree identical to the
+device-tested 255441e. Backup ref `refs/backup/20261020/main-before-remote-connection-error`. Main build
+run 39512712247 success. Branch kept. Not released. Old 503b85f test APK deleted from Download (owner).
+**Open:** SMB retry/message, cloud/transfer/archive-browse/compression entries and the Settings toggle are
+CI-green only; ask the tester for NAS model, file sizes and a `Download/BFE` log from a failing run; option
+B (MultiThreadStreams=1 for SMB) still on hold.
+
+**Earlier next-steps (done):** CI result → stage test APK → device check (Settings toggle, an SMB/remote failure writes a
 scrubbed entry, no FATAL in logcat) → owner's go to merge.
 
 ---
