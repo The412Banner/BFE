@@ -1,5 +1,6 @@
 package com.the412banner.bfe.ui.screens
 
+import android.os.Build
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.compose.BackHandler
@@ -4277,10 +4278,12 @@ private fun FilePropertiesDialog(
                 )
                 Spacer(Modifier.height(6.dp))
                 PropertyLine("Location", file.parent ?: "—")
-                // Full path including the name; tap copies it to the Android clipboard.
+                // Full path including the name; tap copies it to the Android clipboard. Android 13+
+                // shows its own copy preview, so only older versions get our confirmation (ours would
+                // otherwise sit under this dialog's scrim, half covered by the system preview).
                 PropertyLine("Path", file.absolutePath, maxLines = 4) {
                     clipboard.setText(AnnotatedString(file.absolutePath))
-                    AppSnackbar.show(context, "Path copied")
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) AppSnackbar.show(context, "Path copied")
                 }
                 PropertyLine(
                     "Type",
