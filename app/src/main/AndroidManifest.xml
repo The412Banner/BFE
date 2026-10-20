@@ -588,6 +588,29 @@
             </intent-filter>
         </activity>
 
+        <!-- "Open in BFE as" tools from the Open with sheet: hex editor, font viewer, SVG viewer and
+             script runner. Only started from inside BFE, so not exported. -->
+        <activity
+            android:name="com.the412banner.bfe.HexEditorActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode" />
+        <activity
+            android:name="com.the412banner.bfe.FontViewerActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode" />
+        <activity
+            android:name="com.the412banner.bfe.SvgViewerActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode" />
+        <activity
+            android:name="com.the412banner.bfe.ScriptRunnerActivity"
+            android:theme="@style/AppTheme"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|navigation|uiMode" />
+
         <!-- Built-in photo viewer. Also offered to other apps for images; then it pages through the
              image's folder when BFE can read it. Translucent (fades in over the caller), so no fixed
              screenOrientation here. -->

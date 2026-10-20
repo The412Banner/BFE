@@ -115,6 +115,10 @@ Tap any line for the details.
   Convert, Properties), then the installed apps, with *Open as* type chips.
 - *Always use for .ext* remembers a default per file type (managed in Settings); it's listed first and
   marked, and the sheet still shows.
+- **Open in BFE as** tiles for any file, whatever its extension: text editor, hex editor, archive, image,
+  music, video, web page, document, APK install / tools, font, SVG and script runner.
+- **Hex editor** for files of any size (offset · hex · text, go to offset, find hex or text, tap a byte
+  to overwrite it, Undo, Save in place); **script runner** with live output, exit code, Stop and *Run as root*.
 
 </details>
 

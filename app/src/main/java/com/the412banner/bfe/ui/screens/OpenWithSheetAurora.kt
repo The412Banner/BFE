@@ -71,7 +71,8 @@ import com.the412banner.bfe.ui.theme.rememberWindowBlurAvailable
 /**
  * BFE's Open with sheet in Aurora Glass. Same content and behaviour as Classic's (OpenWithSheet.kt owns
  * the state, the app query and the launch): a frosted sheet (the screen behind is blurred by the system
- * on Android 12+) with the file up top, BFE's own actions as equal-height glass tiles, "Open as" chips,
+ * on Android 12+) with the file up top, BFE's own actions as equal-height glass tiles, the "Open in BFE
+ * as" tool tiles, "Open as" chips,
  * the "Always use" switch, then the viewer apps as tiles (the remembered default first and marked).
  * BFE's own viewer / player ("View" / "Play") can be the remembered default too, marked the same way.
  * A tap on a file always lands here; nothing is ever auto-launched.
@@ -82,6 +83,8 @@ internal fun AuroraOpenWithSheet(
     file: Loc,
     detectedMime: String,
     actions: List<SheetAction>,
+    /** "Open in BFE as" tiles: BFE's tools for any file (OpenAsTools.kt). */
+    tools: List<SheetAction>,
     chips: List<OpenAs>,
     selected: OpenAs,
     onSelect: (OpenAs) -> Unit,
@@ -144,6 +147,19 @@ internal fun AuroraOpenWithSheet(
                         caption = if (isDefault) "Default" else null,
                         modifier = Modifier.staggeredEnter(i, Unit),
                     ) { Icon(a.icon, null, tint = cs.primary, modifier = Modifier.size(24.dp)) }
+                }
+            }
+            // ── Open in BFE as: every built-in tool, whatever the extension ──
+            if (tools.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Open in BFE as") }
+                items(tools.size) { i ->
+                    val t = tools[i]
+                    SheetTile(label = t.label, onClick = { onAction(t) }) {
+                        Box(
+                            Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(cs.primary.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(t.icon, null, tint = cs.primary, modifier = Modifier.size(22.dp)) }
+                    }
                 }
             }
             // ── Open as ──

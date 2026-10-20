@@ -135,16 +135,17 @@ private sealed interface DocState {
 /**
  * The document viewer: resolves the file (a real path when there is one, else a cache copy), picks the
  * kind (name, MIME type, then content), and shows it — PDF pages, the text view, or converted pages in
- * a WebView — with find, text size, Open with, Share and Print, in either look.
+ * a WebView — with find, text size, Open with, Share and Print, in either look. [startAsText] opens
+ * it in the text view whatever its kind.
  */
 @OptIn(FlowPreview::class)
 @Composable
-internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: String?, mime: String?, onClose: () -> Unit) {
+internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: String?, mime: String?, onClose: () -> Unit, startAsText: Boolean = false) {
     val context = LocalContext.current
     val theme = rememberReadingTheme()
     var source by remember { mutableStateOf<DocSource?>(null) }
     var kind by remember { mutableStateOf<DocKind?>(null) }
-    var forceText by rememberSaveable { mutableStateOf(false) }
+    var forceText by rememberSaveable { mutableStateOf(startAsText) }
     var state by remember { mutableStateOf<DocState>(DocState.Loading("Opening…")) }
 
     var textZoom by remember { mutableIntStateOf(DocPrefs.textZoom(context)) }

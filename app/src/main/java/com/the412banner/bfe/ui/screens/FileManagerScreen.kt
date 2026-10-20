@@ -2998,6 +2998,22 @@ fun BrowserPane(
                 if (f != null) add(SheetAction("Properties", SheetIcons.Properties) { propertiesTarget = loc })
             }
         }
+        // "Open in BFE as": every built-in tool for any file, whatever its extension (OpenAsTools.kt).
+        val tools = remember(req) {
+            val f = (loc as? Loc.FileLoc)?.file
+            openAsTools(
+                context,
+                OpenAsTarget(
+                    name = loc.name, path = f?.absolutePath, uri = req.uri, mime = req.mime,
+                    writable = loc !is Loc.RootLoc && req.fromArchive == null,
+                    rootPath = (loc as? Loc.RootLoc)?.path,
+                ),
+                onArchive = f?.let { file -> { openAsArchive(context, scope, file) { browseArchive(it) } } },
+                onMedia = { type -> openMedia(loc, type, req.uri, single = true) },
+                onInstall = { installApk(loc) },
+                onApkTools = { openApkEditorFor(loc, com.the412banner.bfe.apk.ApkJobKind.EDIT) },
+            )
+        }
         OpenWithSheet(
             file = loc,
             uri = req.uri,
@@ -3006,6 +3022,7 @@ fun BrowserPane(
             // Root files and archive entries are cache copies, so a write grant would edit the copy.
             allowWrite = loc !is Loc.RootLoc && req.fromArchive == null,
             onDismiss = { openWithReq = null },
+            tools = tools,
         )
     }
 

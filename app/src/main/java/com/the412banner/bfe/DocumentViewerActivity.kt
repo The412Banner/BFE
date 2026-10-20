@@ -31,10 +31,12 @@ class DocumentViewerActivity : ComponentActivity() {
         if (uri == null && path == null) { finish(); return }
         val name = intent.getStringExtra(EXTRA_NAME)
         val mime = intent.type
+        // "Open in BFE as → Text editor": show any file as text, whatever its kind.
+        val asText = intent.getBooleanExtra(EXTRA_FORCE_TEXT, false)
         setContent {
             BfeTheme {
                 BfePage {
-                    DocumentViewerScreen(uri = uri, explicitPath = path, nameHint = name, mime = mime, onClose = { finish() })
+                    DocumentViewerScreen(uri = uri, explicitPath = path, nameHint = name, mime = mime, startAsText = asText, onClose = { finish() })
                 }
             }
         }
@@ -43,6 +45,7 @@ class DocumentViewerActivity : ComponentActivity() {
     internal companion object {
         const val EXTRA_PATH = "com.the412banner.bfe.extra.DOC_PATH"
         const val EXTRA_NAME = "com.the412banner.bfe.extra.DOC_NAME"
+        const val EXTRA_FORCE_TEXT = "com.the412banner.bfe.extra.DOC_FORCE_TEXT"
     }
 }
 
@@ -64,12 +67,14 @@ object DocumentViewer {
     /**
      * The viewer for [path] (a real, readable file — preferred: no copy, and Markdown's relative
      * pictures load) or [uri] (a content:// Uri, read-granted to the viewer). [name] is what the file
-     * is called (its kind comes from it), [mime] a hint when the name has no extension.
+     * is called (its kind comes from it), [mime] a hint when the name has no extension. [forceText]
+     * opens it in the text view whatever its kind (Open in BFE as → Text editor).
      */
-    fun intent(context: Context, path: String?, uri: Uri?, name: String, mime: String? = null): Intent =
+    fun intent(context: Context, path: String?, uri: Uri?, name: String, mime: String? = null, forceText: Boolean = false): Intent =
         Intent(Intent.ACTION_VIEW).apply {
             component = component(context)
             putExtra(DocumentViewerActivity.EXTRA_NAME, name)
+            if (forceText) putExtra(DocumentViewerActivity.EXTRA_FORCE_TEXT, true)
             path?.let { putExtra(DocumentViewerActivity.EXTRA_PATH, it) }
             when {
                 uri != null -> { setDataAndType(uri, mime); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
@@ -77,8 +82,8 @@ object DocumentViewer {
             }
         }
 
-    fun open(context: Context, path: String?, uri: Uri?, name: String, mime: String? = null) {
-        runCatching { context.startActivity(intent(context, path, uri, name, mime)) }
+    fun open(context: Context, path: String?, uri: Uri?, name: String, mime: String? = null, forceText: Boolean = false) {
+        runCatching { context.startActivity(intent(context, path, uri, name, mime, forceText)) }
             .onFailure { AppSnackbar.show(context, "Couldn't open $name") }
     }
 
