@@ -6,6 +6,22 @@ where it stands*.
 
 ---
 
+## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (investigating, no code yet)
+
+**Report:** Kanuahs (Samsung SM-S938B, Android 17 / API 37) on the a834f21-era test APK, browsing a NAS SMB
+folder with "Paste 21 items here" pending: listing failed 4 times (23:27:35, 28:02, 28:32, 29:09, each "Try
+again"), `connection error: read tcp …: read: software caused connection abort`. Their `BFE-errors-2026-10-21.txt`
+scrub held (no IPs / folder names). No "Cloud transfer" entries.
+**Found:** (1) "software caused connection abort" isn't matched by `isDroppedConnection` → no retry, raw text shown.
+(2) rclone smb `mountShare` returns nil when the pooled conn already has the share (connpool.go), so dead pooled
+connections are handed out one per call; each failure closes only that one → repeated failures until the pool
+empties. (3) rc `fscache/clear` (fs/rc/cache.go:136) finalizes cached Fs → smb `Shutdown` → `drainPool`; next call
+gets a fresh Fs/pool. Why the socket died (ECONNABORTED, local side) is not known.
+**Proposed (awaiting owner's go):** match any go-smb2 `connection error:` + "connection abort"; on a dropped
+connection call `fscache/clear` then retry the listing; same before re-running a failed transfer job.
+
+---
+
 ## 2026-10-20 — Remote dropped-connection message + error logs (`fix/remote-connection-error`, MERGED to main a834f21, unreleased)
 
 **Why:** a 1.2.0 tester copied 7 files from a NAS (SMB) to local storage. Both panes then showed
