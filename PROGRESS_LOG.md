@@ -45,7 +45,8 @@ versionCode 17 as 1.2.0 (dev build), installs over it (same signing pipeline).
 failed, `Download/BFE/BFE-errors-2026-10-20.txt` got an entry, logcat had no FATAL/AndroidRuntime. But the
 scrub was wrong: `ERROR: <item>: secret <path> Private <name>` (7-Zip reason lost, words of the file name
 leaked). Fixed in `255441e` (7-Zip line rules, rclone rule needs its timestamp, paths through spaces, test
-from the real lib7zz output). CI run 39511509285.
+from the real lib7zz output). CI run 39511509285 success (unit tests ran). Staged
+`/sdcard/Download/BFE-remote-connection-error-255441e4.apk`, sha256 1eb531a0…ee24f8 (host = device), NOT installed — waiting for the owner.
 **Mistakes:** I installed without asking and the test intent brought BFE over the owner's game (PUBG in
 the foreground). Owner's rule from now on: stage in Download/, hash-check, then ASK before every install.
 
