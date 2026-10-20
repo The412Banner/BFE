@@ -135,7 +135,7 @@ private fun categoryOf(mime: String): String = when {
 
 /**
  * BFE's own "Open with" chooser: a modal bottom sheet with the file header, "Open as" type chips,
- * BFE's built-in actions for this file, then every app that can VIEW it (BFE excluded). Tapping an
+ * BFE's built-in actions for this file, the "Open in BFE as" tool tiles (any file, any tool), then every app that can VIEW it (BFE excluded). Tapping an
  * app opens the file in exactly that app; with "Always use for .ext" on, the choice is remembered and
  * later taps on such files skip the sheet (see [DefaultApps]).
  */
@@ -148,6 +148,8 @@ internal fun OpenWithSheet(
     actions: List<SheetAction>,
     allowWrite: Boolean,
     onDismiss: () -> Unit,
+    /** "Open in BFE as" tiles (OpenAsTools.kt): BFE's tools for any file. Never remembered as a default. */
+    tools: List<SheetAction> = emptyList(),
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
@@ -232,6 +234,7 @@ internal fun OpenWithSheet(
             file = file,
             detectedMime = detectedMime,
             actions = actions,
+            tools = tools,
             chips = chips,
             selected = selected,
             onSelect = { selected = it },
@@ -304,6 +307,47 @@ internal fun OpenWithSheet(
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 8.dp))
                     }
+                }
+            }
+            // ── Open in BFE as: every built-in tool, whatever the extension ──
+            if (tools.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "Open in BFE as",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
+                items(tools.size) { i ->
+                    val t = tools[i]
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { runAction(t) }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                    ) {
+                        Box(
+                            Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.secondaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(t.icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(24.dp))
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            t.label,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            minLines = 2,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(vertical = 8.dp))
                 }
             }
             // ── Open as ──

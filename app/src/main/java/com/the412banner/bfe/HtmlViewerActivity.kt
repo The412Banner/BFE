@@ -88,11 +88,12 @@ class HtmlViewerActivity : ComponentActivity() {
         val uri = intent.data
         val name = intent.getStringExtra(EXTRA_NAME)
         val explicitPath = intent.getStringExtra(EXTRA_PATH)
+        val forceHtml = intent.getBooleanExtra(EXTRA_FORCE_HTML, false)
         if (uri == null && explicitPath == null) { finish(); return }
         setContent {
             BfeTheme {
                 BfePage {
-                    HtmlViewerScreen(uri, explicitPath, name, onClose = { finish() })
+                    HtmlViewerScreen(uri, explicitPath, name, forceHtml, onClose = { finish() })
                 }
             }
         }
@@ -101,15 +102,20 @@ class HtmlViewerActivity : ComponentActivity() {
     companion object {
         private const val EXTRA_PATH = "path"
         private const val EXTRA_NAME = "name"
+        private const val EXTRA_FORCE_HTML = "force_html"
         private val HTML_EXTS = setOf("html", "htm", "xhtml", "xht", "svg")
 
         fun isHtmlName(name: String): Boolean = name.substringAfterLast('.', "").lowercase() in HTML_EXTS
 
-        /** Opens [path] (a real file, preferred: relative resources load) or [uri] in the viewer. */
-        fun intent(context: Context, path: String?, uri: Uri?, name: String): Intent =
+        /**
+         * Opens [path] (a real file, preferred: relative resources load) or [uri] in the viewer.
+         * [forceHtml] renders it as a web page even when its name isn't .html (Open in BFE as → Web).
+         */
+        fun intent(context: Context, path: String?, uri: Uri?, name: String, forceHtml: Boolean = false): Intent =
             Intent(context, HtmlViewerActivity::class.java)
                 .putExtra(EXTRA_NAME, name)
                 .apply {
+                    if (forceHtml) putExtra(EXTRA_FORCE_HTML, true)
                     path?.let { putExtra(EXTRA_PATH, it) }
                     uri?.let { data = it; addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }
                 }
@@ -119,14 +125,14 @@ class HtmlViewerActivity : ComponentActivity() {
 /** What the viewer loads: a real file (by URL, so relative links work) or inline markup from a stream. */
 private sealed interface PageSource {
     data class Url(val url: String, val file: File) : PageSource
-    data class Inline(val html: String) : PageSource
+    data class Inline(val html: String, val baseUrl: String? = null) : PageSource
     data class Failed(val message: String) : PageSource
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HtmlViewerScreen(uri: Uri?, explicitPath: String?, name: String?, onClose: () -> Unit) {
+private fun HtmlViewerScreen(uri: Uri?, explicitPath: String?, name: String?, forceHtml: Boolean, onClose: () -> Unit) {
     val context = LocalContext.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     var source by remember { mutableStateOf<PageSource?>(null) }
@@ -145,6 +151,11 @@ private fun HtmlViewerScreen(uri: Uri?, explicitPath: String?, name: String?, on
             val path = explicitPath ?: uri?.let { IncomingFile.resolvePath(context, it) }
             val file = path?.let { File(it) }?.takeIf { it.isFile && it.canRead() }
             when {
+                // Forced on a file whose name isn't .html: WebView would show it as text by its
+                // extension, so the markup is loaded inline with the file's folder as the base.
+                file != null && forceHtml && !HtmlViewerActivity.isHtmlName(file.name) -> runCatching {
+                    PageSource.Inline(file.readText(), Uri.fromFile(file.parentFile ?: file).toString() + "/")
+                }.getOrElse { PageSource.Failed(it.message ?: "The file couldn't be opened.") }
                 file != null -> PageSource.Url(Uri.fromFile(file).toString(), file)
                 uri != null -> runCatching {
                     context.contentResolver.openInputStream(uri)?.use { s ->
@@ -296,7 +307,7 @@ private fun HtmlViewerScreen(uri: Uri?, explicitPath: String?, name: String?, on
                             setFindListener { active, total, done -> if (done) matches = (if (total == 0) 0 else active + 1) to total }
                             when (s) {
                                 is PageSource.Url -> loadUrl(s.url)
-                                is PageSource.Inline -> loadDataWithBaseURL(null, s.html, "text/html", "utf-8", null)
+                                is PageSource.Inline -> loadDataWithBaseURL(s.baseUrl, s.html, "text/html", "utf-8", null)
                                 else -> Unit
                             }
                             webView = this
