@@ -102,17 +102,21 @@ object HomeStatsStore {
     /**
      * Internal storage the way Android's Settings reports it: StorageStatsManager's total is the
      * device's advertised capacity (e.g. 256 GB, not the 238 GiB data partition) and its free space
-     * counts clearable cache — no permission needed for either. StatFs is the fallback.
+     * counts clearable cache — no permission needed for either. StatFs is the fallback, and is also
+     * used when the advertised total is far above the data partition: Android rounds the chip size
+     * up to the next marketing size, so a chip a little over 1 TB reports 2 TB (seen on a 1 TB phone,
+     * which then showed "2.0 TB / 2.0 TB").
      */
     private fun mainVolume(context: Context): VolumeStat {
         val dir = File("/storage/emulated/0")
         val ssm = context.getSystemService(StorageStatsManager::class.java)
+        val fromFs = runCatching { StatFs(Environment.getDataDirectory().path).let { it.totalBytes to it.availableBytes } }.getOrNull()
         val fromStats = runCatching {
             val total = ssm.getTotalBytes(StorageManager.UUID_DEFAULT)
             val free = ssm.getFreeBytes(StorageManager.UUID_DEFAULT)
             total to free
-        }.getOrNull()
-        val (total, free) = fromStats ?: StatFs(Environment.getDataDirectory().path).let { it.totalBytes to it.availableBytes }
+        }.getOrNull()?.takeIf { (total, _) -> fromFs == null || total <= fromFs.first * 3 / 2 }
+        val (total, free) = fromStats ?: fromFs ?: (0L to 0L)
         return VolumeStat("Main storage", dir, true, (total - free).coerceAtLeast(0L), total)
     }
 
