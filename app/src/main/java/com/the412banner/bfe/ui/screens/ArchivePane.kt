@@ -70,6 +70,7 @@ import com.the412banner.bfe.unpack.SevenZip
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.DateText
 import com.the412banner.bfe.util.DirPicker
+import com.the412banner.bfe.util.ErrorLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -138,6 +139,7 @@ internal class ArchivePaneState(private val context: Context) {
                     val pw = askPassword(archive.name, e.wrong) ?: return Open.Cancelled
                     ArchivePasswords.set(archive, pw)
                 } catch (e: ArchiveException) {
+                    ErrorLog.record(context, "Archive open (browse)", e, details = listOf(ErrorLog.archiveFacts(archive.name, archive.length())))
                     return Open.Failed(e.message ?: "Couldn't open ${archive.name}")
                 }
             }
@@ -199,6 +201,8 @@ internal class ArchivePaneState(private val context: Context) {
                 ArchiveExtract.toViewCache(context, index, entries, pw, onPercent)
             }
         } catch (e: ArchiveException) {
+            ErrorLog.record(context, "Archive extract (to view)", e,
+                details = listOf(ErrorLog.archiveFacts(index.source.name, index.source.length()), "Entries: ${entries.size}, bytes: ${entries.sumOf { it.size }}"))
             AppSnackbar.show(context, e.message ?: "Couldn't extract ${first.name}", long = true)
             null
         }
@@ -221,12 +225,18 @@ internal class ArchivePaneState(private val context: Context) {
                 ArchiveExtract.toDestination(context, index, planned, dest, pw, onStage)
             } ?: return null
             val where = dest.name.ifBlank { "/" }
+            if (failed > 0) {
+                ErrorLog.record(context, "Archive extract to folder (partial)", "$failed of ${planned.size} items failed",
+                    details = listOf(ErrorLog.archiveFacts(index.source.name, index.source.length()), "Destination: ${dest.javaClass.simpleName}"))
+            }
             when {
                 failed > 0 -> "Extracted ${planned.size - failed} of ${planned.size} into $where"
                 planned.size == 1 -> "Extracted ${planned[0].targetName} into $where"
                 else -> "Extracted ${planned.size} items into $where"
             }
         } catch (e: ArchiveException) {
+            ErrorLog.record(context, "Archive extract to folder", e,
+                details = listOf(ErrorLog.archiveFacts(index.source.name, index.source.length()), "Items: ${planned.size}, destination: ${dest.javaClass.simpleName}"))
             e.message ?: "Extraction failed"
         }
     }

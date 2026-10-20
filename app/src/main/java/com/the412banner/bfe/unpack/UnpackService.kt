@@ -18,6 +18,7 @@ import android.util.Log
 import com.the412banner.bfe.MainActivity
 import com.the412banner.bfe.UnpackArchiveActivity
 import com.the412banner.bfe.core.StringUtils
+import com.the412banner.bfe.util.ErrorLog
 import com.the412banner.bfe.util.IncomingFile
 import java.io.File
 
@@ -563,6 +564,16 @@ class UnpackService : Service() {
             }
             UnpackManager.set(terminal)
             postTerminalNotification(terminal)
+            if (terminal.phase == UnpackPhase.ERROR) {
+                ErrorLog.record(
+                    ctx, "Extraction", terminal.errorTail,
+                    details = listOf(
+                        ErrorLog.archiveFacts(archive.name, dataSize) + (if (archives.size > 1) " (${archives.size} parts)" else ""),
+                        "Engine: $engine${if (isInno) " (Inno Setup)" else ""}, exit code ${result.exitCode}, files extracted $files, " +
+                            "elapsed ${elapsed / 1000} s" + (if (terminal.batchFailed > 0) ", ${terminal.batchFailed} DLC failed" else ""),
+                    ),
+                )
+            }
             // A file another app streamed in (no real path to it) was copied to app storage just for this
             // job; once it's extracted the copy is dead weight. Kept after an error/cancel so a retry works.
             if (terminal.phase == UnpackPhase.DONE &&
@@ -647,7 +658,11 @@ class UnpackService : Service() {
                 runExtraction(job.archives.map { File(it) }, File(job.dest), job.mmt, job.bufferBytes, job.isInno, job.totalSize, job.engine)
                 return   // the extraction's own finally calls onJobFinished
             }
-            is QuickExtract.Plan.Refuse -> postNotice("Can't extract ${item.name}", decided.reason, file?.absolutePath)
+            is QuickExtract.Plan.Refuse -> {
+                ErrorLog.record(this, "Extraction (couldn't start)", decided.reason,
+                    details = listOf(ErrorLog.archiveFacts(item.name, file?.length() ?: -1L) + if (item.path == null) " (shared from another app)" else ""))
+                postNotice("Can't extract ${item.name}", decided.reason, file?.absolutePath)
+            }
             null -> postNotice("Extraction cancelled", item.name, null)
         }
         onJobFinished()

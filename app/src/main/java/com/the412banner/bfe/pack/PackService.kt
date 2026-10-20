@@ -18,6 +18,7 @@ import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.unpack.ReadBuffer
 import com.the412banner.bfe.unpack.SevenZip
 import com.the412banner.bfe.unpack.UnpackManager
+import com.the412banner.bfe.util.ErrorLog
 import java.io.File
 
 /**
@@ -274,6 +275,15 @@ class PackService : Service() {
                 }
                 PackManager.set(terminal)
                 postTerminalNotification(terminal)
+                if (terminal.phase == PackPhase.ERROR) {
+                    ErrorLog.record(
+                        applicationContext, "Compression", terminal.errorTail,
+                        details = listOf(
+                            "Format: ${format.name}, level ${level.name}, encrypted ${if (password.isNullOrEmpty()) "no" else "yes"}, exit code ${result.exitCode}",
+                            "Inputs: ${inputs.size}, files added $files of ${terminal.totalFiles}, bytes ${terminal.totalBytes}, elapsed ${elapsed / 1000} s",
+                        ),
+                    )
+                }
                 stopForeground(Service.STOP_FOREGROUND_DETACH)
             } finally {
                 releaseWakeLock()

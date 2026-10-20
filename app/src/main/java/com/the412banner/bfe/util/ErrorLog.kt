@@ -48,6 +48,21 @@ object ErrorLog {
         write(ctx, what, error?.let { describe(it) }, shown, details, emptyList(), rclone = false)
     }
 
+    fun record(ctx: Context, what: String, error: String?, shown: String? = null, details: List<String> = emptyList()) {
+        write(ctx, what, error, shown, details, emptyList(), rclone = false)
+    }
+
+    /** "Archive: .tar.gz, 123456 B" for [name] / [size] — the type and size only, never the name. */
+    fun archiveFacts(name: String, size: Long, label: String = "Archive"): String {
+        val parts = name.lowercase().split('.').drop(1).takeLast(2).filter { it.length in 1..6 && it.all { c -> c.isLetterOrDigit() } }
+        val ext = when {
+            parts.size == 2 && (parts[0] == "tar" || parts[1].all { it.isDigit() }) -> ".${parts[0]}.${parts[1]}"
+            parts.isNotEmpty() -> ".${parts.last()}"
+            else -> "no extension"
+        }
+        return "$label: $ext, $size B"
+    }
+
     /**
      * A Cloud / Remote failure: like [record], plus the type of each of [remotes] ("smb", "drive")
      * instead of its name, and rclone's last log lines. [error] may be rclone's error text.
