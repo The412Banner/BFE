@@ -70,7 +70,7 @@ internal class TextFind {
 /**
  * A text file: monospace rows decoded only as they scroll into view, optional line numbers, wrapped or
  * one horizontal scroll for the whole file, find-in-text highlights. Multi-MB logs stay smooth: the
- * file is memory-mapped and indexed once ([TextDoc]).
+ * file is memory-mapped and indexed once ([TextDoc]). Code and config files are coloured by [lang].
  */
 @Composable
 internal fun TextPane(
@@ -81,7 +81,9 @@ internal fun TextPane(
     find: TextFind,
     listState: LazyListState,
     modifier: Modifier = Modifier,
+    lang: CodeLang = CodeLang.NONE,
 ) {
+    val palette = rememberSyntaxPalette()
     val fontSize = (13f * zoomPercent / 100f).sp
     val style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = fontSize, lineHeight = fontSize * 1.35f, color = MaterialTheme.colorScheme.onSurface)
     val muted = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
@@ -116,9 +118,11 @@ internal fun TextPane(
             LazyColumn(state = listState, contentPadding = PaddingValues(vertical = 8.dp), modifier = m) {
                 items(doc.rowCount) { i ->
                     val text = remember(doc, i) { doc.row(i) }
+                    // Continuation rows of a long line aren't a line start, so they stay plain.
+                    val coloured = remember(doc, i, lang, palette) { if (doc.isContinuation(i)) AnnotatedString(text) else Syntax.line(text, lang, palette) }
                     val hits = byRow[i]
-                    val shown: AnnotatedString = if (hits.isNullOrEmpty()) AnnotatedString(text) else buildAnnotatedString {
-                        append(text)
+                    val shown: AnnotatedString = if (hits.isNullOrEmpty()) coloured else buildAnnotatedString {
+                        append(coloured)
                         hits.forEach { h ->
                             val end = (h.start + h.length).coerceAtMost(text.length)
                             if (h.start < end) addStyle(SpanStyle(background = if (h == current) hitNow else hit), h.start, end)

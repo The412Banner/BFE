@@ -37,7 +37,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -65,6 +69,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -106,6 +111,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -159,6 +165,13 @@ internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: St
     var gotoPage by remember { mutableStateOf(false) }
     var contents by remember { mutableStateOf(false) }
 
+    // ── Editing (text files) ──
+    val scope = rememberCoroutineScope()
+    var editor by remember { mutableStateOf<EditorState?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    var leaveEditor by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var reload by remember { mutableIntStateOf(0) }
+
     // ── Find the file ──
     LaunchedEffect(uri, explicitPath) {
         val resolved = withContext(Dispatchers.IO) { runCatching { resolveSource(context, uri, explicitPath, nameHint) } }
@@ -173,7 +186,7 @@ internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: St
     }
 
     // ── Load it as its kind (or as text) ──
-    LaunchedEffect(source, kind, forceText) {
+    LaunchedEffect(source, kind, forceText, reload) {
         val s = source ?: return@LaunchedEffect
         val k = kind
         written = null
@@ -220,8 +233,45 @@ internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: St
         textFind.query = ""
     }
 
+    fun startEditing() {
+        val s = source ?: return
+        val st = state as? DocState.Text ?: return
+        when {
+            st.doc.binary -> { AppSnackbar.show(context, "This looks like a binary file, so it opens read-only"); return }
+            st.doc.truncated -> { AppSnackbar.show(context, "This file is too big to edit in BFE"); return }
+        }
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching { EditorState.open(s.file, st.doc.encoding) } }
+                .onSuccess { closeFind(); editor = it }
+                .onFailure { AppSnackbar.show(context, it.message ?: "Couldn't open the file for editing") }
+        }
+    }
+
+    fun save(then: () -> Unit = {}) {
+        val s = source ?: return
+        val ed = editor ?: return
+        if (saving) return
+        saving = true
+        scope.launch {
+            val r = withContext(Dispatchers.IO) {
+                runCatching { saveEdited(context, ed, s.file, s.originalUri, s.file.startsWith(cacheRoot(context))) }
+            }
+            saving = false
+            r.onSuccess { AppSnackbar.show(context, "Saved"); then() }
+                .onFailure { AppSnackbar.show(context, "Couldn't save: ${it.message ?: it.javaClass.simpleName}", long = true) }
+        }
+    }
+
+    // Leaving the editor: straight away when everything is saved, else ask first.
+    fun closeEditor(after: () -> Unit = {}) {
+        val ed = editor ?: return after()
+        val done = { editor = null; reload++; after() }
+        if (ed.dirty) leaveEditor = done else done()
+    }
+
     BackHandler {
         when {
+            editor != null -> closeEditor()
             finding -> closeFind()
             webView?.canGoBack() == true -> webView?.goBack()
             else -> onClose()
@@ -236,9 +286,21 @@ internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: St
     Column(Modifier.fillMaxSize()) {
         DocTopBar(
             title = name,
-            subtitle = subtitleOf(state, kind),
-            onBack = { if (finding) closeFind() else onClose() },
+            subtitle = editor?.let { ed ->
+                val (ln, col) = ed.cursor()
+                "Ln $ln, Col $col · ${ed.encoding.label}${if (ed.dirty) " · edited" else ""}"
+            } ?: subtitleOf(state, kind),
+            onBack = { when { editor != null -> closeEditor(onClose); finding -> closeFind(); else -> onClose() } },
         ) {
+            val ed = editor
+            if (ed != null) {
+                IconButton(onClick = { ed.undo() }, enabled = ed.canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
+                IconButton(onClick = { ed.redo() }, enabled = ed.canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, "Redo") }
+                IconButton(onClick = { save() }, enabled = ed.dirty && !saving) { Icon(Icons.Filled.Save, "Save") }
+                IconButton(onClick = { closeEditor() }) { Icon(Icons.Filled.Check, "Done editing") }
+                return@DocTopBar
+            }
+            if (state is DocState.Text) IconButton(onClick = { startEditing() }) { Icon(Icons.Filled.Edit, "Edit") }
             val canFind = state is DocState.Text || (state is DocState.Web && written != null)
             if (canFind) IconButton(onClick = { if (finding) closeFind() else finding = true }) { Icon(Icons.Filled.Search, "Find") }
             if (state is DocState.Text || state is DocState.Web) {
@@ -331,8 +393,15 @@ internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: St
                     }
                 }
                 is DocState.Text -> DocSurface {
-                    val listState = rememberLazyListState()
-                    TextPane(st.doc, textZoom, wrap, lineNumbers, textFind, listState)
+                    val ed = editor
+                    val onZoom: (Int) -> Unit = { textZoom = it; DocPrefs.setTextZoom(context, it) }
+                    val lang = remember(st.doc, name) { Syntax.detect(name, if (st.doc.rowCount > 0) st.doc.row(0) else null) }
+                    if (ed != null) {
+                        TextEditorPane(ed, textZoom, onZoom, wrap, lineNumbers, lang = lang)
+                    } else {
+                        val listState = rememberLazyListState()
+                        TextPane(st.doc, textZoom, wrap, lineNumbers, textFind, listState, Modifier.pinchTextZoom(textZoom, onZoom), lang)
+                    }
                 }
                 is DocState.Web -> DocSurface {
                     val key = written
@@ -397,6 +466,20 @@ internal fun DocumentViewerScreen(uri: Uri?, explicitPath: String?, nameHint: St
             gotoPage = false
             p.goTo(n - 1)
         }
+    }
+    leaveEditor?.let { leave ->
+        OutlinedAlertDialog(
+            onDismissRequest = { leaveEditor = null },
+            title = { Text("Save changes?") },
+            text = { Text("$name has changes that aren't saved yet.") },
+            confirmButton = { TextButton(onClick = { leaveEditor = null; save(leave) }) { Text("Save") } },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = { leaveEditor = null; leave() }) { Text("Discard") }
+                    TextButton(onClick = { leaveEditor = null }) { Text("Keep editing") }
+                }
+            },
+        )
     }
 }
 
