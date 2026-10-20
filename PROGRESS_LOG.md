@@ -40,6 +40,15 @@ open extra SMB sessions and trip a NAS connection limit — needs the tester's N
 **Staged:** `/sdcard/Download/BFE-remote-connection-error-503b85f3.apk`, sha256 6da76da1…a167e (host = device). Same
 versionCode 17 as 1.2.0 (dev build), installs over it (same signing pipeline).
 **Device test:** not done.
+**Device test 1 (503b85f, installed by me, hash 6da76da1… matched):** a deliberately corrupted zip
+(`Download/BFE-errlog-test/broken-test.zip`) sent to the QuickExtract alias by `am start`. The extraction
+failed, `Download/BFE/BFE-errors-2026-10-20.txt` got an entry, logcat had no FATAL/AndroidRuntime. But the
+scrub was wrong: `ERROR: <item>: secret <path> Private <name>` (7-Zip reason lost, words of the file name
+leaked). Fixed in `255441e` (7-Zip line rules, rclone rule needs its timestamp, paths through spaces, test
+from the real lib7zz output). CI run 39511509285.
+**Mistakes:** I installed without asking and the test intent brought BFE over the owner's game (PUBG in
+the foreground). Owner's rule from now on: stage in Download/, hash-check, then ASK before every install.
+
 **Next:** CI result → stage test APK → device check (Settings toggle, an SMB/remote failure writes a
 scrubbed entry, no FATAL in logcat) → owner's go to merge.
 
@@ -626,6 +635,10 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
 `android:extractNativeLibs="true"` is mandatory.
 
 ## Lessons learned (don't repeat these)
+
+- 2026-10-20: never install a test build without asking — stage in Download/, hash-check, ask, wait
+  for a yes. Don't fire test intents at the device while the owner may be using it (I brought BFE over a
+  running game). Check scrubbers against REAL tool output (lib7zz), not only made-up samples.
 - **A `/*` inside a Kotlin block comment cannot be escaped** — the glob `lib/**\/*.so` in a KDoc opened
   nested comments that swallowed the rest of two files, producing a cascade of bogus "unresolved
   reference" errors. Diagnose "Unclosed comment" *first*; check `/\*` vs `\*/` balance per file.
