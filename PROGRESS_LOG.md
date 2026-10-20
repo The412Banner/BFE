@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI pending, NOT device-tested)
+## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI in progress, NOT device-tested)
 
 **Why:** a 1.2.0 tester copied 7 files from a NAS (SMB) to local storage. Both panes then showed
 `error in ListJSON: connection error: EOF` with the hint "It may need permissions BFE doesn't have, or
@@ -30,7 +30,13 @@ open extra SMB sessions and trip a NAS connection limit — needs the tester's N
   names, URLs/hosts/IPs, e-mail, users, passwords, tokens). 14 files kept, 1 MB cap each.
   `LogScrubTest` covers it.
 
-**CI:** build.yml run 39509920545 (headSha 017ffad), result pending.
+- `503b85f` (owner: "add logging for archive and extraction errors too"): entries for archive open
+  (browse), extract-to-view, Extract to… (incl. partial), UnpackService jobs ending in ERROR or refused
+  before start, PackService compression errors. Archive type + size only (`ErrorLog.archiveFacts`),
+  engine, exit code, counts, scrubbed stderr tail.
+
+**CI:** build.yml run 39509920545 (017ffad) success, unit tests ran (testReleaseUnitTest). Run
+39510529827 (503b85f) pending.
 **Device test:** not done.
 **Next:** CI result → stage test APK → device check (Settings toggle, an SMB/remote failure writes a
 scrubbed entry, no FATAL in logcat) → owner's go to merge.
