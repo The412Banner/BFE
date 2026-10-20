@@ -1,11 +1,11 @@
 {
-  "versionCode": 15,
-  "versionName": "1.1.1",
-  "notes": "## What's new\n- **Document viewer** — PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), OpenDocument (.odt / .ods / .odp), EPUB, Markdown, RTF, CSV and text files open right inside BFE, offline\n- **Tap opens files in BFE** — photos, videos, music, documents, web pages, archives and APKs open in BFE's own viewers, player, archive browser or installer; anything else shows the Open with list, which stays in every file's ⋮ menu\n- **Hardware-encrypted sign-ins** — cloud and remote logins, the network server password and your APK signing-key passwords are now locked with your phone's security chip (StrongBox or TEE); existing ones are converted automatically\n- **New Home tiles** — four across, with the name on top, the icon under it and the details below, sized to fit any screen and font size\n\n## Improved\n- **Dual pane** — list and compact views only, so full file names fit; both panes always use the same view\n- **Google Drive sign-in** fixed\n- BFE is now signed with its own release key; it still installs over 1.1.0 as usual",
-  "apkName": "BFE-1.1.1.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.1.1/BFE-1.1.1.apk",
-  "sha256": "bf6838a4033a998cde809ae0950f06dfa47befed42cbe91fad575ca53323b1f8",
+  "versionCode": 16,
+  "versionName": "1.1.2",
+  "notes": "## What's new\n- **Copy a file's full path** — Properties now has a Path row with the full location and file name; tap it to copy the path to the clipboard\n- **Classic look: new selection menu** — long-press selects files, and all selection actions (Select all/none, Open with, Rename, Properties, Copy, Cut, Extract, Copy to/Move to, Share, Compress, Convert, Delete) are in the ☰ menu in the toolbar, so the file list keeps its full size while selecting\n\n## Improved\n- On Android 13 and newer, copying a path shows only Android's own clipboard preview instead of an extra message",
+  "apkName": "BFE-1.1.2.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.1.2/BFE-1.1.2.apk",
+  "sha256": "8fb7cc5535642dcd2ff642c9515ea51cab7fadb4e0311dbb0f611443cf33b575",
   "size": 53356340,
-  "publishedAt": "2026-10-17",
+  "publishedAt": "2026-10-20",
   "minSupported": 1
 }
