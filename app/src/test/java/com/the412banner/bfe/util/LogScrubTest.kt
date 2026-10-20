@@ -26,6 +26,26 @@ class LogScrubTest {
         assertEquals("2026/10/20 18:05:12 ERROR : <item>: Failed to copy: connection error: EOF", out)
     }
 
+    /** Real lib7zz 24.08 output for a corrupted zip (device, 2026-10-20), plus an archive it can't open. */
+    @Test fun sevenZipOutputKeepsTheReasonButNotTheNames() {
+        val out = scrub(
+            """
+            Extracting archive: /sdcard/Download/BFE-errlog-test/broken-test.zip
+            Path = /sdcard/Download/BFE-errlog-test/broken-test.zip
+            Type = zip
+            - secret folder/My Private File.txt
+            ERROR: Data Error : secret folder/My Private File.txt
+            ERROR: /storage/emulated/0/Download/My Stuff.rar
+            Can not open the file as archive
+            Sub items Errors: 1
+            """.trimIndent(),
+        )
+        assertGone(out, "secret", "Private", "broken-test", "errlog", "Stuff", "storage")
+        assertTrue(out, out.contains("ERROR: Data Error : <item>"))
+        assertTrue(out, out.contains("Can not open the file as archive"))
+        assertTrue(out, out.contains("Sub items Errors: 1"))
+    }
+
     @Test fun addressesAndHosts() {
         val out = scrub("couldn't connect SMB: dial tcp 192.168.1.50:445: connect: connection refused")
         assertEquals("couldn't connect SMB: dial tcp <ip>: connect: connection refused", out)

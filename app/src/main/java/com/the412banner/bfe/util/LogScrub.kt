@@ -11,9 +11,13 @@ package com.the412banner.bfe.util
  */
 object LogScrub {
     private val rcloneObject = Regex(
-        """^((?:\d{4}/\d\d/\d\d \d\d:\d\d:\d\d )?(?:DEBUG|INFO|NOTICE|WARNING|ERROR|CRITICAL|ALERT|EMERGENCY)\s*: )(.+?): """,
+        """^(\d{4}/\d\d/\d\d \d\d:\d\d:\d\d (?:DEBUG|INFO|NOTICE|WARNING|ERROR|CRITICAL|ALERT|EMERGENCY)\s*: )(.+?): """,
         RegexOption.MULTILINE,
     )
+    // 7-Zip: "ERROR: Data Error : <name>", "- <name>", "Path = <path>", "Extracting archive: <path>".
+    private val sevenZipName = Regex("""(?m)^((?:Open )?(?:ERROR|WARNING): [^\n]*?) : .+$""")
+    private val sevenZipItem = Regex("""(?m)^([-+*] ).+$""")
+    private val sevenZipPath = Regex("""(?m)^(\s*Path = |(?:Extracting|Scanning|Creating|Updating|Testing|Listing|Open) archive: |ERROR: (?=/)).+$""")
     private val secretPair = Regex(
         """(?i)\b(password|passwd|pass|pwd|token|access_token|refresh_token|secret|client_secret|client_id|api_?key|key|authorization|bearer|user|username|login|account|domain)(["']?\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|\S+)""",
     )
@@ -27,7 +31,8 @@ object LogScrub {
     private val uncPath = Regex("""\\\\[^\s"']+""")
     private val winPath = Regex("""\b[A-Za-z]:\\[^\s"']*""")
     private val domainUser = Regex("""\b[\w.-]+\\[\w.$-]+""")
-    private val unixPath = Regex("""(?<![\w<>:/])~?/[^\s"':,;)\]]*""")
+    // An absolute path runs through spaces up to ": ", a quote, ", ", ")" or the end of the line.
+    private val unixPath = Regex("""(?m)(?<![\w<>:/])~?/(?:[^\n:"']|:(?! ))*?(?=: |["']|,\s|\)|$)""")
     private val relPath = Regex("""\b(?=[\w.\-/]*[A-Za-z])[\w.\-]+(?:/[\w.\-]+)+/?""")
     private val dotted = Regex("""\b[\w-]*[A-Za-z_][\w-]*(?:\.[\w-]+)+\b|\b[\w-]+(?:\.[\w-]+)*\.[\w-]*[A-Za-z_][\w-]*\b""")
     private val quoted = Regex(""""[^"\n]*"|'[^'\n]{2,}'""")
@@ -37,6 +42,9 @@ object LogScrub {
     fun scrub(text: String, names: Collection<String> = emptyList()): String {
         var s = text
         s = rcloneObject.replace(s) { "${it.groupValues[1]}<item>: " }
+        s = sevenZipPath.replace(s) { "${it.groupValues[1]}<path>" }
+        s = sevenZipName.replace(s) { "${it.groupValues[1]} : <item>" }
+        s = sevenZipItem.replace(s) { "${it.groupValues[1]}<item>" }
         s = bearer.replace(s) { "${it.groupValues[1]} <redacted>" }
         s = secretPair.replace(s) { "${it.groupValues[1]}${it.groupValues[2]}<redacted>" }
         s = url.replace(s) { "${it.groupValues[1]}://<address>" }
