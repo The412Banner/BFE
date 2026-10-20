@@ -251,6 +251,9 @@ class RcloneApi(val rc: RcClient) {
         /** The local filesystem as an rclone fs; pair with [localPath]. */
         const val LOCAL_FS = "/"
 
+        /** rclone's `default_time` (2000-01-01T00:00:00Z), reported when a backend has no date. */
+        private const val RCLONE_DEFAULT_TIME_MS = 946_684_800_000L
+
         fun fsOf(remote: String) = "$remote:"
 
         /** An fs string for a folder inside a remote ("name:a/b"). */
@@ -265,7 +268,9 @@ class RcloneApi(val rc: RcClient) {
 
         internal fun parseEntry(o: JSONObject): RcEntry {
             val mod = o.optString("ModTime", "")
-            val ms = if (mod.isBlank()) 0L else runCatching { OffsetDateTime.parse(mod).toInstant().toEpochMilli() }.getOrDefault(0L)
+            val ms = (if (mod.isBlank()) 0L else runCatching { OffsetDateTime.parse(mod).toInstant().toEpochMilli() }.getOrDefault(0L))
+                // rclone fills unknown dates (e.g. SMB share roots) with its default_time; treat as no date.
+                .let { if (it == RCLONE_DEFAULT_TIME_MS) 0L else it }
             val isDir = o.optBoolean("IsDir", false)
             return RcEntry(
                 path = o.optString("Path", ""),
