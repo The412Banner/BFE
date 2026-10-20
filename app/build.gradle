@@ -208,6 +208,9 @@ dependencies {
         exclude group: 'org.antlr', module: 'stringtemplate'
         exclude group: 'antlr', module: 'antlr'
     }
+    // The assembler's parser runtime (BSD-3-Clause), declared directly since the ANTLR tool it normally
+    // comes through is excluded above.
+    implementation 'org.antlr:antlr-runtime:3.5.2'
     // APK internals (Java class / Jar): ASM 9.9.1 (BSD-3-Clause) reads .class files; asm-util's
     // Textifier prints the javap-style listing (header, fields, methods, bytecode).
     implementation 'org.ow2.asm:asm:9.9.1'
