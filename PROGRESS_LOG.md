@@ -6,6 +6,37 @@ where it stands*.
 
 ---
 
+## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI pending, NOT device-tested)
+
+**Why:** a 1.2.0 tester copied 7 files from a NAS (SMB) to local storage. Both panes then showed
+`error in ListJSON: connection error: EOF` with the hint "It may need permissions BFE doesn't have, or
+it was removed." It recovered by itself after a few minutes; a single-file copy worked. The text is
+go-smb2's `TransportError` (`cloudsoda/go-smb2` errors.go:22) passed through rclone: the NAS closed the
+SMB connection. BFE's rcd was still answering. Transfers already run one item at a time
+(`CloudTransferService.loop`). Unverified theory: rclone's 4 multi-thread streams per file >256 MiB
+open extra SMB sessions and trip a NAS connection limit — needs the tester's NAS model, file sizes and
+`BFE_RCLONE` logcat (option B, `MultiThreadStreams=1` for SMB, held until then).
+
+**Built (commit 017ffad):**
+- `RcloneApi.isDroppedConnection()`; `listFs` retries once after 1.5 s on a dropped connection.
+- `CloudSetup.friendly()`: "Lost the connection to the server. It may be busy or limiting connections;
+  try again in a moment."
+- Remote panes (Classic + Aurora) get `remoteErrorHint()` instead of the permissions hint; the Cloud
+  browser's error says where details went.
+- `util/ErrorLog` + `util/LogScrub`: Settings → Troubleshooting → "Save error logs" (on by default).
+  Remote/Cloud listing, fetch and transfer failures append a dated entry to
+  `Download/BFE/BFE-errors-<yyyy-MM-dd>.txt` (BFE/Android version, device model, remote *type*, error,
+  sizes/attempts, rclone's last log lines). All error text is scrubbed (remote names, paths, file
+  names, URLs/hosts/IPs, e-mail, users, passwords, tokens). 14 files kept, 1 MB cap each.
+  `LogScrubTest` covers it.
+
+**CI:** build.yml run 39509920545 (headSha 017ffad), result pending.
+**Device test:** not done.
+**Next:** CI result → stage test APK → device check (Settings toggle, an SMB/remote failure writes a
+scrubbed entry, no FATAL in logcat) → owner's go to merge.
+
+---
+
 ## In flight: built-in document viewer (branch `feat/document-viewer`, 2026-10-17)
 
 Owner: "Can we add document open support to the file manager?" — no app on the phone opened his
