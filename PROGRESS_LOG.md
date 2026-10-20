@@ -25,6 +25,10 @@ connection call `fscache/clear` then retry the listing; same before re-running a
 `Photos\Library`-style paths `<path>` (all-caps `WORKGROUP\user` stays `<user>`). Tests from the tester's line.
 **CI:** build.yml run 39515821043 (headSha a119293) success, unit tests ran.
 **Staged:** `/sdcard/Download/BFE-smb-stale-connections-a1192936.apk`, sha256 f674906b…eb8922 (host = device). Not installed.
+**Tester follow-up:** Synology DSM log shows only normal SMB3 access from the phone, no errors → supports a
+phone-side abort. Tester spotted the local UTC offset ("+0530") in entries gives away the time zone →
+`fea4b71`: entry times and the file date in UTC. CI run 39516956082. (A second copy of the same log,
+`BFE-errors-2026-10-21-1.txt`, was byte-identical — nothing new.)
 **Next:** CI → stage APK in Download/ + hashes → ASK before install. The real check is the tester's NAS.
 
 ---
