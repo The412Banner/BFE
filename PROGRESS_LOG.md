@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (branch `fix/smb-stale-connections`, CI pending, NOT device-tested)
+## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (branch `fix/smb-stale-connections`, CI-green, NOT device-tested)
 
 **Report:** Kanuahs (Samsung SM-S938B, Android 17 / API 37) on the a834f21-era test APK, browsing a NAS SMB
 folder with "Paste 21 items here" pending: listing failed 4 times (23:27:35, 28:02, 28:32, 29:09, each "Try
@@ -23,7 +23,8 @@ connection call `fscache/clear` then retry the listing; same before re-running a
 `RcloneApi.clearFsCache()` (rc `fscache/clear`, never throws); `listFs` clears + retries up to 2× (1.5 s apart);
 `CloudTransferService` clears before re-running a job that failed on a dropped connection. LogScrub labels
 `Photos\Library`-style paths `<path>` (all-caps `WORKGROUP\user` stays `<user>`). Tests from the tester's line.
-**CI:** build.yml run 39515821043 (headSha a119293), pending.
+**CI:** build.yml run 39515821043 (headSha a119293) success, unit tests ran.
+**Staged:** `/sdcard/Download/BFE-smb-stale-connections-a1192936.apk`, sha256 f674906b…eb8922 (host = device). Not installed.
 **Next:** CI → stage APK in Download/ + hashes → ASK before install. The real check is the tester's NAS.
 
 ---
