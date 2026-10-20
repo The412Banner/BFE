@@ -1,11 +1,11 @@
 {
-  "versionCode": 16,
-  "versionName": "1.1.2",
-  "notes": "## What's new\n- **Copy a file's full path** — Properties now has a Path row with the full location and file name; tap it to copy the path to the clipboard\n- **Classic look: new selection menu** — long-press selects files, and all selection actions (Select all/none, Open with, Rename, Properties, Copy, Cut, Extract, Copy to/Move to, Share, Compress, Convert, Delete) are in the ☰ menu in the toolbar, so the file list keeps its full size while selecting\n\n## Improved\n- On Android 13 and newer, copying a path shows only Android's own clipboard preview instead of an extra message",
-  "apkName": "BFE-1.1.2.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.1.2/BFE-1.1.2.apk",
-  "sha256": "8fb7cc5535642dcd2ff642c9515ea51cab7fadb4e0311dbb0f611443cf33b575",
-  "size": 53356340,
+  "versionCode": 17,
+  "versionName": "1.2.0",
+  "notes": "New in 1.2.0:\n• Text editor: edit text and code files right in the viewer, with code colouring, undo/redo, pinch zoom and a symbol key row.\n• Screen rotation setting (Settings › Appearance): Auto, Portrait or Landscape.\n• Cloud/network remotes (including Samba/SMB) can be opened like normal folders and picked from the drive menu; copies run in the background with retry.\n• \"Open in BFE as\": open any file as Text, Hex editor, Archive, Image, Music, Video, Web, Document, Font, SVG, APK or Run script.\n• APK internals: view and edit an app's manifest/binary XML, resources and dex (smali) code, browse Java classes and jars, then save to a new APK or over the original (re-signed).\n• Fixes: phones with 1 TB storage no longer show 2 TB; cloud files no longer show a fake year-2000 date.",
+  "apkName": "BFE-1.2.0.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.2.0/BFE-1.2.0.apk",
+  "sha256": "2a1492237cda73418a09975854ef1fb98e422e24a96878edc97f4f4e42fd8816",
+  "size": 55290029,
   "publishedAt": "2026-10-20",
   "minSupported": 1
 }
