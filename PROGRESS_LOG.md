@@ -64,6 +64,10 @@ run 39512712247 success. Branch kept. Not released. Old 503b85f test APK deleted
 CI-green only; ask the tester for NAS model, file sizes and a `Download/BFE` log from a failing run; option
 B (MultiThreadStreams=1 for SMB) still on hold.
 
+**Tester follow-up (2026-10-20, via owner):** working fine now on the a834f21-era test APK; owner thinks the
+connection (NAS/network) was the issue. Option B shelved unless it recurs with a `Download/BFE` log.
+Note: a successful list retry writes no log entry, only failures that reach the user do.
+
 **Earlier next-steps (done):** CI result → stage test APK → device check (Settings toggle, an SMB/remote failure writes a
 scrubbed entry, no FATAL in logcat) → owner's go to merge.
 
