@@ -1550,7 +1550,9 @@ fun BrowserPane(
         entriesFor = loc.id
         // A remote says why (server unreachable, wrong password…) in rclone's words, made friendly.
         loadError = if (result.isFailure) {
-            if (loc is Loc.RemoteLoc) com.the412banner.bfe.cloud.CloudSetup.friendly(result.exceptionOrNull()?.message) else "Couldn't read this folder"
+            if (loc is Loc.RemoteLoc) com.the412banner.bfe.cloud.CloudSetup.friendly(result.exceptionOrNull()?.message).also { shown ->
+                com.the412banner.bfe.util.ErrorLog.cloud(context, "Remote folder listing", listOf(loc.remote), result.exceptionOrNull(), shown)
+            } else "Couldn't read this folder"
         } else null
         loading = false
         if (reset) {
@@ -1784,7 +1786,9 @@ fun BrowserPane(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppSnackbar.show(context, "Couldn't fetch ${files[0].name}: ${com.the412banner.bfe.cloud.CloudSetup.friendly(e.message)}", long = true)
+                val why = com.the412banner.bfe.cloud.CloudSetup.friendly(e.message)
+                com.the412banner.bfe.util.ErrorLog.cloud(context, "Remote file fetch", files.map { it.remote }, e, why, listOf("Files: ${files.size}, bytes: ${files.sumOf { it.size }}"))
+                AppSnackbar.show(context, "Couldn't fetch ${files[0].name}: $why", long = true)
                 null
             } finally {
                 isOperationRunning = false
@@ -3415,6 +3419,7 @@ fun BrowserPane(
                     icon = Icons.Filled.FolderOff,
                     title = loadError ?: "Couldn't read this folder",
                     detail = if (inArchive != null) "BFE's 7-Zip couldn't open ${inArchive.archive.name}. It may be damaged, incomplete, or a format 7-Zip can extract but not list."
+                        else if (currentLoc is Loc.RemoteLoc) remoteErrorHint(context)
                         else "It may need permissions BFE doesn't have, or it was removed.",
                     actionLabel = if (inArchive != null) "Close archive" else "Try again",
                     onAction = { if (inArchive != null) paneState.closeArchive(inArchive.archive) else paneState.requestReload() },
@@ -4619,3 +4624,8 @@ private fun PaneDivider(onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onReset:
         )
     }
 }
+
+/** The pane's second line under a remote folder's error: what to try, and where the details went. */
+internal fun remoteErrorHint(context: android.content.Context): String =
+    "The server or the connection had a problem. Try again in a moment." +
+        if (com.the412banner.bfe.util.ErrorLog.isEnabled(context)) " Details were saved in Download/BFE." else ""

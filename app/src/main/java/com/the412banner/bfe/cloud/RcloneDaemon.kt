@@ -99,6 +99,9 @@ object RcloneDaemon {
         }
     }
 
+    /** True while rcd is up (checking never starts it). */
+    fun isRunning(): Boolean = rcd?.isAlive == true
+
     /** rclone's last log lines (for error details). */
     fun logTail(): String = rcd?.logTail() ?: ""
 

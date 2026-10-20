@@ -100,6 +100,7 @@ import com.the412banner.bfe.ui.icons.FileIcons
 import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.cloud.CloudServices
 import com.the412banner.bfe.cloud.CloudSetup
+import com.the412banner.bfe.util.ErrorLog
 import com.the412banner.bfe.cloud.CloudTransfers
 import com.the412banner.bfe.cloud.RcEntry
 import com.the412banner.bfe.cloud.RcRemote
@@ -228,6 +229,7 @@ internal fun RemoteBrowser(
             throw e
         } catch (e: Exception) {
             error = CloudSetup.friendly(e.message)
+            ErrorLog.cloud(context, "Cloud folder listing", listOf(remote.name), e, error)
         } finally {
             loading = false
         }
@@ -824,6 +826,10 @@ private fun FolderError(error: String, canSignIn: Boolean, onRetry: () -> Unit, 
         Text("Couldn't open this folder", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(6.dp))
         Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (ErrorLog.isEnabled(LocalContext.current)) {
+            Spacer(Modifier.height(4.dp))
+            Text("Details were saved in Download/BFE.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Spacer(Modifier.height(16.dp))
         Row {
             Button(onClick = onRetry) { Text("Retry") }

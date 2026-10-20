@@ -485,6 +485,7 @@ internal fun AuroraPaneLayout(
                                 icon = Icons.Filled.FolderOff,
                                 title = loadError,
                                 detail = if (inArchive != null) "BFE's 7-Zip couldn't open ${inArchive.archive.name}. It may be damaged, incomplete, or a format 7-Zip can extract but not list."
+                                else if (currentLoc is Loc.RemoteLoc) remoteErrorHint(LocalContext.current)
                                 else "It may need permissions BFE doesn't have, or it was removed.",
                                 actionLabel = if (inArchive != null) "Close archive" else "Try again",
                                 onAction = { if (inArchive != null) paneState.closeArchive(inArchive.archive) else paneState.requestReload() },

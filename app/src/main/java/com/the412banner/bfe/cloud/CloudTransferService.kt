@@ -16,6 +16,7 @@ import android.util.Log
 import com.the412banner.bfe.MainActivity
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.util.AppSnackbar
+import com.the412banner.bfe.util.ErrorLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -222,6 +223,7 @@ class CloudTransferService : Service() {
                 }
                 if (attempt >= MAX_ATTEMPTS) {
                     val why = CloudSetup.friendly(outcome.error)
+                    ErrorLog.cloud(ctx, "Cloud transfer", remotesOf(item), outcome.error, why, logDetails(item, attempt, outcome.errors))
                     CloudTransfers.update(item.id) {
                         it.copy(
                             status = TransferStatus.FAILED, speed = 0.0, etaSec = -1, failedFiles = outcome.errors,
@@ -246,11 +248,27 @@ class CloudTransferService : Service() {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "transfer ${item.name} failed", e)
-            CloudTransfers.update(item.id) { it.copy(status = TransferStatus.FAILED, error = CloudSetup.friendly(e.message)) }
+            val why = CloudSetup.friendly(e.message)
+            ErrorLog.cloud(applicationContext, "Cloud transfer", remotesOf(item), e, why, logDetails(item, item.attempt, 0L))
+            CloudTransfers.update(item.id) { it.copy(status = TransferStatus.FAILED, error = why) }
         } finally {
             staged?.parentFile?.deleteRecursively()
             refresh(force = true)
         }
+    }
+
+    /** The remotes [item] touches, by name (the error log writes their types, never the names). */
+    private fun remotesOf(item: TransferItem): List<String> =
+        (listOf(item.remote) + listOf(item.srcFs, item.dstFs).filter { it.endsWith(":") }.map { it.removeSuffix(":") })
+            .filter { it.isNotBlank() }
+
+    /** What the error log may say about [item]: kind and sizes, no names or paths. */
+    private fun logDetails(item: TransferItem, attempts: Int, failedFiles: Long): List<String> {
+        val ext = item.name.substringAfterLast('.', "").takeIf { !item.isDir && it.length in 1..5 && it.all { c -> c.isLetterOrDigit() } }
+        return listOf(
+            "Transfer: ${item.verb.lowercase()} ${if (item.isDir) "folder" else "file" + (ext?.let { " (.${it.lowercase()})" } ?: "")}, " +
+                "size ${item.size} B, ${item.bytes} B done, attempts $attempts" + (if (failedFiles > 0) ", $failedFiles files failed" else ""),
+        )
     }
 
     /** How one rclone job ended: [errors] is rclone's count of files that failed in it. */

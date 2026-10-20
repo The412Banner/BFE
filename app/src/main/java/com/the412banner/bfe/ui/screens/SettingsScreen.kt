@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Wifi
@@ -92,6 +93,7 @@ import com.the412banner.bfe.update.UpdateManager
 import com.the412banner.bfe.update.UpdateManager.CheckState
 import com.the412banner.bfe.util.ScreenRotation
 import com.the412banner.bfe.util.DefaultApps
+import com.the412banner.bfe.util.ErrorLog
 import com.the412banner.bfe.media.MediaPrefs
 import com.the412banner.bfe.security.SecretVault
 import com.the412banner.bfe.security.VaultProtection
@@ -405,6 +407,18 @@ private fun MainSettings(
         // ── Security ──
         SectionHeader("Security")
         CredentialProtectionRow()
+
+        SettingsDivider()
+        // ── Troubleshooting ──
+        SectionHeader("Troubleshooting")
+        var errorLog by remember { mutableStateOf(ErrorLog.isEnabled(context)) }
+        SettingRow(
+            icon = Icons.Filled.BugReport,
+            title = "Save error logs",
+            subtitle = "When something fails, BFE adds a dated entry to Download/BFE to attach to a bug report. File names, accounts, addresses and passwords are left out.",
+            onClick = { errorLog = !errorLog; ErrorLog.setEnabled(context, errorLog) },
+            trailing = { Switch(checked = errorLog, onCheckedChange = { errorLog = it; ErrorLog.setEnabled(context, it) }) },
+        )
 
         SettingsDivider()
         // ── About ──

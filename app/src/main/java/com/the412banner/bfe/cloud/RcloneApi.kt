@@ -141,8 +141,19 @@ class RcloneApi(val rc: RcClient) {
 
     fun list(remote: String, path: String): List<RcEntry> = listFs(fsOf(remote), path)
 
+    /**
+     * One folder's entries. A dropped connection (a NAS closing an idle or surplus SMB session, a Wi-Fi
+     * blip) is tried once more after a short pause before the error reaches the user.
+     */
     fun listFs(fs: String, path: String): List<RcEntry> {
-        val out = rc.call("operations/list", JSONObject().put("fs", fs).put("remote", path))
+        val params = JSONObject().put("fs", fs).put("remote", path)
+        val out = try {
+            rc.call("operations/list", params)
+        } catch (e: RcException) {
+            if (!isDroppedConnection(e.message)) throw e
+            Thread.sleep(LIST_RETRY_DELAY_MS)
+            rc.call("operations/list", params)
+        }
         val arr = out.optJSONArray("list") ?: JSONArray()
         return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { parseEntry(it) } }
     }
@@ -267,6 +278,19 @@ class RcloneApi(val rc: RcClient) {
         JSONObject().put("srcFs", srcFs).put("srcRemote", srcPath).put("dstFs", dstFs).put("dstRemote", dstPath)
 
     companion object {
+        private const val LIST_RETRY_DELAY_MS = 1_500L
+
+        /**
+         * True when rclone's error says the connection to the server was cut ("connection error: EOF"
+         * from SMB, a reset or broken pipe), as opposed to a refusal, a wrong password or a missing path.
+         */
+        fun isDroppedConnection(message: String?): Boolean {
+            val m = message.orEmpty()
+            return m.contains("connection error: EOF") || m.contains("unexpected EOF") ||
+                m.contains("connection reset") || m.contains("broken pipe") ||
+                m.contains("use of closed network connection") || m.trimEnd().endsWith(": EOF")
+        }
+
         /** The local filesystem as an rclone fs; pair with [localPath]. */
         const val LOCAL_FS = "/"
 

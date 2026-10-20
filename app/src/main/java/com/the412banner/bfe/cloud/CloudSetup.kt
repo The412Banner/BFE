@@ -266,6 +266,7 @@ object CloudSetup {
             m.contains("No code returned by remote server") || m.contains("access_denied") -> "Sign-in was declined in the browser."
             m.contains("failed to start auth webserver") -> "Another sign-in is already waiting. Finish or cancel it, then try again."
             m.contains("no such host") || m.contains("dial tcp") && m.contains("lookup") -> "Couldn't reach the server. Check the address and your connection."
+            RcloneApi.isDroppedConnection(m) -> "Lost the connection to the server. It may be busy or limiting connections; try again in a moment."
             m.contains("connection refused") -> "The server refused the connection. Check the address and port."
             m.contains("i/o timeout") || m.contains("deadline exceeded") -> "The server didn't answer in time."
             m.contains("401") || m.contains("403") || m.contains("Unauthorized") || m.contains("authentication") || m.contains("Access Denied") || m.contains("AccessDenied") ->
