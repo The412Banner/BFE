@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI in progress, NOT device-tested)
+## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI-green, NOT device-tested)
 
 **Why:** a 1.2.0 tester copied 7 files from a NAS (SMB) to local storage. Both panes then showed
 `error in ListJSON: connection error: EOF` with the hint "It may need permissions BFE doesn't have, or
@@ -36,7 +36,9 @@ open extra SMB sessions and trip a NAS connection limit — needs the tester's N
   engine, exit code, counts, scrubbed stderr tail.
 
 **CI:** build.yml run 39509920545 (017ffad) success, unit tests ran (testReleaseUnitTest). Run
-39510529827 (503b85f) pending.
+39510529827 (503b85f) success, unit tests ran.
+**Staged:** `/sdcard/Download/BFE-remote-connection-error-503b85f3.apk`, sha256 6da76da1…a167e (host = device). Same
+versionCode 17 as 1.2.0 (dev build), installs over it (same signing pipeline).
 **Device test:** not done.
 **Next:** CI result → stage test APK → device check (Settings toggle, an SMB/remote failure writes a
 scrubbed entry, no FATAL in logcat) → owner's go to merge.
