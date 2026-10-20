@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.SdStorage
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
@@ -22,12 +23,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.the412banner.bfe.cloud.CloudSection
+import com.the412banner.bfe.cloud.CloudSetup
+import com.the412banner.bfe.cloud.RemoteShortcuts
 import com.the412banner.bfe.core.StorageRoot
+import com.the412banner.bfe.storage.RemoteBackend
 import com.the412banner.bfe.storage.PinnedLocation
 import com.the412banner.bfe.util.AppSnackbar
 
@@ -38,7 +44,10 @@ import com.the412banner.bfe.util.AppSnackbar
  * [onDone] (closing its menu) before or after its action, as the toolbar always did.
  */
 
-/** Drives, pinned app storage (with ✕ to unpin), then "Add app storage". Acts on [active]. */
+/**
+ * Drives, pinned app storage (with ✕ to unpin), the Cloud / Remote accounts (opened as folders through
+ * rclone, see [com.the412banner.bfe.storage.RemoteBackend]), then "Add app storage". Acts on [active].
+ */
 @Composable
 internal fun FmDriveMenuItems(
     active: PaneState,
@@ -84,6 +93,23 @@ internal fun FmDriveMenuItems(
                 )
             },
             onClick = { onDone(); onOpenPinned(p) },
+        )
+    }
+    // Remotes (SMB, SFTP, FTP, WebDAV, cloud accounts) as they were last listed on the Cloud / Remote
+    // screens; each opens at its start folder, with rclone started on demand.
+    val remotes = remember { RemoteShortcuts.list(context) }
+    remotes.forEach { r ->
+        MenuItemDivider()
+        DropdownMenuItem(
+            text = { Text(r.name) },
+            leadingIcon = {
+                Icon(if (r.section == CloudSection.REMOTE) Icons.Filled.Lan else Icons.Filled.Cloud, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            },
+            onClick = {
+                onDone()
+                active.showFavorites = false
+                active.openAltRoot(RemoteBackend.rootLoc(r.name, CloudSetup.startPath(context, r.name)), r.name)
+            },
         )
     }
     MenuItemDivider()

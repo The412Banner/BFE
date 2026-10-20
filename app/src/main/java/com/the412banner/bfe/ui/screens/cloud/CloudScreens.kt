@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Login
@@ -88,6 +89,9 @@ import com.the412banner.bfe.cloud.RcRemote
 import com.the412banner.bfe.cloud.RcloneConfigFile
 import com.the412banner.bfe.cloud.RcloneDaemon
 import com.the412banner.bfe.cloud.RcloneManager
+import com.the412banner.bfe.cloud.RemoteShortcuts
+import com.the412banner.bfe.storage.RemoteBackend
+import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.ui.screens.outlinedMenuCard
@@ -101,11 +105,16 @@ import kotlinx.coroutines.withContext
  * Everything runs on rclone ([RcloneManager] downloads it on first use, [RcloneDaemon] runs it).
  */
 @Composable
-fun CloudScreen(onBack: () -> Unit) = RcloneSection(CloudSection.CLOUD, onBack)
+fun CloudScreen(onBack: () -> Unit, onOpenInFiles: ((FmLocationRequest) -> Unit)? = null) =
+    RcloneSection(CloudSection.CLOUD, onBack, onOpenInFiles)
 
-/** Connections to servers (SFTP, FTP, SMB, WebDAV): the Home screen's Remote tile. */
+/**
+ * Connections to servers (SFTP, FTP, SMB, WebDAV): the Home screen's Remote tile. [onOpenInFiles] shows
+ * a connection (or one of its folders) in the file manager, where it copies and pastes like any folder.
+ */
 @Composable
-fun RemoteScreen(onBack: () -> Unit) = RcloneSection(CloudSection.REMOTE, onBack)
+fun RemoteScreen(onBack: () -> Unit, onOpenInFiles: ((FmLocationRequest) -> Unit)? = null) =
+    RcloneSection(CloudSection.REMOTE, onBack, onOpenInFiles)
 
 internal fun sectionTitle(section: CloudSection) = if (section == CloudSection.CLOUD) "Cloud storage" else "Remote connections"
 
@@ -148,7 +157,7 @@ internal fun uniqueName(base: String, taken: Collection<String>): String {
 }
 
 @Composable
-private fun RcloneSection(section: CloudSection, onBack: () -> Unit) {
+private fun RcloneSection(section: CloudSection, onBack: () -> Unit, onOpenInFiles: ((FmLocationRequest) -> Unit)?) {
     val context = LocalContext.current
     // Settle installed / not installed before the first frame (two file checks), so an installed
     // engine never flashes the download page.
@@ -188,6 +197,7 @@ private fun RcloneSection(section: CloudSection, onBack: () -> Unit) {
                 remote = remote,
                 onBack = { openRemote = null; reloadKey++ },
                 onTransfers = { showTransfers = true },
+                onOpenInFiles = onOpenInFiles,
             )
             adding -> AddAccountPage(
                 section = section,
@@ -201,6 +211,7 @@ private fun RcloneSection(section: CloudSection, onBack: () -> Unit) {
                 onOpen = { openRemote = it },
                 onAdd = { prefill = null; adding = true },
                 onTransfers = { showTransfers = true },
+                onOpenInFiles = onOpenInFiles,
             )
         }
     }
@@ -319,6 +330,7 @@ private fun AccountsPage(
     onOpen: (RcRemote) -> Unit,
     onAdd: () -> Unit,
     onTransfers: () -> Unit,
+    onOpenInFiles: ((FmLocationRequest) -> Unit)?,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -340,6 +352,8 @@ private fun AccountsPage(
             val api = RcloneDaemon.api(context)
             val all = withContext(Dispatchers.IO) { api.remotes() }
             allNames = all.map { it.name }
+            // The file manager's drive menu lists these without having to start rclone.
+            RemoteShortcuts.save(context, all)
             val mine = all.filter { CloudServices.sectionOf(it.type, it.params) == section }
             remotes = mine
             // Accounts made through "More services" are labelled with rclone's backend description.
@@ -427,6 +441,12 @@ private fun AccountsPage(
                             onRename = { renameTarget = r },
                             onReconnect = { CloudSetup.reconnect(context, r) },
                             onRemove = { removeTarget = r },
+                            onOpenInFiles = onOpenInFiles?.let { open ->
+                                {
+                                    val start = CloudSetup.startPath(context, r.name)
+                                    open(FmLocationRequest.alt(RemoteBackend.rootLoc(r.name, start), r.name))
+                                }
+                            },
                         )
                     }
                 }
@@ -554,6 +574,7 @@ private fun AccountCard(
     onRename: () -> Unit,
     onReconnect: () -> Unit,
     onRemove: () -> Unit,
+    onOpenInFiles: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     val (icon, color) = remember(remote) { CloudServices.look(remote) }
@@ -586,6 +607,13 @@ private fun AccountCard(
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Options") }
                 BfeDropdownMenu(expanded = menu, onDismissRequest = { menu = false }, modifier = Modifier.outlinedMenuCard()) {
+                    if (onOpenInFiles != null && !needsSignIn) {
+                        DropdownMenuItem(
+                            text = { Text("Open in file manager") },
+                            leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
+                            onClick = { menu = false; onOpenInFiles() },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Rename") },
                         leadingIcon = { Icon(Icons.Filled.DriveFileRenameOutline, null) },

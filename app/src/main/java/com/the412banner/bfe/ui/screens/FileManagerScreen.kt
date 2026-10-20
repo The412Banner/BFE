@@ -1547,7 +1547,10 @@ fun BrowserPane(
         }
         entries = result.getOrNull() ?: emptyList()
         entriesFor = loc.id
-        loadError = if (result.isFailure) "Couldn't read this folder" else null
+        // A remote says why (server unreachable, wrong password…) in rclone's words, made friendly.
+        loadError = if (result.isFailure) {
+            if (loc is Loc.RemoteLoc) com.the412banner.bfe.cloud.CloudSetup.friendly(result.exceptionOrNull()?.message) else "Couldn't read this folder"
+        } else null
         loading = false
         if (reset) {
             highlightId = null
@@ -1603,6 +1606,24 @@ fun BrowserPane(
         }
     }
 
+    // Browsing a remote keeps BFE's rclone engine running (it would otherwise stop after a minute and
+    // a half idle, and the next folder would wait for it to start again).
+    val onRemote = currentLoc is Loc.RemoteLoc
+    DisposableEffect(onRemote) {
+        val holder = "fm-pane-${System.identityHashCode(paneState)}"
+        if (onRemote) com.the412banner.bfe.cloud.RcloneDaemon.retain(holder)
+        onDispose { if (onRemote) com.the412banner.bfe.cloud.RcloneDaemon.release(holder) }
+    }
+    // A paste queued to the transfer service landed (or a cut left): re-list if this pane shows either end.
+    LaunchedEffect(paneState) {
+        com.the412banner.bfe.cloud.CloudTransfers.finished.collect { t ->
+            if (t.kind == com.the412banner.bfe.cloud.TransferKind.COPY) {
+                val here = paneState.currentLoc.id
+                if (here == t.dstDirId || here == t.srcDirId) paneState.requestReload()
+            }
+        }
+    }
+
     // Pull-to-refresh → re-list, keeping scroll.
     if (pullState.isRefreshing) {
         LaunchedEffect(true) { paneState.requestReload(); pullState.endRefresh() }
@@ -1634,7 +1655,7 @@ fun BrowserPane(
     fun openLoc(loc: Loc) {
         when (loc) {
             is Loc.FileLoc -> navFileDir(loc.file)
-            is Loc.SafLoc, is Loc.RootLoc, is Loc.ArchiveLoc -> paneState.openAltInto(loc)
+            is Loc.SafLoc, is Loc.RootLoc, is Loc.ArchiveLoc, is Loc.RemoteLoc -> paneState.openAltInto(loc)
         }
     }
 
@@ -1687,8 +1708,9 @@ fun BrowserPane(
                 ?: return@runCatching null
             androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", staged)
         }.getOrNull()
-        // An entry inside an archive has no Uri until it's extracted (withArchiveCopies below).
-        is Loc.ArchiveLoc -> null
+        // An entry inside an archive has no Uri until it's extracted (withArchiveCopies below), nor a
+        // remote file until it's fetched (withRemoteCopies).
+        is Loc.ArchiveLoc, is Loc.RemoteLoc -> null
     }
 
     // Resolve the share Uri off the main thread (root staging copies), then hand it to [use].
@@ -1741,12 +1763,44 @@ fun BrowserPane(
     // An archive inside the archive: pull it out, then browse the copy.
     fun browseArchiveEntry(loc: Loc.ArchiveLoc) = withArchiveCopies(listOf(loc)) { files -> browseArchive(files.first()) }
 
+    // ── Remote files (RemotePane.kt) ── fetched into BFE's cache to be opened, shared or installed, with
+    // progress and Cancel on the strip; a copy that's still the same size and date is reused at once.
+    fun withRemoteCopies(locs: List<Loc.RemoteLoc>, then: (List<File>) -> Unit) {
+        val files = locs.filter { !it.isDir }
+        if (files.isEmpty()) return
+        operationJob = scope.launch {
+            operationProgress = 0f
+            operationDeterminate = false
+            operationLabel = if (files.size == 1) "Fetching ${files[0].name}…" else "Fetching ${files.size} files…"
+            isOperationRunning = true
+            val out = try {
+                withContext(Dispatchers.IO) {
+                    fetchRemoteCopies(context, files) { f ->
+                        operationDeterminate = f != null
+                        if (f != null) operationProgress = f
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppSnackbar.show(context, "Couldn't fetch ${files[0].name}: ${com.the412banner.bfe.cloud.CloudSetup.friendly(e.message)}", long = true)
+                null
+            } finally {
+                isOperationRunning = false
+                operationDeterminate = false
+                operationJob = null
+            }
+            if (!out.isNullOrEmpty()) then(out)
+        }
+    }
+
     // "Open with": BFE's own sheet (OpenWithSheet) — built-in actions for this file plus every app
     // that can VIEW it (⋮ → Open with; a tap lands here when BFE has no viewer of its own). The Uri is
     // resolved first (root files are staged to cache), then the sheet is shown by the block near the
     // other dialogs below.
     fun openWith(loc: Loc) {
         if (loc is Loc.ArchiveLoc) { openArchiveEntry(loc); return }
+        if (loc is Loc.RemoteLoc) { withRemoteCopies(listOf(loc)) { openWith(Loc.FileLoc(it.first())) }; return }
         withViewUri(loc, "Couldn't open ${loc.name}") { uri ->
             openWithReq = OpenWithRequest(loc, uri, guessMime(loc.name, context.contentResolver.getType(uri)))
         }
@@ -1779,6 +1833,7 @@ fun BrowserPane(
     // Share a file to another app via ACTION_SEND.
     fun shareFile(loc: Loc) {
         if (loc is Loc.ArchiveLoc) { withArchiveCopies(listOf(loc)) { shareFile(Loc.FileLoc(it.first())) }; return }
+        if (loc is Loc.RemoteLoc) { withRemoteCopies(listOf(loc)) { shareFile(Loc.FileLoc(it.first())) }; return }
         withViewUri(loc, "Couldn't share ${loc.name}") { uri ->
             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                 type = context.contentResolver.getType(uri) ?: "*/*"
@@ -1797,6 +1852,12 @@ fun BrowserPane(
             withArchiveCopies(archived) { copies -> shareFiles(files.filter { it !is Loc.ArchiveLoc } + copies.map { Loc.FileLoc(it) }) }
             return
         }
+        // …and remote files as fetched copies.
+        val remote = files.filterIsInstance<Loc.RemoteLoc>()
+        if (remote.isNotEmpty()) {
+            withRemoteCopies(remote) { copies -> shareFiles(files.filter { it !is Loc.RemoteLoc } + copies.map { Loc.FileLoc(it) }) }
+            return
+        }
         if (files.size == 1) { shareFile(files.first()); return }
         scope.launch {
             val uris = withContext(Dispatchers.IO) { ArrayList(files.mapNotNull { viewUri(it) }) }
@@ -1810,11 +1871,14 @@ fun BrowserPane(
     }
 
     // Install an .apk via the system package installer (needs REQUEST_INSTALL_PACKAGES).
-    fun installApk(loc: Loc) = withViewUri(loc, "Couldn't start the installer for ${loc.name}") { uri ->
-        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        })
+    fun installApk(loc: Loc) {
+        if (loc is Loc.RemoteLoc) { withRemoteCopies(listOf(loc)) { installApk(Loc.FileLoc(it.first())) }; return }
+        withViewUri(loc, "Couldn't start the installer for ${loc.name}") { uri ->
+            context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        }
     }
 
     // openOnTap's routing for a real file, or for the cache copy of an archive entry ([fromArchive]).
@@ -1853,6 +1917,11 @@ fun BrowserPane(
     fun openOnTap(loc: Loc) {
         if (loc is Loc.ArchiveLoc) {
             withArchiveCopies(listOf(loc)) { files -> openBuiltInOrSheet(Loc.FileLoc(files.first()), fromArchive = loc) }
+            return
+        }
+        // A remote file: fetched into the cache, then opened like any file (viewer, player, Open with…).
+        if (loc is Loc.RemoteLoc) {
+            withRemoteCopies(listOf(loc)) { files -> openBuiltInOrSheet(Loc.FileLoc(files.first()), fromArchive = null) }
             return
         }
         openBuiltInOrSheet(loc, fromArchive = null)
@@ -2133,6 +2202,60 @@ fun BrowserPane(
         }
     }
 
+    // A paste that involves a remote (RemotePaste in RemotePane.kt): conflicts are asked here exactly as
+    // for a local paste, then every item is queued as one rclone job in the transfer service, which runs
+    // it in the background (screen off or app left), retries it and shows the progress notification.
+    // The panes showing either end re-list when it lands (the CloudTransfers.finished collector above).
+    fun queueRemotePaste(sources: List<Loc>, dstDir: Loc, cut: Boolean) {
+        val dstBackend = Storage.backend(dstDir)
+        val dstLabel = RemotePaste.placeOf(dstDir)
+        operationJob = scope.launch {
+            operationProgress = 0f
+            operationDeterminate = false
+            operationLabel = "Checking ${dstDir.name.ifBlank { "the destination" }}…"
+            isOperationRunning = true
+            var applyToAll: ConflictChoice? = null
+            var failed = 0; var skipped = 0
+            val queue = ArrayList<com.the412banner.bfe.cloud.TransferItem>()
+            try {
+                for (src in sources) {
+                    if (RemotePaste.problem(src, dstDir, src.name, cut) == RemotePaste.Problem.INTO_ITSELF) { failed++; continue }
+                    if (cut && RemotePaste.problem(src, dstDir, src.name, cut) == RemotePaste.Problem.SAME_PLACE) { skipped++; continue }
+                    var targetName = src.name
+                    val exists = withContext(Dispatchers.IO) { runCatching { dstBackend.childNamed(context, dstDir, targetName) != null }.getOrDefault(false) }
+                    if (exists) {
+                        val choice = applyToAll ?: askConflict(src)?.also { if (conflictApplyToAll) applyToAll = it }
+                            ?: run { skipped++; null } ?: continue
+                        when (choice) {
+                            ConflictChoice.OVERWRITE, ConflictChoice.MERGE -> Unit
+                            ConflictChoice.KEEP_BOTH -> targetName = withContext(Dispatchers.IO) { uniqueName(dstDir, src.name) }
+                            ConflictChoice.SKIP -> { skipped++; continue }
+                        }
+                    }
+                    // Replacing a file with itself (same remote, same folder): nothing to do.
+                    if (RemotePaste.problem(src, dstDir, targetName, cut) == RemotePaste.Problem.SAME_PLACE) { skipped++; continue }
+                    RemotePaste.item(src, dstDir, targetName, cut, dstLabel)?.let { queue += it } ?: failed++
+                }
+            } finally {
+                isOperationRunning = false
+                operationJob = null
+            }
+            selectionMode = false
+            selectedIds = emptySet()
+            com.the412banner.bfe.cloud.CloudTransfers.enqueue(context, queue)
+            val verb = if (cut) "Moving" else "Copying"
+            val message = buildString {
+                when {
+                    queue.size == 1 -> append("$verb ${queue[0].name} in the background")
+                    queue.isNotEmpty() -> append("$verb ${queue.size} items in the background")
+                }
+                if (skipped > 0) { if (isNotEmpty()) append(", "); append("$skipped skipped") }
+                if (failed > 0) { if (isNotEmpty()) append(", "); append("$failed can't go there") }
+            }
+            if (message.isNotEmpty()) AppSnackbar.show(context, message)
+        }
+    }
+
     // Copy/move [sources] into [dstDir]. File→File keeps the fast FileUtils path (unchanged); anything
     // touching a SAF side goes through StorageTransfer (recursive stream copy). [onDone] refreshes the
     // OTHER pane after a cross-pane op; the source pane always refreshes (a move removes items from it).
@@ -2141,6 +2264,8 @@ fun BrowserPane(
         // Archives are read-only: nothing goes into one, and copying out of one is an extraction.
         if (dstDir is Loc.ArchiveLoc) { AppSnackbar.show(context, ArchiveBackend.READ_ONLY_MESSAGE); return }
         if (sources.any { it is Loc.ArchiveLoc }) { extractFromArchive(sources, dstDir, onDone); return }
+        // To, from or between remotes: queued as background rclone jobs instead of copied in-app.
+        if (RemotePaste.handles(sources, dstDir)) { queueRemotePaste(sources, dstDir, cut); return }
         val dstBackend = Storage.backend(dstDir)
         operationJob = scope.launch {
             operationProgress = 0f
@@ -2696,8 +2821,9 @@ fun BrowserPane(
             onChanged = { paneState.requestReload() },
         )
     }
-    // …and the read-only details of an archive or an entry inside one.
+    // …and the read-only details of an archive or an entry inside one, or of a remote entry.
     (propertiesTarget as? Loc.ArchiveLoc)?.let { ArchivePropertiesDialog(it, onDismiss = { propertiesTarget = null }) }
+    (propertiesTarget as? Loc.RemoteLoc)?.let { RemotePropertiesDialog(it, onDismiss = { propertiesTarget = null }) }
 
     // Archive password prompt + Extract to… (default: the other pane, else next to the archive).
     ArchiveDialogs(
@@ -2904,7 +3030,8 @@ fun BrowserPane(
                 if (!paneState.isArchive) add(SelAction("Move $arrow", Icons.Filled.ContentCut, any, SelTone.ACCENT) { crossPaneTransfer(cut = true) })
             }
             add(SelAction("Share", Icons.Filled.Share, entries.any { !it.isDir && it.id in selectedIds }) { shareFiles(picked()) })
-            if (!pickMode && !paneState.isArchive) {
+            // Compress / Convert work on files on this device; on a remote, copy them over first.
+            if (!pickMode && !paneState.isArchive && currentLoc !is Loc.RemoteLoc) {
                 add(SelAction("Compress", Icons.Filled.Archive, any) { compressTargets = picked() })
                 fun videoSel() = entries.filter { it.id in selectedIds && !it.isDir && (com.the412banner.bfe.video.VideoFormats.isVideoName(it.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(it.name)) }
                 if (videoSel().isNotEmpty()) add(SelAction("Convert", Icons.Filled.Movie, true) { convertTargets = videoSel() })
@@ -2916,7 +3043,7 @@ fun BrowserPane(
         val single = if (one == null) emptyList() else buildList {
             if (!one.isDir) add(SelAction("Open with…", Icons.Filled.OpenInNew, true) { picked().singleOrNull()?.let { openWith(it) } })
             if (!paneState.isArchive && !pickMode) add(SelAction("Rename", Icons.Filled.Edit, true) { renameTarget = picked().singleOrNull() })
-            if (one is Loc.FileLoc || one is Loc.ArchiveLoc) add(SelAction("Properties", Icons.Filled.Info, true) { propertiesTarget = picked().singleOrNull() })
+            if (one is Loc.FileLoc || one is Loc.ArchiveLoc || one is Loc.RemoteLoc) add(SelAction("Properties", Icons.Filled.Info, true) { propertiesTarget = picked().singleOrNull() })
         }
         PaneSelectionUi(
             count = selectedIds.size,
@@ -3509,7 +3636,8 @@ internal fun FileContextMenuItems(
     }
     // ── Share / info ──
     if (!isDir) Item("Share", Icons.Filled.Share, action = onShare)
-    if (fileLoc != null) Item("Properties", Icons.Filled.Info, action = onProperties)
+    val isRemote = file is Loc.RemoteLoc
+    if (fileLoc != null || isRemote) Item("Properties", Icons.Filled.Info, action = onProperties)
     if (isDir && fileLoc != null) {
         // Favourites toggle dismisses itself (it posts a snackbar naming the folder).
         Item(
@@ -3519,7 +3647,7 @@ internal fun FileContextMenuItems(
             action = onToggleFavorite,
         )
     }
-    if (!isDir || fileLoc != null) MenuItemDivider()
+    if (!isDir || fileLoc != null || isRemote) MenuItemDivider()
     // ── Type-specific tools ──
     if (isApk) {
         Item("Install APK", Icons.Filled.Android, action = onInstallApk)
@@ -3533,10 +3661,13 @@ internal fun FileContextMenuItems(
         Item("Fast Extract", Icons.Filled.Bolt, action = onFastExtract)
         Item(if (isInno) "Unpack / Install\u2026" else "Unpack Archive\u2026", Icons.Filled.Unarchive, action = onUnpack)
     }
-    if (isVideo) Item("Convert to MP4\u2026", Icons.Filled.Movie, action = onConvert)
-    // Create an archive from this item (any backend: SAF/root items are staged to a temp dir first).
-    Item("Compress\u2026", Icons.Filled.Archive, action = onCompress)
-    MenuItemDivider()
+    // Converting and compressing work on this device's storage (SAF/root items are staged to a temp
+    // dir first); a remote item would have to be downloaded whole first, so it's copied over instead.
+    if (!isRemote) {
+        if (isVideo) Item("Convert to MP4\u2026", Icons.Filled.Movie, action = onConvert)
+        Item("Compress\u2026", Icons.Filled.Archive, action = onCompress)
+        MenuItemDivider()
+    }
     // ── Organise ──
     Item("Select", Icons.Filled.Checklist, action = onSelect)
     Item("Rename", Icons.Filled.Edit, action = onRename)

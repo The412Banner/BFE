@@ -100,15 +100,16 @@ data class RcConfigStep(val state: String, val option: RcOption?, val error: Str
 }
 
 /**
- * Typed operations over [RcClient]: the vocabulary BFE's Cloud and Remote screens (and later a
- * file-manager storage backend for remotes) are built on. Paths are always split into an fs string
- * ("name:" for a remote, "/" for the local filesystem) and a path inside it, so names and paths never
- * need quoting. Every call blocks; use from Dispatchers.IO.
+ * Typed operations over [RcClient]: the vocabulary BFE's Cloud and Remote screens and the file
+ * manager's remote folders are built on. Paths are always split into an fs string ("name:" for a
+ * remote, "/" for the local filesystem) and a path inside it, so names and paths never need quoting.
+ * Every call blocks; use from Dispatchers.IO.
  *
- * A future `RcloneLoc` + StorageBackend maps 1:1 onto this: listChildren → [list], createFolder →
- * [mkdir], rename → [moveFile] / [startMoveDir], delete → [deleteFile] / [purge], openInputStream →
- * [RcClient.openRead], cross-backend copies → [startCopyFile] / [startCopyDir] with local paths via
- * [LOCAL_FS] + [localPath].
+ * The file manager's [com.the412banner.bfe.storage.RemoteBackend] maps onto this: listChildren →
+ * [list], createFolder → [mkdir], rename → [moveFile] / [startMoveDir], delete → [deleteFile] /
+ * [purge], openInputStream → [RcClient.openRead]; its pastes run in [CloudTransferService] as
+ * [startCopyFile] / [startMoveFile] / [startCopyDir] / [startMoveDir] with local paths via [LOCAL_FS] +
+ * [localPath].
  */
 class RcloneApi(val rc: RcClient) {
 
@@ -178,18 +179,36 @@ class RcloneApi(val rc: RcClient) {
     }
 
     fun startCopyFile(srcFs: String, srcPath: String, dstFs: String, dstPath: String): Long =
-        rc.startJob("operations/copyfile", fileParams(srcFs, srcPath, dstFs, dstPath))
+        rc.startJob("operations/copyfile", withTransferConfig(fileParams(srcFs, srcPath, dstFs, dstPath)))
 
-    /** Copies a whole folder (merging into [dstFs]); fs strings carry the folder paths. */
+    /** Moves (or renames) one file as a background job, server-side when both ends are the same remote. */
+    fun startMoveFile(srcFs: String, srcPath: String, dstFs: String, dstPath: String): Long =
+        rc.startJob("operations/movefile", withTransferConfig(fileParams(srcFs, srcPath, dstFs, dstPath)))
+
+    /**
+     * Copies a whole folder (merging into [dstFs]); fs strings carry the folder paths. Files already at
+     * the destination with the same size and date are skipped, so running it again after a failure only
+     * copies what is still missing or different.
+     */
     fun startCopyDir(srcFs: String, dstFs: String): Long =
-        rc.startJob("sync/copy", JSONObject().put("srcFs", srcFs).put("dstFs", dstFs).put("createEmptySrcDirs", true))
+        rc.startJob("sync/copy", withTransferConfig(JSONObject().put("srcFs", srcFs).put("dstFs", dstFs).put("createEmptySrcDirs", true)))
 
     /** Moves a folder; rclone uses a server-side directory move when the backend has one. */
     fun startMoveDir(srcFs: String, dstFs: String): Long =
         rc.startJob(
             "sync/move",
-            JSONObject().put("srcFs", srcFs).put("dstFs", dstFs).put("createEmptySrcDirs", true).put("deleteEmptySrcDirs", true),
+            withTransferConfig(
+                JSONObject().put("srcFs", srcFs).put("dstFs", dstFs).put("createEmptySrcDirs", true).put("deleteEmptySrcDirs", true),
+            ),
         )
+
+    /**
+     * Per-job rclone settings for copies and moves: retry a dropped connection or a failed chunk many
+     * more times than rclone's default 10 before giving up on a file (Wi-Fi blips and a NAS waking from
+     * sleep are normal on a phone). Whole-job retries are done by [CloudTransferService].
+     */
+    private fun withTransferConfig(params: JSONObject): JSONObject =
+        params.put("_config", JSONObject().put("LowLevelRetries", 20))
 
     // ── Config ───────────────────────────────────────────────────────────
 
@@ -265,6 +284,13 @@ class RcloneApi(val rc: RcClient) {
         fun join(dir: String, name: String) = if (dir.isEmpty()) name else dir.trimEnd('/') + "/" + name
 
         fun parentOf(path: String) = path.substringBeforeLast('/', "")
+
+        /**
+         * The fs string for the folder [path] inside [fs] ("name:" + "a/b" → "name:a/b", or [LOCAL_FS] +
+         * "storage/x" → "/storage/x"): what the folder jobs ([startCopyDir], [startMoveDir]) take.
+         */
+        fun folderFs(fs: String, path: String): String =
+            if (fs == LOCAL_FS) "/" + path.trim('/') else fs + path.trim('/')
 
         internal fun parseEntry(o: JSONObject): RcEntry {
             val mod = o.optString("ModTime", "")
