@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (investigating, no code yet)
+## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (branch `fix/smb-stale-connections`, CI pending, NOT device-tested)
 
 **Report:** Kanuahs (Samsung SM-S938B, Android 17 / API 37) on the a834f21-era test APK, browsing a NAS SMB
 folder with "Paste 21 items here" pending: listing failed 4 times (23:27:35, 28:02, 28:32, 29:09, each "Try
@@ -17,8 +17,14 @@ scrub held (no IPs / folder names). No "Cloud transfer" entries.
 connections are handed out one per call; each failure closes only that one → repeated failures until the pool
 empties. (3) rc `fscache/clear` (fs/rc/cache.go:136) finalizes cached Fs → smb `Shutdown` → `drainPool`; next call
 gets a fresh Fs/pool. Why the socket died (ECONNABORTED, local side) is not known.
-**Proposed (awaiting owner's go):** match any go-smb2 `connection error:` + "connection abort"; on a dropped
+**Plan (owner: "yes go ahead with the fix"):** match any go-smb2 `connection error:` + "connection abort"; on a dropped
 connection call `fscache/clear` then retry the listing; same before re-running a failed transfer job.
+**Built (a119293):** `isDroppedConnection` matches any `connection error:` and `connection abort`;
+`RcloneApi.clearFsCache()` (rc `fscache/clear`, never throws); `listFs` clears + retries up to 2× (1.5 s apart);
+`CloudTransferService` clears before re-running a job that failed on a dropped connection. LogScrub labels
+`Photos\Library`-style paths `<path>` (all-caps `WORKGROUP\user` stays `<user>`). Tests from the tester's line.
+**CI:** build.yml run 39515821043 (headSha a119293), pending.
+**Next:** CI → stage APK in Download/ + hashes → ASK before install. The real check is the tester's NAS.
 
 ---
 
