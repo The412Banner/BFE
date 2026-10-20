@@ -148,12 +148,14 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -4249,6 +4251,7 @@ private fun FilePropertiesDialog(
     onChanged: () -> Unit,
 ) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val created = remember(file.absolutePath) { DateText.createdMillis(file) }
     var attrs by remember(file.absolutePath) { mutableStateOf<FileAttrState?>(null) }
@@ -4274,6 +4277,11 @@ private fun FilePropertiesDialog(
                 )
                 Spacer(Modifier.height(6.dp))
                 PropertyLine("Location", file.parent ?: "—")
+                // Full path including the name; tap copies it to the Android clipboard.
+                PropertyLine("Path", file.absolutePath, maxLines = 4) {
+                    clipboard.setText(AnnotatedString(file.absolutePath))
+                    AppSnackbar.show(context, "Path copied")
+                }
                 PropertyLine(
                     "Type",
                     if (file.isDirectory) "Folder"
@@ -4314,10 +4322,16 @@ private fun FilePropertiesDialog(
     )
 }
 
-// One "label: value" line in the Properties info block.
+// One "label: value" line in the Properties info block. With [onClick] the row is tappable and
+// the value is drawn in the accent colour so it reads as an action.
 @Composable
-private fun PropertyLine(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+private fun PropertyLine(label: String, value: String, maxLines: Int = 2, onClick: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 2.dp),
+    ) {
         Text(
             text = label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -4326,9 +4340,9 @@ private fun PropertyLine(label: String, value: String) {
         )
         Text(
             text = value,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (onClick != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             fontSize = 12.sp,
-            maxLines = 2,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
