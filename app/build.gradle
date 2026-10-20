@@ -197,6 +197,22 @@ dependencies {
     implementation 'com.android.tools.build:apksig:8.8.0'
     implementation 'org.bouncycastle:bcpkix-jdk18on:1.78.1'
 
+    // APK internals (Dex / smali): Google's smali 3.0.10 (dexlib2 reads and writes dex, baksmali turns a
+    // class into smali, smali assembles it back; BSD-3-Clause). Java 8 bytecode on Guava 31.1-android, so
+    // it runs on minSdk 26. The ANTLR tool and StringTemplate are build-time only for smali's grammar;
+    // the assembler needs just antlr-runtime, so both are left out (~2 MB less).
+    implementation('com.android.tools.smali:smali-dexlib2:3.0.10')
+    implementation('com.android.tools.smali:smali-baksmali:3.0.10')
+    implementation('com.android.tools.smali:smali:3.0.10') {
+        exclude group: 'org.antlr', module: 'antlr'
+        exclude group: 'org.antlr', module: 'stringtemplate'
+        exclude group: 'antlr', module: 'antlr'
+    }
+    // APK internals (Java class / Jar): ASM 9.9.1 (BSD-3-Clause) reads .class files; asm-util's
+    // Textifier prints the javap-style listing (header, fields, methods, bytecode).
+    implementation 'org.ow2.asm:asm:9.9.1'
+    implementation 'org.ow2.asm:asm-util:9.9.1'
+
     // "Access from network" (local Wi-Fi file server, works offline): NanoHTTPD serves the browser side,
     // Apache FtpServer (+ its Apache MINA networking core, pulled in transitively) the FTP side,
     // slf4j-android routes FtpServer's logging to logcat, and Nayuki's QR Code generator draws the
