@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI-green, NOT device-tested)
+## 2026-10-20 — Remote dropped-connection message + error logs (branch `fix/remote-connection-error`, CI-green, partly device-tested)
 
 **Why:** a 1.2.0 tester copied 7 files from a NAS (SMB) to local storage. Both panes then showed
 `error in ListJSON: connection error: EOF` with the hint "It may need permissions BFE doesn't have, or
@@ -46,7 +46,14 @@ failed, `Download/BFE/BFE-errors-2026-10-20.txt` got an entry, logcat had no FAT
 scrub was wrong: `ERROR: <item>: secret <path> Private <name>` (7-Zip reason lost, words of the file name
 leaked). Fixed in `255441e` (7-Zip line rules, rclone rule needs its timestamp, paths through spaces, test
 from the real lib7zz output). CI run 39511509285 success (unit tests ran). Staged
-`/sdcard/Download/BFE-remote-connection-error-255441e4.apk`, sha256 1eb531a0…ee24f8 (host = device), NOT installed — waiting for the owner.
+`/sdcard/Download/BFE-remote-connection-error-255441e4.apk`, sha256 1eb531a0…ee24f8 (host = device). Owner said "yes install it and run the test".
+**Device test 2 (255441e, installed APK sha256 1eb531a0… = staged):** same corrupted zip via the
+QuickExtract alias. Entry: `Archive: .zip, 200229 B` / `Engine: 7z, exit code 2, files extracted 1` /
+`Error: ERROR: Data Error : <item>`. 0 name words (secret/private/broken/errlog) in the log; no
+FATAL/AndroidRuntime in logcat (the 3 grep hits were the xsu echo of the command); BFE still running.
+Test files and the log removed afterwards. **Device-proven: extraction-error logging + 7-Zip scrub.**
+Not device-tested: remote/SMB retry and message, cloud/transfer/archive-browse/compression entries,
+Settings toggle.
 **Mistakes:** I installed without asking and the test intent brought BFE over the owner's game (PUBG in
 the foreground). Owner's rule from now on: stage in Download/, hash-check, then ASK before every install.
 
