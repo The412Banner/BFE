@@ -15,10 +15,12 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Error logs a user can attach to a bug report (Settings > Troubleshooting > Save error logs, on by
- * default): when something fails, a dated entry is appended to `Download/BFE/BFE-errors-<date>.txt`.
+ * default): when something fails, a dated entry is appended to `Download/BFE/BFE-errors-<date>.txt`
+ * (date and times in UTC).
  *
  * An entry holds the app and Android version, the device model, what failed, the error and (for Cloud
  * and Remote) rclone's last log lines and the remote's type. Everything taken from the error passes
@@ -90,7 +92,7 @@ object ErrorLog {
                 val known = if (rclone) remoteTypes(app) else emptyMap()
                 val names = known.keys + remotes
                 val sb = StringBuilder()
-                sb.append("── ").append(SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(now)).append(" ── ").append(what).append('\n')
+                sb.append("── ").append(utc("yyyy-MM-dd HH:mm:ss").format(now)).append(" UTC ── ").append(what).append('\n')
                 sb.append("BFE ").append(BuildConfig.VERSION_NAME).append(" (").append(BuildConfig.VERSION_CODE).append(") · Android ")
                     .append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(") · ")
                     .append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n')
@@ -115,9 +117,12 @@ object ErrorLog {
         if (!RcloneDaemon.isRunning()) emptyMap()
         else runCatching { RcloneDaemon.api(app).remotes().associate { it.name to it.type } }.getOrDefault(emptyMap())
 
+    /** Times are written in UTC (like rclone's own log lines), so an entry doesn't give away the time zone. */
+    private fun utc(pattern: String) = SimpleDateFormat(pattern, Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+
     private fun append(now: Date, text: String) = synchronized(lock) {
         val dir = folder().apply { mkdirs() }
-        val file = File(dir, "BFE-errors-" + SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now) + ".txt")
+        val file = File(dir, "BFE-errors-" + utc("yyyy-MM-dd").format(now) + ".txt")
         if (file.length() > MAX_FILE_BYTES) return@synchronized
         file.appendText(text)
         dir.listFiles { f -> f.isFile && f.name.startsWith("BFE-errors-") && f.name.endsWith(".txt") }
