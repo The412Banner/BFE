@@ -47,6 +47,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
@@ -1916,6 +1917,15 @@ fun BrowserPane(
     // which ⋮ → Open with shows for every file.
     fun openOnTap(loc: Loc) {
         if (loc is Loc.ArchiveLoc) {
+            // Inside an APK / jar / zip: the manifest, res XML, resources.arsc, dex and class entries open
+            // straight in BFE's APK internals tools, read from the zip (Open with stays in the ⋮ menu).
+            val tool = if (loc.isDir) null else com.the412banner.bfe.apk.internals.InternalsTool.forEntry(loc.inner)
+            if (tool != null && com.the412banner.bfe.apk.internals.ApkEntries.isZip(loc.archive)) {
+                runCatching {
+                    context.startActivity(com.the412banner.bfe.ApkInternalsActivity.intent(context, tool, loc.archive.absolutePath, null, loc.name, loc.inner))
+                }.onFailure { AppSnackbar.show(context, "Couldn't open ${loc.name}") }
+                return
+            }
             withArchiveCopies(listOf(loc)) { files -> openBuiltInOrSheet(Loc.FileLoc(files.first()), fromArchive = loc) }
             return
         }
@@ -3671,6 +3681,14 @@ internal fun FileContextMenuItems(
         Item("Clone APK\u2026", Icons.Filled.FileCopy, action = onCloneApk)
         Item("Edit APK\u2026", Icons.Filled.Edit, action = onEditApk)
         Item("Sign APK\u2026", Icons.Filled.Security, action = onSignApk)
+        if (fileLoc != null) {
+            val context = LocalContext.current
+            Item("APK internals\u2026", Icons.Filled.AccountTree) {
+                runCatching {
+                    context.startActivity(com.the412banner.bfe.ApkInternalsActivity.intent(context, com.the412banner.bfe.apk.internals.InternalsTool.HUB, fileLoc.absolutePath, null, file.name))
+                }.onFailure { AppSnackbar.show(context, "Couldn't open ${file.name}") }
+            }
+        }
     }
     if (isArchive) {
         // Browse it like a folder (read-only). InnoSetup/FreeArc installers are unpack-only.

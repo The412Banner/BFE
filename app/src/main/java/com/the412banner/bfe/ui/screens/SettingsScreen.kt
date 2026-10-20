@@ -124,7 +124,7 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("rclone", "MIT; downloaded on first use of Cloud / Remote", "NOTICE_RCLONE.txt"),
     LicenseDoc("libVLC for Android", "GNU LGPL v2.1 or later (the video / audio player)", "NOTICE_LIBVLC.txt"),
     LicenseDoc("commonmark-java + autolink-java", "BSD 2-Clause and MIT (the document viewer's Markdown)", "NOTICE_COMMONMARK.txt"),
-    LicenseDoc("Libraries", "AndroidX, Coil, telephoto, Haze, libsu, Commons Compress, XZ for Java, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator, commonmark-java", "THIRD_PARTY_LIBRARIES.txt"),
+    LicenseDoc("Libraries", "AndroidX, Coil, telephoto, Haze, libsu, Commons Compress, XZ for Java, zstd-jni, ARSCLib, apksig, Bouncy Castle, SLF4J, QR Code generator, commonmark-java, smali, ANTLR 3 runtime, Guava, JCommander, ASM", "THIRD_PARTY_LIBRARIES.txt"),
 )
 
 /**

@@ -4,6 +4,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Description
@@ -16,12 +21,14 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material.icons.filled.Terminal
+import com.the412banner.bfe.ApkInternalsActivity
 import com.the412banner.bfe.DocumentViewer
 import com.the412banner.bfe.FontViewerActivity
 import com.the412banner.bfe.HexEditorActivity
 import com.the412banner.bfe.HtmlViewerActivity
 import com.the412banner.bfe.ScriptRunnerActivity
 import com.the412banner.bfe.SvgViewerActivity
+import com.the412banner.bfe.apk.internals.InternalsTool
 import com.the412banner.bfe.media.MediaType
 import com.the412banner.bfe.unpack.SevenZip
 import com.the412banner.bfe.util.AppSnackbar
@@ -94,6 +101,13 @@ internal fun openAsTools(
     add(SheetAction("Run script", Icons.Filled.Terminal) {
         start(ScriptRunnerActivity.intent(context, t.rootPath ?: t.path, t.uri, t.name, rootOnly = t.rootPath != null))
     })
+    // Android app internals: an APK as a whole goes to the hub; each tool also reads a file on its own.
+    fun internals(tool: InternalsTool) = start(ApkInternalsActivity.intent(context, tool, t.path, t.uri, t.name))
+    add(SheetAction("APK internals", Icons.Filled.AccountTree) { internals(InternalsTool.HUB) })
+    add(SheetAction("Binary XML", Icons.Filled.Code) { internals(InternalsTool.AXML) })
+    add(SheetAction("Resources", Icons.Filled.Inventory2) { internals(InternalsTool.ARSC) })
+    add(SheetAction("Dex", Icons.Filled.Memory) { internals(InternalsTool.DEX) })
+    add(SheetAction("Java class / jar", Icons.Filled.Coffee) { internals(InternalsTool.JAVA) })
 }
 
 /**

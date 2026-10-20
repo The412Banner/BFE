@@ -117,6 +117,10 @@ Tap any line for the details.
   marked, and the sheet still shows.
 - **Open in BFE as** tiles for any file, whatever its extension: text editor, hex editor, archive, image,
   music, video, web page, document, APK install / tools, font, SVG and script runner.
+- **APK internals** (like MT Manager's tools): an APK's manifest and res XML decoded to readable XML, its
+  resources.arsc by type and language, every dex as a class tree with smali, and Java classes / jars as a
+  javap-style listing — with search, and editing for XML, resources and smali that saves into a new (or the
+  same) APK and re-signs it. Tap those files inside an APK, use the tiles, or an APK's ⋮ → APK internals…
 - **Hex editor** for files of any size (offset · hex · text, go to offset, find hex or text, tap a byte
   to overwrite it, Undo, Save in place); **script runner** with live output, exit code, Stop and *Run as root*.
 
@@ -493,6 +497,11 @@ BFE stands on the work of these projects and their authors.
 | [SLF4J](https://www.slf4j.org) | QOS.ch | MIT |
 | [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) | Project Nayuki | MIT |
 | [commonmark-java](https://github.com/commonmark/commonmark-java) (+ GFM tables, strikethrough, task lists, autolink) | Atlassian and contributors | BSD-2-Clause |
+| [smali / baksmali / dexlib2](https://github.com/google/smali) | Google, Ben Gruver | BSD-3 |
+| [ANTLR 3 runtime](https://www.antlr3.org) | Terence Parr | BSD-3 |
+| [Guava](https://github.com/google/guava) | Google | Apache-2.0 |
+| [JCommander](https://jcommander.org) | Cédric Beust | Apache-2.0 |
+| [ASM](https://asm.ow2.io) | OW2 / INRIA | BSD-3 |
 | [autolink-java](https://github.com/robinst/autolink-java) | Robin Stocker | MIT |
 
 **Format references**
