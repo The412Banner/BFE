@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FileCopy
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
@@ -44,11 +46,15 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,6 +70,7 @@ internal fun transferLine(t: TransferItem): String = when (t.status) {
     TransferStatus.QUEUED -> "Waiting"
     TransferStatus.PREPARING -> "Preparing… " + StringUtils.formatBytes(t.bytes)
     TransferStatus.RUNNING -> buildString {
+        if (t.attempt > 1) append("Retrying (try ${t.attempt})  •  ")
         if (t.totalBytes > 0) append("${t.percent}%  •  ${StringUtils.formatBytes(t.bytes)} of ${StringUtils.formatBytes(t.totalBytes)}")
         else append(StringUtils.formatBytes(t.bytes))
         if (t.isDir && t.totalFiles > 0) append("  •  ${t.files}/${t.totalFiles} files")
@@ -75,17 +82,41 @@ internal fun transferLine(t: TransferItem): String = when (t.status) {
     TransferStatus.CANCELLED -> "Cancelled"
 }
 
+/** The kind's icon: cloud down / cloud up, or a copy for a file-manager paste. */
+internal fun transferIcon(t: TransferItem): ImageVector = when (t.kind) {
+    TransferKind.DOWNLOAD -> Icons.Filled.CloudDownload
+    TransferKind.UPLOAD -> Icons.Filled.CloudUpload
+    TransferKind.COPY -> Icons.Filled.FileCopy
+}
+
+/**
+ * The file manager's view of the transfer queue: the same pill as the Cloud / Remote screens while
+ * anything runs (its pastes to and from remotes run there), a "N failed" pill once a batch ends with
+ * failures, and the transfers sheet (per-item Cancel / Retry) on tap. Renders nothing when idle.
+ */
+@Composable
+fun FilesTransferPill(modifier: Modifier = Modifier) {
+    var showSheet by remember { mutableStateOf(false) }
+    CloudTransferPill(modifier = modifier, showFailed = true, onClick = { showSheet = true })
+    if (showSheet) TransfersSheet(onDismiss = { showSheet = false })
+}
+
 /**
  * The running transfer, pinned under a Cloud/Remote screen (renders nothing when idle). Tap opens the
  * transfers sheet; ✕ cancels everything. Self-contained so the app root can host it next to the other
  * progress pills too.
  */
 @Composable
-fun CloudTransferPill(modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
+fun CloudTransferPill(modifier: Modifier = Modifier, showFailed: Boolean = false, onClick: () -> Unit = {}) {
     val items by CloudTransfers.items.collectAsState()
     val cur = items.firstOrNull { it.status == TransferStatus.RUNNING || it.status == TransferStatus.PREPARING }
         ?: items.firstOrNull { it.status == TransferStatus.QUEUED }
-        ?: return
+    if (cur == null) {
+        // Nothing running: [showFailed] keeps a batch's failures visible until they're retried or cleared.
+        val failed = items.count { it.status == TransferStatus.FAILED }
+        if (showFailed && failed > 0) FailedTransfersPill(failed, modifier, onClick)
+        return
+    }
     val queued = items.count { it.status == TransferStatus.QUEUED && it.id != cur.id }
     Card(
         modifier = modifier
@@ -99,7 +130,7 @@ fun CloudTransferPill(modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    if (cur.kind == TransferKind.DOWNLOAD) Icons.Filled.CloudDownload else Icons.Filled.CloudUpload, null,
+                    transferIcon(cur), null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
                 )
@@ -135,6 +166,37 @@ fun CloudTransferPill(modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
     }
 }
 
+/** "2 transfers failed": tap for the sheet (Retry there), ✕ clears the finished ones. */
+@Composable
+private fun FailedTransfersPill(failed: Int, modifier: Modifier, onClick: () -> Unit) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = bfeCardColors(CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.6f)),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp, bottom = 2.dp)) {
+            Icon(Icons.Filled.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (failed == 1) "1 transfer failed  •  tap to retry" else "$failed transfers failed  •  tap to retry",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { CloudTransfers.clearFinished() }) {
+                Icon(Icons.Filled.Close, "Dismiss", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
 /** Top-bar button for the transfers sheet, with a count of active transfers. */
 @Composable
 internal fun TransfersButton(onClick: () -> Unit) {
@@ -151,9 +213,10 @@ internal fun TransfersButton(onClick: () -> Unit) {
     }
 }
 
-/** Every transfer this session: progress, cancel per item, clear the finished ones. */
+/** Every transfer this session: progress, cancel or retry per item, clear the finished ones. */
 @Composable
 internal fun TransfersSheet(onDismiss: () -> Unit) {
+    val context = LocalContext.current
     val items by CloudTransfers.items.collectAsState()
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheet) {
@@ -163,6 +226,7 @@ internal fun TransfersSheet(onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp),
             ) {
                 Text("Transfers", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                if (items.count { it.canRetry } > 1) TextButton(onClick = { CloudTransfers.retryFailed(context) }) { Text("Retry failed") }
                 if (items.any { it.isActive }) TextButton(onClick = { CloudTransfers.cancelAll() }) { Text("Cancel all") }
                 if (items.any { !it.isActive }) TextButton(onClick = { CloudTransfers.clearFinished() }) { Text("Clear finished") }
             }
@@ -177,14 +241,14 @@ internal fun TransfersSheet(onDismiss: () -> Unit) {
                 modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items(items.reversed(), key = { it.id }) { t -> TransferRow(t) }
+                items(items.reversed(), key = { it.id }) { t -> TransferRow(t, onRetry = { CloudTransfers.retry(context, t.id) }) }
             }
         }
     }
 }
 
 @Composable
-private fun TransferRow(t: TransferItem) {
+private fun TransferRow(t: TransferItem, onRetry: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -193,14 +257,14 @@ private fun TransferRow(t: TransferItem) {
         val (icon, tint) = when (t.status) {
             TransferStatus.DONE -> Icons.Filled.CheckCircle to cs.primary
             TransferStatus.FAILED -> Icons.Filled.ErrorOutline to cs.error
-            else -> (if (t.kind == TransferKind.DOWNLOAD) Icons.Filled.CloudDownload else Icons.Filled.CloudUpload) to cs.onSurfaceVariant
+            else -> transferIcon(t) to cs.onSurfaceVariant
         }
         Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(t.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
             Text(
-                (if (t.kind == TransferKind.DOWNLOAD) "From ${t.remote}" else "To ${t.remote}") + "  •  " + transferLine(t),
+                t.route + "  •  " + transferLine(t),
                 color = if (t.status == TransferStatus.FAILED) cs.error else cs.onSurfaceVariant,
                 fontSize = 12.sp,
                 maxLines = 2,
@@ -218,6 +282,10 @@ private fun TransferRow(t: TransferItem) {
         if (t.isActive) {
             IconButton(onClick = { CloudTransfers.cancel(t.id) }) {
                 Icon(Icons.Filled.Close, "Cancel", tint = cs.onSurfaceVariant)
+            }
+        } else if (t.canRetry) {
+            IconButton(onClick = onRetry) {
+                Icon(Icons.Filled.Refresh, "Retry", tint = cs.primary)
             }
         }
     }

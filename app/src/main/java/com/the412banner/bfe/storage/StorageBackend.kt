@@ -13,8 +13,9 @@ import java.io.OutputStream
 /**
  * A browsable storage location, backed by EITHER a real filesystem [FileLoc] (direct java.io.File —
  * the app's own All-Files-Access storage) or a Storage-Access-Framework document [SafLoc] (another
- * app's DocumentsProvider, reached through a persisted tree Uri) — plus [RootLoc] (root shell) and
- * [ArchiveLoc] (an entry inside an archive, browsed read-only through the bundled 7zz).
+ * app's DocumentsProvider, reached through a persisted tree Uri) — plus [RootLoc] (root shell),
+ * [ArchiveLoc] (an entry inside an archive, browsed read-only through the bundled 7zz) and [RemoteLoc]
+ * (a file or folder on an rclone remote: SMB, SFTP, FTP, WebDAV or a cloud account).
  *
  * The File Manager works in terms of [Loc]; each op is dispatched to the matching [StorageBackend] via
  * [Storage.backend]. The File path is byte-for-byte the old behaviour (FileBackend just calls the same
@@ -80,6 +81,22 @@ sealed class Loc {
         override val id get() = "arc:${archive.absolutePath}!/$inner"
         val isRoot: Boolean get() = inner.isEmpty()
     }
+
+    /**
+     * A file or folder on an rclone remote (an SMB share, SFTP / FTP / WebDAV server or cloud account),
+     * browsed like any folder through BFE's rclone engine (see [RemoteBackend]). [remote] is the remote's
+     * name as rclone knows it; [path] is the '/'-separated path inside it, "" for the remote's top.
+     */
+    class RemoteLoc(
+        val remote: String,
+        val path: String,
+        override val name: String,
+        override val isDir: Boolean,
+        override val size: Long,
+        override val lastModified: Long,
+    ) : Loc() {
+        override val id get() = "rc:$remote:$path"
+    }
 }
 
 /**
@@ -106,6 +123,7 @@ object Storage {
         is Loc.SafLoc -> SafBackend
         is Loc.RootLoc -> RootBackend
         is Loc.ArchiveLoc -> ArchiveBackend
+        is Loc.RemoteLoc -> RemoteBackend
     }
 }
 

@@ -276,6 +276,10 @@ starting.
 - **Remote:** SFTP, FTP/FTPS, SMB and WebDAV.
 - Browse, open, download, upload, rename and delete with background transfers. Powered by **rclone**,
   downloaded once on first use (15 MB, SHA-256 checked).
+- **Open in file manager:** any account or server also opens as a normal folder in the file manager
+  (from its ⋮ menu or the drive menu), even as one side of dual pane. Copy, cut and paste work in every
+  direction (phone ↔ server, server ↔ server) and run in the background with retries, so big folders
+  keep going with the screen off.
 
 </details>
 
@@ -413,8 +417,9 @@ app/src/main/java/com/the412banner/bfe/
 - **Player:** libVLC for Android omits some desktop VLC filters (posterize, mirror, psychedelic…);
   sharpen needs Android 13+; CPU filters and crop / zoom / 90° turns briefly re-open the file; music
   has no background notification yet.
-- **Cloud / Remote:** remotes open in their own browser rather than as file-manager panes; files open as
-  downloaded copies. rclone's shared Google Drive key is being retired in 2026 — use your own client ID.
+- **Cloud / Remote:** files open as downloaded copies (edits stay in the copy); a copy between a
+  remote and app storage (SAF) or a root folder runs in the app rather than in the background; Compress
+  and Convert need the files copied to the phone first. rclone's shared Google Drive key is being retired in 2026 — use your own client ID.
 - **Document viewer:** documents are converted for reading, not laid out page for page (no exact fonts,
   columns, headers / footers or charts); PDFs can't be searched, protected PDFs don't open, and deep
   zoom is limited by page memory; legacy .doc / .xls / .ppt aren't shown.

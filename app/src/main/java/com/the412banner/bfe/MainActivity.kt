@@ -55,6 +55,7 @@ import com.the412banner.bfe.ui.screens.SettingsScreen
 import com.the412banner.bfe.ui.screens.apps.AppsScreen
 import com.the412banner.bfe.ui.screens.categories.CategoryScreen
 import com.the412banner.bfe.ui.screens.categories.MediaCategory
+import com.the412banner.bfe.ui.screens.cloud.FilesTransferPill
 import com.the412banner.bfe.ui.screens.cloud.CloudScreen
 import com.the412banner.bfe.ui.screens.cloud.RemoteScreen
 import com.the412banner.bfe.ui.screens.home.AppRoute
@@ -193,8 +194,8 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
                 onShowInFolder = { dir -> openFiles(FmLocationRequest.folder(dir)) },
             )
             AppRoute.APPS -> AppsScreen(onBack = goHome, onBrowseData = { openFiles(it) })
-            AppRoute.CLOUD -> CloudScreen(onBack = goHome)
-            AppRoute.REMOTE -> RemoteScreen(onBack = goHome)
+            AppRoute.CLOUD -> CloudScreen(onBack = goHome, onOpenInFiles = { openFiles(it) })
+            AppRoute.REMOTE -> RemoteScreen(onBack = goHome, onOpenInFiles = { openFiles(it) })
             AppRoute.SERVER -> ServerScreen(onBack = { route = serverBack })
             AppRoute.FILES -> Unit
         }
@@ -207,7 +208,7 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
         if (aurora) AuroraBackdrop(Modifier.fillMaxSize())
         Column(modifier = Modifier.fillMaxSize().then(if (aurora) Modifier.windowInsetsPadding(WindowInsets.safeDrawing) else Modifier)) {
             // Aurora: running jobs as glass capsules under the status bar, clear of the thumb zone.
-            if (aurora) JobPills()
+            if (aurora) JobPills(inFiles = route == AppRoute.FILES && !showSettings)
             Column(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 PermissionGate {
                     // The file manager stays composed under Home and Settings so both panes keep their
@@ -240,7 +241,7 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
                 }
             }
             // Pinned app-wide extraction + compression pills (each renders nothing when idle).
-            if (!aurora) JobPills()
+            if (!aurora) JobPills(inFiles = route == AppRoute.FILES && !showSettings)
         }
         if (aurora) {
             // Glass snackbar, lifted above the floating pill on the screens that have one.
@@ -264,13 +265,18 @@ private fun AppRoot(externalRequest: FmLocationRequest?) {
     SecurityNoticeHost()
 }
 
-/** The app-wide extraction / compression / APK / convert pills (each renders nothing when idle). */
+/**
+ * The app-wide extraction / compression / APK / convert pills (each renders nothing when idle). In the
+ * file manager ([inFiles]) also the remote transfers its pastes queued; the Cloud and Remote screens show
+ * that pill themselves.
+ */
 @Composable
-private fun JobPills() {
+private fun JobPills(inFiles: Boolean) {
     UnpackProgressPill()
     PackProgressPill()
     ApkJobPill()
     ConvertProgressPill()
+    if (inFiles) FilesTransferPill()
 }
 
 /** Shows [content] when All-Files-Access is granted; otherwise a short explanation + grant button. */

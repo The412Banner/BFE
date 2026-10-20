@@ -10,7 +10,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.concurrent.atomic.AtomicLong
 
-enum class TransferKind { DOWNLOAD, UPLOAD }
+/**
+ * DOWNLOAD / UPLOAD come from the Cloud and Remote screens; COPY is a file-manager paste that involves a
+ * remote (device → remote, remote → device, or between remotes), described by rclone fs + path pairs.
+ */
+enum class TransferKind { DOWNLOAD, UPLOAD, COPY }
 
 enum class TransferStatus { QUEUED, PREPARING, RUNNING, DONE, FAILED, CANCELLED }
 
@@ -19,6 +23,12 @@ enum class TransferStatus { QUEUED, PREPARING, RUNNING, DONE, FAILED, CANCELLED 
  * into the local folder [localDir]; an upload copies [localPath] (file or folder) into the remote
  * folder [remoteDir]. [sourceUri] is an upload picked through the system file picker that has no
  * real path: it is copied into BFE's cache first ([TransferStatus.PREPARING]).
+ *
+ * A [TransferKind.COPY] copies (or, with [move], moves) [srcPath] inside the rclone fs [srcFs] to
+ * [dstPath] inside [dstFs] ("name:" for a remote, [RcloneApi.LOCAL_FS] for this device). The target
+ * name was settled by the paste (conflicts asked first), so it is used as is: a file there is
+ * replaced, a folder there is merged into. [fromLabel] / [toLabel] say where in plain words;
+ * [srcDirId] / [dstDirId] are the file-manager folders to refresh when it finishes.
  */
 data class TransferItem(
     val id: Long,
@@ -43,9 +53,39 @@ data class TransferItem(
     val cancelRequested: Boolean = false,
     /** Where the copy landed (download: local path; upload: remote path). */
     val resultPath: String? = null,
+    val srcFs: String = "",
+    val srcPath: String = "",
+    val dstFs: String = "",
+    val dstPath: String = "",
+    val move: Boolean = false,
+    val fromLabel: String = "",
+    val toLabel: String = "",
+    val srcDirId: String? = null,
+    val dstDirId: String? = null,
+    /** Which try this is (rclone jobs are re-run after a failure; see [CloudTransferService]). */
+    val attempt: Int = 1,
+    /** Files that failed inside a folder copy (rclone's error count for the job). */
+    val failedFiles: Long = 0L,
 ) {
     val isActive: Boolean get() = status == TransferStatus.QUEUED || status == TransferStatus.PREPARING || status == TransferStatus.RUNNING
     val percent: Int get() = if (totalBytes > 0) ((bytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+
+    /** A failed item can be queued again, except an upload whose picker grant was only good once. */
+    val canRetry: Boolean get() = status == TransferStatus.FAILED && sourceUri == null
+
+    /** "Downloading" / "Uploading" / "Copying" / "Moving", for the notification and the lists. */
+    val verb: String get() = when (kind) {
+        TransferKind.DOWNLOAD -> "Downloading"
+        TransferKind.UPLOAD -> "Uploading"
+        TransferKind.COPY -> if (move) "Moving" else "Copying"
+    }
+
+    /** Where it goes, in plain words ("From NAS", "To NAS", "NAS → Internal"). */
+    val route: String get() = when (kind) {
+        TransferKind.DOWNLOAD -> "From $remote"
+        TransferKind.UPLOAD -> "To $remote"
+        TransferKind.COPY -> "$fromLabel → $toLabel"
+    }
 }
 
 /**
@@ -83,6 +123,30 @@ object CloudTransfers {
     fun cancelAll() = _items.value.filter { it.isActive }.forEach { cancel(it.id) }
 
     fun clearFinished() = synchronized(this) { _items.value = _items.value.filter { it.isActive } }
+
+    /**
+     * Queues failed item [id] again as a fresh item. A folder copy picks up where it stopped: rclone
+     * skips the files that already arrived, so only the failed and missing ones are copied.
+     */
+    fun retry(ctx: Context, id: Long) {
+        val t = get(id)?.takeIf { it.canRetry } ?: return
+        synchronized(this) { _items.value = _items.value.filter { it.id != id } }
+        enqueue(ctx, listOf(fresh(t)))
+    }
+
+    /** [retry] for every failed item (the summary notification's and the transfers sheet's "Retry failed"). */
+    fun retryFailed(ctx: Context) {
+        val failed = _items.value.filter { it.canRetry }
+        if (failed.isEmpty()) return
+        val ids = failed.map { it.id }.toSet()
+        synchronized(this) { _items.value = _items.value.filter { it.id !in ids } }
+        enqueue(ctx, failed.map { fresh(it) })
+    }
+
+    private fun fresh(t: TransferItem) = t.copy(
+        id = newId(), status = TransferStatus.QUEUED, bytes = 0L, totalBytes = -1L, speed = 0.0, etaSec = -1L,
+        files = 0L, totalFiles = 0L, error = null, cancelRequested = false, resultPath = null, attempt = 1, failedFiles = 0L,
+    )
 
     internal fun update(id: Long, block: (TransferItem) -> TransferItem) = synchronized(this) {
         _items.value = _items.value.map { if (it.id == id) block(it) else it }

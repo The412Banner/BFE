@@ -20,7 +20,7 @@ import kotlinx.coroutines.withContext
  * Per backend: File = `File.list()` length; SAF = one children query asking only for the document
  * id column (the provider still enumerates, but nothing else is materialised); Root = one
  * `ls -A | wc -l` through the already-open libsu shell, and only once root has been granted; Archive =
- * the opened archive's index.
+ * the opened archive's index; Remote = not counted (each count would be a network round trip).
  */
 object ChildCount {
     const val UNREADABLE = -1
@@ -64,5 +64,7 @@ object ChildCount {
         }
         // Archive folders: straight from the already-built index (never starts a 7zz listing).
         is Loc.ArchiveLoc -> ArchiveIndexCache.peek(loc.archive)?.tree?.children(loc.inner)?.size ?: UNREADABLE
+        // Remote folders aren't counted: that would be one network listing per visible folder row.
+        is Loc.RemoteLoc -> UNREADABLE
     }
 }

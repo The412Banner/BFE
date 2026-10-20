@@ -105,12 +105,15 @@ import com.the412banner.bfe.cloud.RcEntry
 import com.the412banner.bfe.cloud.RcRemote
 import com.the412banner.bfe.cloud.RcloneApi
 import com.the412banner.bfe.cloud.RcloneDaemon
+import com.the412banner.bfe.cloud.RemoteFiles
 import com.the412banner.bfe.cloud.TransferItem
 import com.the412banner.bfe.cloud.TransferKind
 import com.the412banner.bfe.cloud.TransferStatus
 import com.the412banner.bfe.cloud.awaitJob
 import com.the412banner.bfe.core.StringUtils
 import com.the412banner.bfe.storage.Loc
+import com.the412banner.bfe.storage.RemoteBackend
+import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.ui.screens.FileManagerScreen
 import com.the412banner.bfe.ui.screens.OpenWithSheet
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
@@ -142,17 +145,6 @@ private class OpenedFile(val entry: RcEntry, val file: File, val uri: Uri, val m
 @Suppress("DEPRECATION")
 private fun defaultDownloadDir(): String = File(Environment.getExternalStorageDirectory(), "Download").absolutePath
 
-/** The cached copy an "open" downloads to; keyed on path + size + date so a changed file is re-fetched. */
-private fun openCacheFile(ctx: Context, remote: String, e: RcEntry): File {
-    val key = Integer.toHexString("$remote:${e.path}:${e.modTime}:${e.size}".hashCode())
-    return File(ctx.cacheDir, "cloud-open/$key/${e.name}")
-}
-
-/** Opened-file copies older than a day are dropped. */
-private fun cleanOpenCache(ctx: Context) {
-    val cutoff = System.currentTimeMillis() - 24L * 60 * 60 * 1000
-    File(ctx.cacheDir, "cloud-open").listFiles()?.forEach { if (it.lastModified() < cutoff) it.deleteRecursively() }
-}
 
 private fun copyUnique(src: File, dir: File): File {
     dir.mkdirs()
@@ -178,10 +170,17 @@ private fun fileNameProblem(name: String, taken: Collection<String>): String? = 
  * multi-select; open (download to cache → BFE's Open with sheet), download to a local folder, upload
  * (system picker, or a file/folder chosen in BFE's own browser), new folder, rename, delete. Copies
  * between the device and the remote go through [CloudTransfers] (background service with progress);
- * the quick operations (list, rename, delete) are direct rcd calls.
+ * the quick operations (list, rename, delete) are direct rcd calls. "Open in file manager" shows the
+ * current folder in a file-manager pane instead, where it pastes like any folder.
  */
 @Composable
-internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: () -> Unit) {
+internal fun RemoteBrowser(
+    remote: RcRemote,
+    onBack: () -> Unit,
+    onTransfers: () -> Unit,
+    // Opens a folder of this remote in the file manager (its ⋮ → "Open in file manager"); null hides it.
+    onOpenInFiles: ((FmLocationRequest) -> Unit)? = null,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { PreferenceManager.getDefaultSharedPreferences(context) }
@@ -244,7 +243,7 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
             }
         }
     }
-    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runCatching { cleanOpenCache(context) } } }
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runCatching { RemoteFiles.cleanOpenCache(context) } } }
 
     val visible = remember(entries, query, sortBy, sortDesc) {
         val q = query.trim().lowercase()
@@ -338,19 +337,10 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
         val e = openTarget ?: return@LaunchedEffect
         openBytes = 0L
         try {
-            val file = openCacheFile(context, remote.name, e)
-            val cached = withContext(Dispatchers.IO) { file.isFile && e.size >= 0 && file.length() == e.size }
+            val file = RemoteFiles.openCacheFile(context, remote.name, e.path, e.name, e.modTime, e.size)
+            val cached = withContext(Dispatchers.IO) { RemoteFiles.isCached(file, e.size) }
             if (!cached) {
-                val api = RcloneDaemon.api(context)
-                withContext(Dispatchers.IO) {
-                    file.parentFile?.mkdirs()
-                    file.delete()
-                    val job = api.startCopyFile(RcloneApi.fsOf(remote.name), e.path, RcloneApi.LOCAL_FS, RcloneApi.localPath(file.absolutePath))
-                    api.rc.awaitJob(job, pollMs = 300) {
-                        runCatching { api.rc.stats("job/$job") }.getOrNull()?.let { s -> openBytes = s.optLong("bytes", 0L) }
-                    }
-                    api.rc.deleteStats("job/$job")
-                }
+                withContext(Dispatchers.IO) { RemoteFiles.fetch(context, remote.name, e.path, file) { openBytes = it } }
             }
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             opened = OpenedFile(e, file, uri, guessMime(e.name, e.mimeType?.substringBefore(';')?.trim()))
@@ -442,6 +432,16 @@ internal fun RemoteBrowser(remote: RcRemote, onBack: () -> Unit, onTransfers: ()
                                         leadingIcon = { Icon(Icons.Filled.CreateNewFolder, null) },
                                         onClick = { showMore = false; showNewFolder = true },
                                     )
+                                    if (onOpenInFiles != null) {
+                                        DropdownMenuItem(
+                                            text = { Text("Open in file manager") },
+                                            leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
+                                            onClick = {
+                                                showMore = false
+                                                onOpenInFiles(FmLocationRequest.altStack(RemoteBackend.stackFor(remote.name, startPath, path), remote.name))
+                                            },
+                                        )
+                                    }
                                     DropdownMenuItem(
                                         text = { Text("Refresh") },
                                         leadingIcon = { Icon(Icons.Filled.Refresh, null) },

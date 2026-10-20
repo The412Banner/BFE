@@ -25,16 +25,18 @@ enum class AppRoute { HOME, FILES, CATEGORY, APPS, CLOUD, REMOTE, SERVER }
 class FmLocationRequest private constructor(
     private val dir: File?,
     private val floor: File?,
-    private val alt: Loc?,
+    // A root / SAF / remote location: its top first, then any folders below it down to the target.
+    private val alts: List<Loc>,
     private val altLabel: String,
 ) {
-    /** Move [pane] there: a File folder (with [floor] as the Back/up floor), or a root/SAF location. */
+    /** Move [pane] there: a File folder (with [floor] as the Back/up floor), or a root/SAF/remote location. */
     fun applyTo(pane: PaneState) {
         pane.showFavorites = false
         pane.showSearch = false
         pane.searchQuery = ""
-        if (alt != null) {
-            pane.openAltRoot(alt, altLabel)
+        if (alts.isNotEmpty()) {
+            pane.openAltRoot(alts.first(), altLabel)
+            if (alts.size > 1) pane.altStack = alts
             return
         }
         val target = dir ?: return
@@ -45,10 +47,16 @@ class FmLocationRequest private constructor(
 
     companion object {
         /** A File folder; Back climbs to the volume it lives on, then returns Home. */
-        fun folder(dir: File, floor: File = volumeRootOf(dir)): FmLocationRequest = FmLocationRequest(dir, floor, null, "")
+        fun folder(dir: File, floor: File = volumeRootOf(dir)): FmLocationRequest = FmLocationRequest(dir, floor, emptyList(), "")
 
         /** A root (or SAF) location, browsed through its backend, e.g. "/" or /data/data/<pkg>. */
-        fun alt(root: Loc, label: String): FmLocationRequest = FmLocationRequest(null, null, root, label)
+        fun alt(root: Loc, label: String): FmLocationRequest = FmLocationRequest(null, null, listOf(root), label)
+
+        /**
+         * A folder deep inside a root / SAF / remote location: [stack] is its top, then each folder down to
+         * it, so the breadcrumb shows the whole way and Back climbs up through it.
+         */
+        fun altStack(stack: List<Loc>, label: String): FmLocationRequest = FmLocationRequest(null, null, stack, label)
     }
 }
 

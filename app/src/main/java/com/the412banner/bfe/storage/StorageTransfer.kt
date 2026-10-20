@@ -44,7 +44,7 @@ object StorageTransfer {
             ok
         } else {
             val existing = dstBackend.childNamed(context, destDir, targetName)
-            val target = existing ?: dstBackend.createFile(context, destDir, mimeFor(targetName), targetName) ?: return false
+            val target = existing ?: dstBackend.createFile(context, destDir, name = targetName, mime = mimeFor(targetName)) ?: return false
             val input = srcBackend.openInputStream(context, src) ?: return false
             val output = dstBackend.openOutputStream(context, target) ?: run { input.close(); return false }
             try {
