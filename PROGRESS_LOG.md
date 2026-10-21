@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (branch `fix/smb-stale-connections`, CI-green, NOT device-tested)
+## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (branch `fix/smb-stale-connections`, CI-green, tester-proven on SMB)
 
 **Report:** Kanuahs (Samsung SM-S938B, Android 17 / API 37) on the a834f21-era test APK, browsing a NAS SMB
 folder with "Paste 21 items here" pending: listing failed 4 times (23:27:35, 28:02, 28:32, 29:09, each "Try
@@ -31,6 +31,10 @@ phone-side abort. Tester spotted the local UTC offset ("+0530") in entries gives
 `/sdcard/Download/BFE-smb-stale-connections-fea4b716.apk`, sha256 073b2b81…c387 (host = device). Not installed. (A second copy of the same log,
 `BFE-errors-2026-10-21-1.txt`, was byte-identical — nothing new.)
 **Owner decision:** keep the device model (manufacturer + model) in error-log entries.
+**Tester result (2026-10-21 00:05 UTC, fea4b716 on Samsung SM-S938B / Android 17 + Synology NAS):** "Seems to be
+fixed. Tried doing several similar things but no crash so far." → SMB fix proven on the tester's device (not on
+the owner's; no NAS here). Tester's next wish: image previews (thumbnails) over SMB — today remote rows get no
+thumbnail (`thumbModel` is only File / SAF Uri, FileManagerScreen.kt ~3804/4313).
 **Next:** CI → stage APK in Download/ + hashes → ASK before install. The real check is the tester's NAS.
 
 ---
