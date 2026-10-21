@@ -288,6 +288,16 @@ starting.
   (from its ⋮ menu or the drive menu), even as one side of dual pane. Copy, cut and paste work in every
   direction (phone ↔ server, server ↔ server) and run in the background with retries, so big folders
   keep going with the screen off.
+- **Image previews** in network folders: photos and pictures on SMB shares, cloud accounts and other
+  remotes show thumbnails. Camera photos use the small preview stored in the file (only its first
+  128 KB is read); other images up to 30 MB are fetched once and kept in BFE's cache. At most two load
+  at a time, so a NAS isn't flooded. Settings › Photos, video & music › Thumbnails for network folders.
+- **Dropped connections:** when a NAS or Wi-Fi cuts the connection, BFE clears rclone's dead
+  connections and tries again, and says plainly that the connection was lost.
+- **Error logs** (Settings › Troubleshooting, on by default): when a network folder, transfer, archive,
+  extraction or compression fails, BFE adds a dated entry (UTC) to `Download/BFE/BFE-errors-<date>.txt`
+  to attach to a bug report. File and folder names, account and remote names, addresses, user names,
+  passwords and tokens are left out; the app version, Android version and device model are kept.
 
 </details>
 
@@ -427,7 +437,7 @@ app/src/main/java/com/the412banner/bfe/
   has no background notification yet.
 - **Cloud / Remote:** files open as downloaded copies (edits stay in the copy); a copy between a
   remote and app storage (SAF) or a root folder runs in the app rather than in the background; Compress
-  and Convert need the files copied to the phone first. rclone's shared Google Drive key is being retired in 2026 — use your own client ID.
+  and Convert need the files copied to the phone first; videos in remote folders show no preview frame. rclone's shared Google Drive key is being retired in 2026 — use your own client ID.
 - **Document viewer:** documents are converted for reading, not laid out page for page (no exact fonts,
   columns, headers / footers or charts); PDFs can't be searched, protected PDFs don't open, and deep
   zoom is limited by page memory; legacy .doc / .xls / .ppt aren't shown.
@@ -503,6 +513,10 @@ BFE stands on the work of these projects and their authors.
 | [JCommander](https://jcommander.org) | Cédric Beust | Apache-2.0 |
 | [ASM](https://asm.ow2.io) | OW2 / INRIA | BSD-3 |
 | [autolink-java](https://github.com/robinst/autolink-java) | Robin Stocker | MIT |
+
+**Testing**
+- Kanuahs — tested the network folders against a Synology NAS over SMB, reported the dropped-connection
+  failures with logs and screenshots, and suggested UTC times in the error log and image previews over SMB.
 
 **Format references**
 - [EggDotNet](https://www.nuget.org/packages/EggDotNet) by Andrew Kolman (MIT) and ESTsoft's EGG
