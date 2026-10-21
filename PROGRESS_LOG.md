@@ -6,6 +6,19 @@ where it stands*.
 
 ---
 
+## 2026-10-21 — Released v1.3.0 (versionCode 18), stable / Latest
+
+Owner: "release a new stable now". README updated first (5be56c0; image previews, dropped-connection recovery,
+error logs, Testing credit for Kanuahs). release.yml run 39523909566 success → release commit `2969075`
+"Release 1.3.0 (versionCode 18)", tag `v1.3.0` → 2969075 (= built commit), published 2026-10-21T00:55:44Z, Latest,
+not prerelease. Assets: BFE-1.3.0.apk (55,310,509 B, sha256 210dd9c0…e14a, re-downloaded and matched) +
+update.json; manifest branch update.json = versionCode 18 / 1.3.0, same sha256. Workflow check: "signature OK: v2
+original key, v3 release key (API 28+), lineage original → release"; aapt versionCode 18 / 1.3.0.
+Contents since 1.2.0: error log + dropped-connection message (device-proven), SMB stale-connection fix
+(tester-proven), remote image thumbnails (**not device-tested**, owner's call).
+
+---
+
 ## 2026-10-21 — Image thumbnails in network folders (`feat/remote-thumbnails`, MERGED to main, CI-green, NOT device-tested)
 
 **Why:** tester (after the SMB fix): "If you can get image previews over SMB working…". Remote rows had no
