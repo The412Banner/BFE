@@ -1,11 +1,11 @@
 {
-  "versionCode": 17,
-  "versionName": "1.2.0",
-  "notes": "New in 1.2.0:\n• Text editor: edit text and code files right in the viewer, with code colouring, undo/redo, pinch zoom and a symbol key row.\n• Screen rotation setting (Settings › Appearance): Auto, Portrait or Landscape.\n• Cloud/network remotes (including Samba/SMB) can be opened like normal folders and picked from the drive menu; copies run in the background with retry.\n• \"Open in BFE as\": open any file as Text, Hex editor, Archive, Image, Music, Video, Web, Document, Font, SVG, APK or Run script.\n• APK internals: view and edit an app's manifest/binary XML, resources and dex (smali) code, browse Java classes and jars, then save to a new APK or over the original (re-signed).\n• Fixes: phones with 1 TB storage no longer show 2 TB; cloud files no longer show a fake year-2000 date.",
-  "apkName": "BFE-1.2.0.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.2.0/BFE-1.2.0.apk",
-  "sha256": "2a1492237cda73418a09975854ef1fb98e422e24a96878edc97f4f4e42fd8816",
-  "size": 55290029,
-  "publishedAt": "2026-10-20",
+  "versionCode": 18,
+  "versionName": "1.3.0",
+  "notes": "New in 1.3.0:\n• Image previews in network folders: photos and pictures on SMB shares, cloud accounts and other remotes now show thumbnails. Camera photos load from the small preview stored in the file. Turn it off in Settings › Photos, video & music.\n• More reliable SMB and network folders: when a NAS or Wi-Fi drops the connection, BFE reconnects and tries again instead of failing over and over, and says plainly that the connection was lost.\n• Error logs: when a network folder, transfer, archive, extraction or compression fails, BFE saves a dated report in Download/BFE that you can attach to a bug report. File names, accounts, addresses and passwords are left out. Settings › Troubleshooting.\n• Thanks to Kanuahs for testing BFE against a NAS and reporting the SMB problems.",
+  "apkName": "BFE-1.3.0.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.3.0/BFE-1.3.0.apk",
+  "sha256": "210dd9c0231b6f5bcd584d8999f6979a655025fa393a4f49a2ff87a1f226e14a",
+  "size": 55310509,
+  "publishedAt": "2026-10-21",
   "minSupported": 1
 }
