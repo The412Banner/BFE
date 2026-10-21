@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-21 — Image thumbnails in network folders (branch `feat/remote-thumbnails`, CI-green, NOT device-tested)
+## 2026-10-21 — Image thumbnails in network folders (`feat/remote-thumbnails`, MERGED to main, CI-green, NOT device-tested)
 
 **Why:** tester (after the SMB fix): "If you can get image previews over SMB working…". Remote rows had no
 thumbnail. Owner: "merge it and start the thumbnails, default on".
@@ -20,6 +20,9 @@ the icon. `thumbModelFor(Loc)` used by Classic list/grid + Aurora; Cloud browser
 video & music → "Thumbnails for network folders" (on by default).
 **CI:** build.yml run 39520671466 (headSha 26052f5) success, unit tests ran. Main build 39520367680 (acf0837) success.
 **Staged:** `/sdcard/Download/BFE-remote-thumbnails-26052f5b.apk`, sha256 442c1c10…3b06 (host = device). Not installed.
+**Merged without a device test (owner chose "Merge now" when asked):** ff main acf0837 → 3eb7b73, then this log
+commit; app tree == CI-built 26052f5. Backup `refs/backup/20261021/main-before-remote-thumbnails`. Old fea4b716
+APK deleted (owner). Open: device test (tester's NAS photo folder; own-device smoke test) before any release.
 **Next:** CI → stage APK in Download/ + hashes → ask before install. Real test = tester's NAS photo folder.
 
 ---
