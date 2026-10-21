@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-10-21 — Image thumbnails in network folders (branch `feat/remote-thumbnails`, CI pending, NOT device-tested)
+## 2026-10-21 — Image thumbnails in network folders (branch `feat/remote-thumbnails`, CI-green, NOT device-tested)
 
 **Why:** tester (after the SMB fix): "If you can get image previews over SMB working…". Remote rows had no
 thumbnail. Owner: "merge it and start the thumbnails, default on".
@@ -18,7 +18,8 @@ small JPEG cached once in `cacheDir/remote-thumbs` (3000 kept). JPEG: EXIF previ
 (ImageDecoder on API 28+ → EXIF rotation + HEIF; BitmapFactory + EXIF rotation below). Semaphore(2). Videos keep
 the icon. `thumbModelFor(Loc)` used by Classic list/grid + Aurora; Cloud browser rows too. Settings → Photos,
 video & music → "Thumbnails for network folders" (on by default).
-**CI:** build.yml run 39520671466 (headSha 26052f5), pending.
+**CI:** build.yml run 39520671466 (headSha 26052f5) success, unit tests ran. Main build 39520367680 (acf0837) success.
+**Staged:** `/sdcard/Download/BFE-remote-thumbnails-26052f5b.apk`, sha256 442c1c10…3b06 (host = device). Not installed.
 **Next:** CI → stage APK in Download/ + hashes → ask before install. Real test = tester's NAS photo folder.
 
 ---
