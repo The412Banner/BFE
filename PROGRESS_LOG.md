@@ -6,7 +6,24 @@ where it stands*.
 
 ---
 
-## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (branch `fix/smb-stale-connections`, CI-green, tester-proven on SMB)
+## 2026-10-21 — Image thumbnails in network folders (branch `feat/remote-thumbnails`, CI pending, NOT device-tested)
+
+**Why:** tester (after the SMB fix): "If you can get image previews over SMB working…". Remote rows had no
+thumbnail. Owner: "merge it and start the thumbnails, default on".
+**Merge done first:** `fix/smb-stale-connections` ff into main 3baab5d → acf0837 (app tree == tester-proven
+fea4b71), backup `refs/backup/20261021/main-before-smb-stale-connections`, main build run 39520367680.
+**Built (26052f5):** `cloud/RemoteThumbs` — `RemoteThumb` Coil model + Keyer + Fetcher (registered in BfeApp);
+small JPEG cached once in `cacheDir/remote-thumbs` (3000 kept). JPEG: EXIF preview from the first 128 KB
+(`RcClient.openRead(range)`, Range header; works even if ignored). Else whole image ≤ 30 MB, scaled ~320 px
+(ImageDecoder on API 28+ → EXIF rotation + HEIF; BitmapFactory + EXIF rotation below). Semaphore(2). Videos keep
+the icon. `thumbModelFor(Loc)` used by Classic list/grid + Aurora; Cloud browser rows too. Settings → Photos,
+video & music → "Thumbnails for network folders" (on by default).
+**CI:** build.yml run 39520671466 (headSha 26052f5), pending.
+**Next:** CI → stage APK in Download/ + hashes → ask before install. Real test = tester's NAS photo folder.
+
+---
+
+## 2026-10-20 — Tester log: SMB fails again with dead pooled connections (`fix/smb-stale-connections`, MERGED to main acf0837, unreleased)
 
 **Report:** Kanuahs (Samsung SM-S938B, Android 17 / API 37) on the a834f21-era test APK, browsing a NAS SMB
 folder with "Paste 21 items here" pending: listing failed 4 times (23:27:35, 28:02, 28:32, 29:09, each "Try
