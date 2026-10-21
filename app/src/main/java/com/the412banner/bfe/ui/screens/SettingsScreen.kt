@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Wifi
@@ -94,6 +95,7 @@ import com.the412banner.bfe.update.UpdateManager.CheckState
 import com.the412banner.bfe.util.ScreenRotation
 import com.the412banner.bfe.util.DefaultApps
 import com.the412banner.bfe.util.ErrorLog
+import com.the412banner.bfe.cloud.RemoteThumbs
 import com.the412banner.bfe.media.MediaPrefs
 import com.the412banner.bfe.security.SecretVault
 import com.the412banner.bfe.security.VaultProtection
@@ -401,6 +403,13 @@ private fun MainSettings(
             subtitle = "A playing video shrinks into a floating window on Home or Back instead of stopping.",
             onClick = { pip = !pip; MediaPrefs.setPipOnLeave(context, pip) },
             trailing = { Switch(checked = pip, onCheckedChange = { pip = it; MediaPrefs.setPipOnLeave(context, it) }) },
+        )
+        SettingRow(
+            icon = Icons.Filled.Cloud,
+            title = "Thumbnails for network folders",
+            subtitle = "Image previews in SMB, cloud and other remote folders. Camera photos use the small preview stored in the file; other images up to 30 MB are fetched once and kept in BFE's cache.",
+            onClick = { RemoteThumbs.setEnabled(context, !RemoteThumbs.enabled) },
+            trailing = { Switch(checked = RemoteThumbs.enabled, onCheckedChange = { RemoteThumbs.setEnabled(context, it) }) },
         )
 
         SettingsDivider()

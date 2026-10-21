@@ -352,6 +352,17 @@ private fun comparatorFor(sortBy: String, desc: Boolean, folderSortBy: String, f
     }
 }
 
+/**
+ * What Coil loads for an entry's thumbnail: the File for direct storage, the SAF document Uri, a
+ * [com.the412banner.bfe.cloud.RemoteThumb] for an image in a remote folder; "" (type icon) otherwise.
+ */
+internal fun thumbModelFor(file: Loc): Any = when (file) {
+    is Loc.FileLoc -> file.file
+    is Loc.SafLoc -> file.docUri
+    is Loc.RemoteLoc -> com.the412banner.bfe.cloud.RemoteThumbs.modelFor(file.remote, file.path, file.name, file.size, file.lastModified, file.isDir) ?: ""
+    else -> ""
+}
+
 // Image extensions that get a real thumbnail (via Coil) instead of the generic file icon.
 internal val IMAGE_THUMB_EXTS = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "heic", "heif", "avif")
 // Videos get a frame grabbed by Coil's VideoFrameDecoder (Android's own media stack, so what it can't
@@ -3800,8 +3811,7 @@ private fun FileItemRow(
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
     }
-    // Thumbnail source: the File for direct storage, the SAF doc Uri otherwise (Coil handles both).
-    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as? Loc.SafLoc)?.docUri ?: ""
+    val thumbModel: Any = thumbModelFor(file)
 
     // ── Compact (dense) row ── minimal single-line row, ~28dp tall, with a thin divider.
     if (dense) {
@@ -4309,8 +4319,7 @@ private fun FileGridTile(
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
     }
-    // Thumbnail source: the File for direct storage, the SAF doc Uri otherwise (Coil handles both).
-    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as? Loc.SafLoc)?.docUri ?: ""
+    val thumbModel: Any = thumbModelFor(file)
     // The action menu is anchored to the Box around the Card (opened from the corner ⋮).
     Box {
         Card(

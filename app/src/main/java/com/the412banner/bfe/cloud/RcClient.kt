@@ -88,15 +88,17 @@ class RcClient(val port: Int, user: String, pass: String) {
     }
 
     /**
-     * Streams one remote file (`rcd --rc-serve` serves `GET /[remote:]/path`). Closing the stream
-     * closes the connection. Building block for reading a cloud file without staging it first.
+     * Streams one remote file (`rcd --rc-serve` serves `GET /[remote:]/path`), or just [range] of it.
+     * Closing the stream closes the connection. Building block for reading a cloud file without staging it first.
      */
-    fun openRead(fs: String, path: String): InputStream {
+    fun openRead(fs: String, path: String, range: LongRange? = null): InputStream {
         val url = baseUrl + "[" + encode(fs) + "]/" + path.split('/').filter { it.isNotEmpty() }.joinToString("/") { encode(it) }
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 5_000
             readTimeout = 120_000
             setRequestProperty("Authorization", auth)
+            // Only part of the file (a server that ignores it sends all of it; callers stop reading).
+            range?.let { setRequestProperty("Range", "bytes=${it.first}-${it.last}") }
         }
         val code = c.responseCode
         if (code !in 200..299) {

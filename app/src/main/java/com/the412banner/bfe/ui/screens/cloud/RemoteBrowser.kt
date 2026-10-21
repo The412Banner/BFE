@@ -100,6 +100,7 @@ import com.the412banner.bfe.ui.icons.FileIcons
 import com.the412banner.bfe.ui.icons.FileTypeIcon
 import com.the412banner.bfe.cloud.CloudServices
 import com.the412banner.bfe.cloud.CloudSetup
+import com.the412banner.bfe.cloud.RemoteThumbs
 import com.the412banner.bfe.util.ErrorLog
 import com.the412banner.bfe.cloud.CloudTransfers
 import com.the412banner.bfe.cloud.RcEntry
@@ -116,6 +117,7 @@ import com.the412banner.bfe.storage.Loc
 import com.the412banner.bfe.storage.RemoteBackend
 import com.the412banner.bfe.ui.screens.home.FmLocationRequest
 import com.the412banner.bfe.ui.screens.FileManagerScreen
+import com.the412banner.bfe.ui.screens.FileThumb
 import com.the412banner.bfe.ui.screens.OpenWithSheet
 import com.the412banner.bfe.ui.screens.OutlinedAlertDialog
 import com.the412banner.bfe.ui.screens.SheetAction
@@ -491,6 +493,7 @@ internal fun RemoteBrowser(
                                 val isSel = e.path in selected
                                 EntryRow(
                                     e = e,
+                                    remote = remote.name,
                                     selected = isSel,
                                     selecting = selected.isNotEmpty(),
                                     subtitle = buildString {
@@ -785,6 +788,7 @@ private fun Crumb(text: String, current: Boolean, onClick: () -> Unit) {
 @Composable
 private fun EntryRow(
     e: RcEntry,
+    remote: String,
     selected: Boolean,
     selecting: Boolean,
     subtitle: String,
@@ -804,7 +808,12 @@ private fun EntryRow(
         if (selecting) {
             Checkbox(checked = selected, onCheckedChange = { onClick() })
         }
-        FileTypeIcon(e.name, e.isDir, Modifier.padding(horizontal = 4.dp), size = 28.dp)
+        val thumb = RemoteThumbs.modelFor(remote, e.path, e.name, e.size, e.modTime, e.isDir)
+        if (thumb != null) {
+            Box(Modifier.padding(horizontal = 4.dp)) { FileThumb(e.name, thumb, video = false, size = 28.dp, corner = 4.dp, badge = false) }
+        } else {
+            FileTypeIcon(e.name, e.isDir, Modifier.padding(horizontal = 4.dp), size = 28.dp)
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(e.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

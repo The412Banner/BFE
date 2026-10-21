@@ -824,7 +824,7 @@ private fun rememberEntryVisual(file: Loc, apkIconPx: Int): EntryVisual {
             if (bmp != null) exeIcon = bmp.asImageBitmap()
         }
     }
-    val thumbModel: Any = (file as? Loc.FileLoc)?.file ?: (file as? Loc.SafLoc)?.docUri ?: ""
+    val thumbModel: Any = thumbModelFor(file)
     return EntryVisual(exeIcon, !isDir && ext in IMAGE_THUMB_EXTS, !isDir && ext in VIDEO_THUMB_EXTS, thumbModel, detail, dateLabel, dateOnlyLabel, timeLabel)
 }
 
