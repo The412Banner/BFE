@@ -6,6 +6,33 @@ where it stands*.
 
 ---
 
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, IN PROGRESS, not built yet)
+
+**Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
+with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
+Scope agreed: (1) read which layers an archive uses and say exactly what is missing, (2) add open-source
+decoders for those layers, (3) "Run in Bannerlator" hand-off for anything BFE still can't unpack.
+**Findings (2026-11-01, before coding):**
+- Current `libunarc.so` (FreeArc 0.67 unpacker) decodes storing/lzma/tor/rep/exe/delta/grzip/4x4 and runs
+  external layers from an `arc.ini` (`-cfg`). Tested with archives made by freearc-c: ppmd, lzp, dict, mm, tta →
+  "ERROR: unsupported compression method".
+- freearc-c (seb3773, GPL-2.0, native C/C++ FreeArc) builds on arm64 and has all FreeArc codecs + arc.ini
+  external compressors → candidate second engine for archives the old unarc can't decode.
+- precomp-cpp (Christian Schneider, Apache-2.0): tags v0.4.4–v0.4.7 + master 0.4.8-dev. A PCF file only restores
+  with the exact version that made it ("made with a different Precomp version") → one binary per version.
+- SREP (Bulat Ziganshin): source headers say "All rights reserved … buy a commercial license for the source
+  code"; no licence grant found → NOT shipped (needs the author's permission). lolz/xtool-oodle: closed or need
+  proprietary libraries → not possible.
+- Bannerlator ≥ 3.1.7 has `com.winlator.star.OpenExeActivity` (VIEW intent for .exe, resolves BFE's
+  FileProvider `external/` and `root/` paths back to real paths) → hand-off target.
+**Plan:** native: precomp per version + freearc-c unarc + small `bfeext` helper (picks the right decoder by the
+layer's own header, handles FreeArc's optional 0/1 header byte) via build-extract-tools.yml; Kotlin: FreeArc
+directory reader (methods per block), routing by needed methods, per-job arc.ini, Unpack screen layer list,
+"Run in Bannerlator" button; README/NOTICE credits. Tests with self-made archives only.
+**Resume point:** branch `feat/universal-extractor` off main 354b4ce; scratch work in the session scratchpad.
+
+---
+
 ## 2026-10-21 — Released v1.3.0 (versionCode 18), stable / Latest
 
 Owner: "release a new stable now". README updated first (5be56c0; image previews, dropped-connection recovery,
