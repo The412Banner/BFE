@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green a728910, ALL features device-proven, awaiting merge go)
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, MERGED to main c9b0d30, all features device-proven, unreleased)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
 with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
@@ -90,7 +90,10 @@ in that block (not proven — can't verify without the source's checksums). Test
   **Run in Bannerlator DEVICE-PROVEN.** No FATAL.
 **State:** every feature on the branch device-proven (layer list, precomp decoding, SREP card, Bannerlator hand-off, full
 unpack log, block chains). Open: owner's own repack fails in block 3 (likely damaged file, see above).
-NEXT: merge decision (owner's go needed; backup ref first).
+**Merged (owner: "yes merge it"):** fast-forward main 354b4ce → c9b0d30; main tree == device-tested a728910 apart from this
+log. Backup `refs/backup/20261101/main-before-universal-extractor` = 354b4ce — pushed right AFTER main by mistake (wrong SHA typed
+from memory, failure hidden by a pipe; fixed within a minute). Main build 41277203918 started on c9b0d30 (result to check).
+Branch `feat/universal-extractor` kept. Not released: next stable would carry this (owner decides).
 **Device test:** none yet. Test folders: `/sdcard/Download/BFE-test-precomp` (layered archive → expect layer list
 ✓/↻ and byte-exact unpack) and `/sdcard/Download/BFE-test-srep` (SREP → expect "can't unpack" + Run in Bannerlator).
 **Resume point:** ask owner before installing; after install test both folders, check logcat for FATAL.
@@ -812,6 +815,10 @@ Native engines are **exec'd** from `nativeLibraryDir` (not `System.loadLibrary`)
 `android:extractNativeLibs="true"` is mandatory.
 
 ## Lessons learned (don't repeat these)
+- (2026-11-01) Push the backup ref by itself from `git rev-parse` output and check it with `git ls-remote` before pushing
+  main; a `cmd | tail` hides cmd's failure, so never chain a merge behind it.
+- (2026-11-01) FreeArc's external-layer code needs more than Android's ~1 MB default thread stack (unarc patch 0002);
+  FreeArc LZMA control blocks carry an end marker (xz-java: enableRelaxedEndCondition).
 
 - 2026-10-20: never install a test build without asking — stage in Download/, hash-check, ask, wait
   for a yes. Don't fire test intents at the device while the owner may be using it (I brought BFE over a
