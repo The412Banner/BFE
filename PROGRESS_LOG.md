@@ -32,7 +32,23 @@ beyond their READMEs), build all stages, test each on the device with root ("the
   leftover passes `tar -tf` / `unzip -t`, leftover + unpacked = full set.
 - Device (Pocket FIT, root, `/data/local/tmp/bfecut` bionic build): internal storage plain + kill 5/5 for all four;
   SD card (exFAT) plain + kill 4/4 (128–189 kills per format).
-**Resume point:** branch `feat/space-saving-unpack`; next stage 2 (7z, RAR, FreeArc). Device test kit:
+**Stage 2 (`3c2893a`) — 7z, FreeArc, RAR (proot-proven):** own LZMA/LZMA2 (unit-tested vs Python's lzma); 7z header
+reader/writer (a header listing one folder → bundled 7-Zip unpacks it → cut + header for the rest); FreeArc directory/
+footer reader/writer with the same view+cut via unarc (`--unarc-arg` for layered archives); RAR 4/5 incl. volume sets
+(.partN.rar, .rar/.r00): files picked by 7-Zip's own names, cut = shorten + end header, RAR 5 links made by BFE, solid
+and encrypted refused with a reason. Found+fixed: helper processes outliving a killed bfecut kept writing into the
+stage → PR_SET_PDEATHSIG; a resume after a finished run now reports done. Tests: 7z multi-block/non-solid/plain header/
+solid(1 piece)/split/BCJ2, FreeArc multi-block/non-solid/`rep+4x4:tor`; RAR fixtures from libarchive's test suite
+(BSD) compared with 7-Zip's own unpack (RAR4/5, Unicode, 4/6/8-part sets); kill loops 7z 10/10, FreeArc 10/10,
+RAR sets 8/8; give-up leftovers pass `7zz t` / `unarc t`.
+**Stage 3 (`bd30b96`) — gzip + multi-block xz streams (proot-proven):** front-to-back with punch-behind; own inflate
+restart points (bit pos + 32 KiB window + CRC) and xz block starts; tar inside unpacked member by member (state in the
+restart point, numbered stage file per member). Found+fixed: freed start of .gz/.xz made resumes say "unsupported" →
+stream description saved before punching; shared stage file name let a resume mix two members (caught by the length
+check, nothing written wrong) → numbered stage files. Tests: tar.gz/tgz/multi-member/tar.xz/single .gz/.xz byte-exact;
+3.4 MB archive held 372 KB on disk mid-run; kill loops 25/25 ×3 (93/46/83 kills).
+**Resume point:** device tests for stages 2+3 (root, internal + SD), then stage 4 decision, then app integration
+(Kotlin plan/run wrapper, Unpack screen option, service engine, CI build of bfecut) and the test APK. Device kit:
 `/sdcard/Download/bfecut-test/` (devtest.sh, src-archives, want.sha).
 
 ---
