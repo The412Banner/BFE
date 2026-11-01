@@ -151,10 +151,12 @@ object Unarc {
         Log.i(TAG, "${bin.name} exit=$exit for ${archive.name}")
         // A failed external layer can leave its temp files behind; they can be as big as the game.
         layers?.tempDir?.deleteRecursively()
-        // libbfeext's own lines say exactly which layer stopped and why; keep them in the tail.
+        // libbfeext's own lines say exactly which layer stopped and why: put them last, where the
+        // error card (which shows the end of the tail) can't cut them off.
         val helperLines = RepackLayers.helperMessages(tail.toString())
         val shown = if (exit != 0 && helperLines.isNotEmpty())
-            helperLines.joinToString("\n") + "\n" + tail.toString().trim()
+            tail.lineSequence().filterNot { it.trim().startsWith("BFE-EXT:") }.joinToString("\n").trim() +
+                "\n" + helperLines.joinToString("\n")
         else tail.toString().trim()
         return Result(exit, shown)
     }

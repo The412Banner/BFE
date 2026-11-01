@@ -174,6 +174,13 @@ starting.
 - **InnoSetup / GOG** `setup_*.exe` unpacked with innoextract, including **automatic DLC batches**
   (sibling DLC installers merged into one game folder).
 - **FreeArc / ISDone** repacks (`Setup-N.bin` volumes) decoded natively with unarc.
+- **Layers inside FreeArc archives:** before unpacking, BFE reads the archive's table of contents and
+  lists every layer each block uses. precomp layers (versions 0.4.4 to 0.4.8) are decoded with bundled
+  precomp builds. Layers BFE can't decode (SREP, lolz, xtool / Oodle, precomp 0.4.3 and older, a few
+  FreeArc methods, password-protected archives) are named up front.
+- **Run in Bannerlator:** when BFE can't decode an installer's data, or decoding fails, one button opens
+  its `Setup.exe` in [Bannerlator](https://github.com/The412Banner/Bannerlator) (3.1.7 or newer), so the
+  installer's own decoders do the job on the device.
 
 </details>
 
@@ -429,6 +436,8 @@ app/src/main/java/com/the412banner/bfe/
 
 ## Known limitations
 - **Archives:** browsing is read-only; InnoSetup / FreeArc installers can be extracted but not browsed;
+  FreeArc layers BFE can't legally or technically include (SREP, lolz, xtool / Oodle, precomp ≤ 0.4.3) and
+  FreeArc's PPMd / LZP / Dict / MM / TTA methods need the installer itself (Run in Bannerlator);
   archives on SAF / root locations can't be extracted or browsed yet (extracting *into* them works);
   ACE 2.0, password-protected EGG / ALZ / ACE and incremental OTAs aren't supported.
 - **Video converter:** Bink 2 (`.bk2`) is proprietary and can't be decoded; encoding is software-only.
@@ -473,7 +482,8 @@ BFE stands on the work of these projects and their authors.
 | [7-Zip](https://www.7-zip.org) 24.08 | Igor Pavlov | LGPL-2.1 + unRAR restriction | Extraction, compression, archive browsing |
 | [innoextract](https://github.com/dscharrer/innoextract) 1.9 | Daniel Scharrer | zlib | InnoSetup / GOG installers |
 | Boost, zlib, bzip2, liblzma (XZ Utils), GNU libiconv | Boost, Jean-loup Gailly & Mark Adler, Julian Seward, Lasse Collin, GNU | BSL-1.0, zlib, bzip2, 0BSD / public domain, LGPL-2.1+ | innoextract / unalz dependencies |
-| [FreeArc unarc](https://github.com/mirror/freearc) 0.67 | Bulat Ziganshin | GPL | FreeArc / ISDone repacks |
+| [FreeArc unarc](https://github.com/mirror/freearc) 0.67 | Bulat Ziganshin | GPL | FreeArc / ISDone repacks (also rebuilt with BFE's patches for archives with extra layers) |
+| [precomp](https://github.com/schnaader/precomp-cpp) 0.4.4 - 0.4.8 | Christian Schneider (with preflate by Dirk Steinke, packJPG / packMP3 by Matthias Stirner) | Apache-2.0 (packJPG / packMP3: LGPL-3.0) | precomp layers in FreeArc archives |
 | [FFmpeg](https://ffmpeg.org) 7.1.5 + [x264](https://www.videolan.org/developers/x264.html) | FFmpeg developers, VideoLAN | GPL-2.0+ | Video converter |
 | [libVLC for Android](https://code.videolan.org/videolan/vlc-android) 3.6.5 | VideoLAN and the VLC authors | LGPL-2.1+ | Video & music player |
 | [rclone](https://rclone.org) 1.75.2 | Nick Craig-Wood and contributors | MIT | Cloud & remote (downloaded on first use) |
