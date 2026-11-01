@@ -88,7 +88,9 @@ Found + fixed (`198e461`): ZIP/tar/RAR only free space once it gets tight (hybri
 right away) → wording now says which; source card kept the old size after Put back.
 NOT tested in the app: the "won't fit normally" path (305 GB free; engine hybrid low-space is CLI-proven), FreeArc
 repack route, RAR through the app, SD card through the app.
-OPEN DECISION for the user: keep hybrid (ZIP/tar/RAR free space only when needed, safer) or always delete as it goes.
+USER DECISIONS (11-01): (1) ZIP/tar/RAR free space only when it runs out, unless the user ticks an option to delete as
+it goes anyway; (2) keep the switch on every supported archive; (3) install the fixed build; (4) merge to main and
+release a new stable; disc images (stage 4) another time.
 APK build for `198e461`: run 41288128694.
 **Resume point (older):** APK → stage to `/sdcard/Download/BFE-space-saving-unpack-<sha8>.apk` with hashes → ASK before
 install → app test with `/sdcard/Download/BFE-space-test/masters/` (SpaceTest7z.7z 11 blocks, SpaceTestZip.zip,
