@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI building, NOT device-tested)
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green bc65bf6, staged, NOT device-tested)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
 with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
@@ -46,9 +46,14 @@ layers, (3) "Run in Bannerlator" for anything BFE still can't unpack. Tests use 
 **Tests (local, proot, CI binaries):** Python FreeArc writer fixtures (precomp 0.4.4/0.4.5/0.4.6/0.4.7/0.4.8,
 with and without the marker byte, stored marker, two blocks) → byte-identical output; SREP / lolz layers → clear
 BFE-EXT messages, exit 2. Old vs rebuilt unarc identical on 10 built-in method chains.
-**CI:** APK build 41270343282 (55b6519) running. **Device test:** none yet.
-**Resume point:** wait for 41270343282 → stage APK `/sdcard/Download/BFE-universal-extractor-<sha8>.apk` with
-sha256, ask owner before install. Local kit: session scratchpad (fa.py writer, fixtures in fx/, ci-tools/).
+**CI:** 41270343282 (55b6519) failed at unit-test compile (JUnit `assertNotNull` returns Unit → c6ddc2a);
+41270713073 (c6ddc2a) tests failed: xz-java calls FreeArc's LZMA end marker corrupt → `enableRelaxedEndCondition()`
+(bc65bf6); **41271163289 (bc65bf6) GREEN** — assemble, unit tests, signing check ("v2 original, v3 release, lineage").
+APK contains libunarcx (sha matches tools artifact), libbfeext, libprecomp044–048, both NOTICEs; versionCode 18 (no bump).
+**Staged:** `/sdcard/Download/BFE-universal-extractor-bc65bf6e.apk`, sha256 3a679c94…faa4 (host == device).
+**Device test:** none yet. Test folders: `/sdcard/Download/BFE-test-precomp` (layered archive → expect layer list
+✓/↻ and byte-exact unpack) and `/sdcard/Download/BFE-test-srep` (SREP → expect "can't unpack" + Run in Bannerlator).
+**Resume point:** ask owner before installing; after install test both folders, check logcat for FATAL.
 
 ---
 
