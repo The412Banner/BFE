@@ -6,30 +6,49 @@ where it stands*.
 
 ---
 
-## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, IN PROGRESS, not built yet)
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI building, NOT device-tested)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
 with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
-Scope agreed: (1) read which layers an archive uses and say exactly what is missing, (2) add open-source
-decoders for those layers, (3) "Run in Bannerlator" hand-off for anything BFE still can't unpack.
-**Findings (2026-11-01, before coding):**
-- Current `libunarc.so` (FreeArc 0.67 unpacker) decodes storing/lzma/tor/rep/exe/delta/grzip/4x4 and runs
-  external layers from an `arc.ini` (`-cfg`). Tested with archives made by freearc-c: ppmd, lzp, dict, mm, tta →
-  "ERROR: unsupported compression method".
-- freearc-c (seb3773, GPL-2.0, native C/C++ FreeArc) builds on arm64 and has all FreeArc codecs + arc.ini
-  external compressors → candidate second engine for archives the old unarc can't decode.
-- precomp-cpp (Christian Schneider, Apache-2.0): tags v0.4.4–v0.4.7 + master 0.4.8-dev. A PCF file only restores
-  with the exact version that made it ("made with a different Precomp version") → one binary per version.
-- SREP (Bulat Ziganshin): source headers say "All rights reserved … buy a commercial license for the source
-  code"; no licence grant found → NOT shipped (needs the author's permission). lolz/xtool-oodle: closed or need
-  proprietary libraries → not possible.
-- Bannerlator ≥ 3.1.7 has `com.winlator.star.OpenExeActivity` (VIEW intent for .exe, resolves BFE's
-  FileProvider `external/` and `root/` paths back to real paths) → hand-off target.
-**Plan:** native: precomp per version + freearc-c unarc + small `bfeext` helper (picks the right decoder by the
-layer's own header, handles FreeArc's optional 0/1 header byte) via build-extract-tools.yml; Kotlin: FreeArc
-directory reader (methods per block), routing by needed methods, per-job arc.ini, Unpack screen layer list,
-"Run in Bannerlator" button; README/NOTICE credits. Tests with self-made archives only.
-**Resume point:** branch `feat/universal-extractor` off main 354b4ce; scratch work in the session scratchpad.
+Scope: (1) read which layers an archive uses and say exactly what is missing, (2) open-source decoders for those
+layers, (3) "Run in Bannerlator" for anything BFE still can't unpack. Tests use self-made archives only.
+
+**Findings:**
+- Bundled `libunarc.so` (FreeArc 0.67): storing/lzma/tor/rep/exe/delta/grzip/4x4 + external layers from an arc.ini
+  (`-cfg`). ppmd/lzp/dict/mm/tta → "unsupported compression method" (tested with freearc-c archives).
+- **Crash found:** with external layers the bundled unarc segfaulted in ~1 of 15 runs (2/30, 1/40 with BFE's own
+  libc++). ASan build from source: stack overflow in `EXTERNAL_METHOD::DeCompress` (three MYFILE/MYDIR objects on a
+  worker thread's stack; bionic's default thread stack ~1 MB). Fix = `pthread_attr_setstacksize(16 MB)` in
+  ThreadsUnix.c → 0 failures in 240 runs (60 ASan + 60 -O2 + 120 CI build).
+- Shell expands FreeArc's default `$$arcdatafile$$.tmp` (system() → sh) → arc.ini sets `datafile`/`packedfile`.
+- freearc-c (seb3773, GPL-2.0) rejected as an engine: its arc has no external-compressor support, its unarc ignores
+  `header=` and crashed (SIGABRT) on every external layer. Used only to make one test fixture.
+- precomp-cpp (Christian Schneider, Apache-2.0 since the first open release 0.4.4): a PCF restores only with the
+  exact version → 5 binaries (0.4.4–0.4.7 tags + master 0.4.8-dev a11b077). 0.38–0.4.3 never released as source.
+- SREP: "All rights reserved … buy a commercial license" in every source file, no licence on its page → not shipped.
+- Bannerlator ≥ 3.1.7 `com.winlator.star.OpenExeActivity` resolves BFE FileProvider `external/` + `root/` Uris.
+
+**Built:**
+- `d529577` native: `native/bfeext/bfeext.c` (picks decoder by layer header: PCF → libprecompXYZ by version, SREP →
+  "not included", 0x00 marker → stored copy, 0x01 marker stripped in place), `native/precomp/build.sh`,
+  `native/unarc/build.sh` + `native/patches/unarc/` (0001 GRZip LP64, 0002 16 MB worker stacks),
+  `build-repack-tools.yml` (pinned SHA-256, NDK r29, all static). build-extract-tools.yml ignores those paths.
+- Run 41269783389 (d529577) green: libunarcx, libprecomp044–048, libbfeext, all static (BUILD_INFO in artifact).
+- `55b6519` app: `FreeArcInfo` (in-app TOC reader, CRC-checked, stored/LZMA control blocks), `RepackLayers`
+  (builtin / external-try / missing + reason, per-job arc.ini), classifyInno → FREEARC_NATIVE / FREEARC_LAYERS /
+  CONTAINER_ONLY (FreeArc also recognised without Records.ini), service engine `unarc-layers` (libunarcx + `-cfg` +
+  `-w` temp beside the destination, cleaned after), Pause/Cancel reach unarc's children, Unpack screen layer list
+  + "Run <Setup.exe> in Bannerlator" (container card and error card), Quick/Fast extract routes, licences
+  (NOTICE_PRECOMP, NOTICE_UNARCX, Settings list), unit tests FreeArcInfoTest + RepackLayersTest.
+- Unchanged on purpose: archives with built-in layers only still use the old, verified libunarc.so; only the
+  first `Setup-N.bin` volume is extracted (as before).
+
+**Tests (local, proot, CI binaries):** Python FreeArc writer fixtures (precomp 0.4.4/0.4.5/0.4.6/0.4.7/0.4.8,
+with and without the marker byte, stored marker, two blocks) → byte-identical output; SREP / lolz layers → clear
+BFE-EXT messages, exit 2. Old vs rebuilt unarc identical on 10 built-in method chains.
+**CI:** APK build 41270343282 (55b6519) running. **Device test:** none yet.
+**Resume point:** wait for 41270343282 → stage APK `/sdcard/Download/BFE-universal-extractor-<sha8>.apk` with
+sha256, ask owner before install. Local kit: session scratchpad (fa.py writer, fixtures in fx/, ci-tools/).
 
 ---
 
