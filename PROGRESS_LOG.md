@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green a728910, logging device-proven, layer decoding NOT device-tested)
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green a728910, logging + precomp layers device-proven, Bannerlator hand-off untested)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
 with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
@@ -77,7 +77,14 @@ complete) then .ucas (14.2 GB, starts 3.58 GiB into the block) → "archive data
 4.6 GB files, 8.3 GB packed, same chain → OK in 13 s. Note: "archive data corrupted (decompression fails)" is printed for any
 decoder error. Conclusion: BFE's engine handles this archive shape; the owner's file most likely has damaged/incomplete data
 in that block (not proven — can't verify without the source's checksums). Test files (16.6 GB) deleted.
-NEXT: device-test the layer decoding (BFE-test-precomp / BFE-test-srep), then merge decision.
+**Device test of the test folders (owner, ~05:21 UTC, a7289101 installed):**
+- BFE-test-precomp → `Download/BFE-test-precomp (1)/data`: all 4 files byte-exact vs originals (sha256), logcat
+  "libunarcx.so exit=0 for Setup-1.bin", no error-log entry, no `.bfe-unarc-tmp` left → **layered engine + precomp
+  0.4.7 + two-block archive DEVICE-PROVEN.**
+- BFE-test-srep → no extraction started, no error entry (expected: CONTAINER_ONLY card). Screen content not visible in
+  logs — owner to confirm the card. No OpenExeActivity start in logcat → "Run in Bannerlator" NOT tested yet.
+- logcat 01:05–01:23 EDT: no FATAL / native crash / ANR for BFE.
+NEXT: owner confirms SREP card + taps Run in Bannerlator once; then merge decision (owner).
 **Device test:** none yet. Test folders: `/sdcard/Download/BFE-test-precomp` (layered archive → expect layer list
 ✓/↻ and byte-exact unpack) and `/sdcard/Download/BFE-test-srep` (SREP → expect "can't unpack" + Run in Bannerlator).
 **Resume point:** ask owner before installing; after install test both folders, check logcat for FATAL.
