@@ -147,6 +147,8 @@ object FreeArcInfo {
         val dict = maxOf(orig, 4096)
         val out = ByteArray(orig)
         LZMAInputStream(ByteArrayInputStream(raw), orig.toLong(), lc, lp, pb, dict, null).use {
+            // FreeArc writes an end marker even though the size is known; strict mode calls that corrupt.
+            it.enableRelaxedEndCondition()
             DataInputStream(it).readFully(out)
         }
         return out
