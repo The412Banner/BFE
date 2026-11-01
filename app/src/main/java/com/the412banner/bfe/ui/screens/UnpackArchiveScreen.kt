@@ -233,7 +233,10 @@ fun UnpackArchiveScreen(
 
     // For display + honest speed/ETA: the payload data. For InnoSetup that's the Setup-*.bin total,
     // not the tiny Setup.exe.
-    val sourceSize = remember(archivePath) {
+    // Bumped after "Put back what's left" (space-saving unpack) so the plan and sizes are re-read.
+    var planTick by remember { mutableIntStateOf(0) }
+    // Re-read after a job ends: a space-saving unpack shrinks or removes the archive.
+    val sourceSize = remember(archivePath, state.phase, planTick) {
         if (isInno) {
             archive.parentFile?.listFiles()
                 ?.filter { it.isFile && (it.extension.equals("bin", true) || it == archive) }
@@ -302,7 +305,6 @@ fun UnpackArchiveScreen(
     var spaceMode by remember(archivePath) { mutableStateOf(false) }
     var confirmSpace by remember { mutableStateOf(false) }
     var abandoning by remember { mutableStateOf(false) }
-    var planTick by remember { mutableIntStateOf(0) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(spaceEligible, destPath, state.phase, planTick) {
         if (!spaceEligible || state.isRunning) return@LaunchedEffect
@@ -1091,7 +1093,9 @@ private fun SpaceSaverCard(
             when {
                 !plan.sameStorage -> plan.reason ?: "Only works when the files land on the same storage as the download."
                 plan.stream -> "BFE reads the download from the start and frees what it has read, so it needs much less free space. The download is gone at the end."
-                plan.shrinks -> "BFE unpacks the download piece by piece and frees each piece's space as it lands, so it needs much less free space. The download is gone at the end."
+                plan.shrinks && plan.format in setOf("7z", "freearc") ->
+                    "BFE unpacks the download block by block and frees each block's space as soon as it's unpacked, so it needs much less free space. The download is gone at the end."
+                plan.shrinks -> "BFE unpacks the download piece by piece and, once space gets tight, frees the part already unpacked, so it needs much less free space. The download is gone at the end."
                 else -> "This archive is one solid block: it still needs the full space, and the download is only deleted at the end."
             },
             color = small, fontSize = 11.sp,
