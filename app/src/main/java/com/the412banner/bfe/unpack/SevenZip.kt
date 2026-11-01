@@ -447,6 +447,7 @@ object SevenZip {
     internal fun collectStderr(stream: java.io.InputStream, sink: StringBuilder): Thread = Thread {
         runCatching {
             stream.bufferedReader().forEachLine { line ->
+                com.the412banner.bfe.util.FullUnpackLog.line(line)
                 synchronized(sink) {
                     sink.append(line).append('\n')
                     if (sink.length > 8192) sink.delete(0, sink.length - 8192)

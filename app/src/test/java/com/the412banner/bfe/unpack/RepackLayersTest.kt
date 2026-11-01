@@ -55,8 +55,19 @@ class RepackLayersTest {
         ini.split("\n\n").forEach { assertTrue(it.length < 512) }
     }
 
-    @Test fun helperMessagesAreExtracted() {
-        val out = "Unpacking 4 bytes\nBFE-EXT: layer 'srep' is SREP\nBFE-EXT: layer 'srep' is SREP\nErrorlevel=512\n"
-        assertEquals(listOf("layer 'srep' is SREP"), RepackLayers.helperMessages(out))
+    @Test fun helperMessagesAreExtractedWithoutQuotes() {
+        val out = "Unpacking 4 bytes\nBFE-EXT: layer 'srep64' is SREP\nBFE-EXT: layer 'srep64' is SREP\n" +
+            "BFE-EXT: layer 'pcf045' needs precomp 0.4.3, which is not included in BFE\nErrorlevel=512\n"
+        assertEquals(
+            listOf("layer srep64 is SREP", "layer pcf045 needs precomp 0.4.3, which is not included in BFE"),
+            RepackLayers.helperMessages(out),
+        )
+    }
+
+    @Test fun summaryNamesEveryLayer() {
+        val a = RepackLayers.analyze(FreeArcInfo.Info(listOf(FreeArcInfo.Block("precomp047+srep+lzma:96mb", 1, 1)), 1, 1))
+        val s = RepackLayers.summary(a)
+        assertTrue(s, s.startsWith("precomp047=tries, srep=can't (SREP"))
+        assertTrue(s, s.endsWith("lzma=built-in"))
     }
 }

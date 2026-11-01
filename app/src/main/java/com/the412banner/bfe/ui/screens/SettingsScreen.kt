@@ -430,6 +430,17 @@ private fun MainSettings(
             onClick = { errorLog = !errorLog; ErrorLog.setEnabled(context, errorLog) },
             trailing = { Switch(checked = errorLog, onCheckedChange = { errorLog = it; ErrorLog.setEnabled(context, it) }) },
         )
+        var fullUnpackLog by remember { mutableStateOf(com.the412banner.bfe.util.FullUnpackLog.isEnabled(context)) }
+        SettingRow(
+            icon = Icons.Filled.Description,
+            title = "Keep full unpack logs",
+            subtitle = "When an unpack fails, BFE saves everything the unpacker printed to Download/BFE (BFE-unpack-….log). " +
+                "Unlike the error log it includes file and folder names, so check it before sharing.",
+            onClick = { fullUnpackLog = !fullUnpackLog; com.the412banner.bfe.util.FullUnpackLog.setEnabled(context, fullUnpackLog) },
+            trailing = {
+                Switch(checked = fullUnpackLog, onCheckedChange = { fullUnpackLog = it; com.the412banner.bfe.util.FullUnpackLog.setEnabled(context, it) })
+            },
+        )
 
         SettingsDivider()
         // ── About ──

@@ -2,6 +2,7 @@ package com.the412banner.bfe.unpack
 
 import android.content.Context
 import android.util.Log
+import com.the412banner.bfe.util.FullUnpackLog
 import java.io.File
 
 /**
@@ -129,12 +130,15 @@ object Unarc {
         } else binary(context)
         args += "-dp${destDir.absolutePath}"
         args += archive.absolutePath
+        FullUnpackLog.line("[BFE] ${bin.name} ${args.joinToString(" ")}")
+        layers?.let { runCatching { FullUnpackLog.line("[BFE] arc.ini:\n" + it.config.readText().trimEnd()) } }
         val proc = process(context, bin, *args.toTypedArray()).redirectErrorStream(true).start()
         onProcess(proc)
 
         val tail = StringBuilder()
         runCatching {
             proc.inputStream.bufferedReader().forEachLine { line ->
+                FullUnpackLog.line(line)
                 val t = line.trim()
                 if (t.isNotEmpty()) {
                     tail.append(t).append('\n')

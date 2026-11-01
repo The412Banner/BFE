@@ -87,8 +87,24 @@ object RepackLayers {
         }
     }
 
-    /** "BFE-EXT: …" lines from libbfeext in an engine's output, without the prefix and repeats. */
+    private val QUOTED_LAYER = Regex("""layer '([^'\s]+)'""")
+
+    /**
+     * "BFE-EXT: …" lines from libbfeext in an engine's output, without the prefix and repeats. The quotes
+     * around the layer name are dropped: the error log's scrubber blanks anything quoted, and a layer
+     * name (srep64, precomp047) is no personal detail.
+     */
     fun helperMessages(output: String): List<String> =
         output.lineSequence().map { it.trim() }.filter { it.startsWith("BFE-EXT:") }
-            .map { it.removePrefix("BFE-EXT:").trim() }.distinct().toList()
+            .map { QUOTED_LAYER.replace(it.removePrefix("BFE-EXT:").trim()) { m -> "layer ${m.groupValues[1]}" } }
+            .distinct().toList()
+
+    /** One compact line for logs: `precomp047=tries, lzma=built-in, srep=can't (SREP …)`. */
+    fun summary(a: Analysis): String = a.layers.joinToString(", ") { l ->
+        when (l.kind) {
+            Kind.BUILTIN -> "${l.name}=built-in"
+            Kind.EXTERNAL -> "${l.name}=tries"
+            Kind.MISSING -> "${l.name}=can't (${l.note})"
+        }
+    }
 }

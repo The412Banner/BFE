@@ -448,6 +448,7 @@ object ExtraFormats {
                 for (line in raw.split('\r')) {
                     val t = line.trimEnd()
                     if (t.isBlank()) continue
+                    com.the412banner.bfe.util.FullUnpackLog.line(t)
                     tail.append(t).append('\n')
                     if (tail.length > 4096) tail.delete(0, tail.length - 4096)
                     when (format) {
