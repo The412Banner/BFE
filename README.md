@@ -194,6 +194,26 @@ starting.
 </details>
 
 <details>
+<summary><b>Unpack and delete the download as it goes</b> — when there isn't room for both</summary>
+
+- An optional switch on the Unpack screen (off by default, asks before every start). BFE unpacks the
+  archive in pieces and frees each piece's part of the download once its files are safely written, so
+  the download and the unpacked files never need the full space twice. The download is gone at the end.
+- Works for ZIP (incl. ZIP64, self-extracting, `.001` splits), tar, 7z (several blocks or non-solid),
+  RAR 4 / 5 incl. `.partN.rar` / `.r00` sets (not solid or encrypted ones), FreeArc archives, and
+  `.gz` / `.tgz` / multi-block `.xz` streams (read from the front; internal storage only, because SD cards
+  can't free part of a file).
+- Every step is saved. If it stops (Cancel, storage full, the phone restarts), open the archive again and
+  tap **Continue**, or **Put back what's left** to get a normal, smaller archive with the rest (not for
+  `.gz` / `.xz` streams once they've started). It keeps 2 GB free and stops safely when space runs out.
+- Not offered for password-protected archives, files another app handed over, or when the destination
+  is on other storage than the download. A one-block solid archive still needs the full space (the
+  screen says so).
+- BFE's own engine (`native/bfecut`); 7-Zip and unarc still decompress the formats BFE doesn't decode itself.
+
+</details>
+
+<details>
 <summary><b>System "Open with" integration</b> — extract from any app, one tap or full screen</summary>
 
 - BFE appears for archives, disc images and installers in other apps' *Open with* lists — as **BFE**
@@ -482,6 +502,7 @@ BFE stands on the work of these projects and their authors.
 | [7-Zip](https://www.7-zip.org) 24.08 | Igor Pavlov | LGPL-2.1 + unRAR restriction | Extraction, compression, archive browsing |
 | [innoextract](https://github.com/dscharrer/innoextract) 1.9 | Daniel Scharrer | zlib | InnoSetup / GOG installers |
 | Boost, zlib, bzip2, liblzma (XZ Utils), GNU libiconv | Boost, Jean-loup Gailly & Mark Adler, Julian Seward, Lasse Collin, GNU | BSL-1.0, zlib, bzip2, 0BSD / public domain, LGPL-2.1+ | innoextract / unalz dependencies |
+| bfecut (`native/bfecut`, part of BFE) | The412Banner | GPL-3.0 | Unpack and delete the download as it goes |
 | [FreeArc unarc](https://github.com/mirror/freearc) 0.67 | Bulat Ziganshin | GPL | FreeArc / ISDone repacks (also rebuilt with BFE's patches for archives with extra layers) |
 | [precomp](https://github.com/schnaader/precomp-cpp) 0.4.4 - 0.4.8 | Christian Schneider (with preflate by Dirk Steinke, packJPG / packMP3 by Matthias Stirner) | Apache-2.0 (packJPG / packMP3: LGPL-3.0) | precomp layers in FreeArc archives |
 | [FFmpeg](https://ffmpeg.org) 7.1.5 + [x264](https://www.videolan.org/developers/x264.html) | FFmpeg developers, VideoLAN | GPL-2.0+ | Video converter |
