@@ -62,7 +62,13 @@ run stopped part-way; service engine `inplace` (bytes-written progress, "X freed
 reach it, unwrap-inner-tar skipped). README section + credits row. Compile check run 41285210935 GREEN.
 NOTE (deviation from the plan, for the user to decide): the switch is shown for every supported archive (off by
 default), not only when a normal unpack won't fit — when it won't fit, the screen says so in red.
-**Test APK:** build run 41285755027 on `f08d27c` (in progress at this entry).
+**Test APK:** build run **41285755027 GREEN** on `f08d27c`; staged `/sdcard/Download/BFE-space-saving-unpack-f08d27c9.apk`
+sha256 39196ef0892a7736… (host == device; libbfecut.so inside = 357f8b09). User OK'd install + screen-driven test
+(11-01). SD card (exFAT) CLI results: plain runs byte-exact for all piece formats; streams refused (no punch-hole) as
+designed; RAR kill 3/3 ×2; 7z/FreeArc kill with 0–0.4 s delays = 0/3 (kills always landed before the first saved
+step, >0.4 s on SD — every attempt restarted, no wrong output); with 0–2.9 s delays 3/3 (only 2 kills landed); mid-run
+SD kill test with 0.4–1.4 s delays running (`/sdcard/Download/bfecut-test/sd5.log`, tools copied to
+/data/local/tmp/bfelib so the install can't break it).
 **Resume point:** APK → stage to `/sdcard/Download/BFE-space-saving-unpack-<sha8>.apk` with hashes → ASK before
 install → app test with `/sdcard/Download/BFE-space-test/masters/` (SpaceTest7z.7z 11 blocks, SpaceTestZip.zip,
 SpaceTestGz.tar.gz; want.sha = 32 files): unpack each, cancel + Continue, cancel + Put back, pause/resume, logcat.
