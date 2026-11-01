@@ -317,10 +317,15 @@ class UnpackService : Service() {
             com.the412banner.bfe.util.FullUnpackLog.begin(
                 ctx, archives.joinToString(" + ") { it.absolutePath }, destDir.absolutePath, engine,
             )
-            // FreeArc: the layers of each block, for the logs (layer names are no personal detail).
-            val layerSummary = if (engine == Unarc.ENGINE || engine == Unarc.ENGINE_LAYERS)
-                FreeArcInfo.read(archive)?.let { RepackLayers.summary(RepackLayers.analyze(it)) } else null
+            // FreeArc: the layers of each block, for the logs (layer names and settings are no personal detail).
+            val arcInfo = if (engine == Unarc.ENGINE || engine == Unarc.ENGINE_LAYERS) FreeArcInfo.read(archive) else null
+            val layerSummary = arcInfo?.let { RepackLayers.summary(RepackLayers.analyze(it)) }
             layerSummary?.let { com.the412banner.bfe.util.FullUnpackLog.line("[BFE] layers: $it") }
+            // Every block's full chain with its settings (dictionary sizes, threads…): what a decode failure needs.
+            arcInfo?.blocks?.forEachIndexed { i, b ->
+                com.the412banner.bfe.util.FullUnpackLog.line("[BFE] block ${i + 1}: ${b.compressor} (${b.files} files, ${b.packedSize} bytes packed)")
+            }
+            val chains = arcInfo?.blocks?.map { it.compressor }?.distinct()?.take(8)?.joinToString(" | ")
 
             // engine: "unarc" = FreeArc native, "unarc-layers" = FreeArc with external layers (precomp…),
             // "inno" = innoextract (standard-Inno/GOG), "extra" = the
@@ -590,6 +595,7 @@ class UnpackService : Service() {
                         "Engine: $engine${if (isInno) " (Inno Setup)" else ""}, exit code ${result.exitCode}, files extracted $files, " +
                             "elapsed ${elapsed / 1000} s" + (if (terminal.batchFailed > 0) ", ${terminal.batchFailed} DLC failed" else ""),
                         layerSummary?.let { "Layers: $it" },
+                        chains?.let { "Block chains: $it" },
                         keptLog?.let { "Full unpack log: Download/BFE/${it.name}" },
                     ),
                 )
