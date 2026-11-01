@@ -69,7 +69,28 @@ designed; RAR kill 3/3 ×2; 7z/FreeArc kill with 0–0.4 s delays = 0/3 (kills a
 step, >0.4 s on SD — every attempt restarted, no wrong output); with 0–2.9 s delays 3/3 (only 2 kills landed); mid-run
 SD kill test with 0.4–1.4 s delays running (`/sdcard/Download/bfecut-test/sd5.log`, tools copied to
 /data/local/tmp/bfelib so the install can't break it).
-**Resume point:** APK → stage to `/sdcard/Download/BFE-space-saving-unpack-<sha8>.apk` with hashes → ASK before
+**APP TEST on the Pocket FIT (11-01, f08d27c9 APK installed with the user's OK; installed hash == staged 39196ef0):**
+driven by me via root input/screencap, own test archives only.
+- SpaceTest7z.7z (231 MB, 11 blocks): switch → confirm dialog → Done in ~2 s, 32 files byte-exact, archive gone,
+  "The download was deleted as it unpacked."
+- BigTest7z.7z (1.40 GB, 24 pieces): archive shrank 1.40 → 1.20 → 0.90 → 0.60 → 0.36 GB while files grew (never
+  both in full); 141 files byte-exact; progress card 91 % / 381 MB/s / file name.
+- Pause (service PAUSE): bfecut state T, sizes frozen; notification "Paused · BigTest7z.7z — 24% • 306 MB freed".
+  Cancel → journal kept, card "6 of 24 pieces… Continue / Put back what's left" → Continue → 141 files byte-exact,
+  journal removed.
+- Cancel → Put back what's left: leftover archive 960 MB passes `7zz t` (96 files); unpacked 45 + leftover 96 =
+  all 141 byte-exact; screen returns to the switch.
+- SpaceTestZip.zip and SpaceTestGz.tar.gz (stream wording shown): both 32 files byte-exact, archives gone.
+- logcat (17k lines): bfecut exit 0 ×5, 137 ×2 (the cancels); no BFE crash/ANR, BFE kept pid 26700 throughout;
+  all tombstoned/ANR lines = com.qti.diagservices (system, unrelated).
+- SD card CLI mid-run kills (0.4–1.4 s): 7z 4/4 (10 kills), FreeArc 4/4 (8 kills).
+Found + fixed (`198e461`): ZIP/tar/RAR only free space once it gets tight (hybrid design; 7z/FreeArc free each block
+right away) → wording now says which; source card kept the old size after Put back.
+NOT tested in the app: the "won't fit normally" path (305 GB free; engine hybrid low-space is CLI-proven), FreeArc
+repack route, RAR through the app, SD card through the app.
+OPEN DECISION for the user: keep hybrid (ZIP/tar/RAR free space only when needed, safer) or always delete as it goes.
+APK build for `198e461`: run 41288128694.
+**Resume point (older):** APK → stage to `/sdcard/Download/BFE-space-saving-unpack-<sha8>.apk` with hashes → ASK before
 install → app test with `/sdcard/Download/BFE-space-test/masters/` (SpaceTest7z.7z 11 blocks, SpaceTestZip.zip,
 SpaceTestGz.tar.gz; want.sha = 32 files): unpack each, cancel + Continue, cancel + Put back, pause/resume, logcat.
 Then stage 4 (disc images) decision and merge only with the user's go (backup ref first).
