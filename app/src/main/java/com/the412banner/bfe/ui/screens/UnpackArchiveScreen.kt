@@ -303,6 +303,8 @@ fun UnpackArchiveScreen(
         !spaceTarget.absolutePath.startsWith(com.the412banner.bfe.util.IncomingFile.incomingDir(context).absolutePath + "/")
     var spacePlan by remember(archivePath) { mutableStateOf<SpaceSaver.Plan?>(null) }
     var spaceMode by remember(archivePath) { mutableStateOf(false) }
+    // ZIP/tar/RAR free space only once it runs out, unless this is ticked (7z/FreeArc free each block anyway).
+    var spaceEager by remember(archivePath) { mutableStateOf(false) }
     var confirmSpace by remember { mutableStateOf(false) }
     var abandoning by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -317,7 +319,8 @@ fun UnpackArchiveScreen(
     val canSpace = spacePlan?.usable == true && spaceTarget.isFile && !otherJobRunning && !gatedByPermission
     val startSpace = {
         UnpackManager.clearIfTerminal()
-        UnpackService.start(context, spaceTarget.absolutePath, destPath, 1, buffer.bytes, false, spaceTarget.length(), SpaceSaver.ENGINE)
+        UnpackService.start(context, spaceTarget.absolutePath, destPath, 1, buffer.bytes, false, spaceTarget.length(), SpaceSaver.ENGINE,
+            spaceEager = spaceEager && spacePlan?.eagerMatters == true)
     }
 
     // typeLoading flips false only after the whole pre-flight (incl. the DLC scan). Fires at most once:
@@ -689,7 +692,7 @@ fun UnpackArchiveScreen(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                if (!running) SpaceSaverCard(spacePlan, spaceMode, { spaceMode = it }, abandoning,
+                if (!running) SpaceSaverCard(spacePlan, spaceMode, { spaceMode = it }, spaceEager, { spaceEager = it }, abandoning,
                     onContinue = startSpace, canContinue = canSpace,
                     onPutBack = {
                         abandoning = true
@@ -846,7 +849,7 @@ fun UnpackArchiveScreen(
 
             // ── Extract button (plain, non-Inno archives) ──
             if (!running && sevenZipAllowed) {
-                SpaceSaverCard(spacePlan, spaceMode, { spaceMode = it }, abandoning,
+                SpaceSaverCard(spacePlan, spaceMode, { spaceMode = it }, spaceEager, { spaceEager = it }, abandoning,
                     onContinue = startSpace, canContinue = canSpace,
                     onPutBack = {
                         abandoning = true
@@ -1043,6 +1046,8 @@ private fun SpaceSaverCard(
     plan: SpaceSaver.Plan?,
     on: Boolean,
     onToggle: (Boolean) -> Unit,
+    eager: Boolean,
+    onEager: (Boolean) -> Unit,
     abandoning: Boolean,
     onContinue: () -> Unit,
     canContinue: Boolean,
@@ -1100,6 +1105,17 @@ private fun SpaceSaverCard(
             },
             color = small, fontSize = 11.sp,
         )
+        if (on && plan.usable && plan.eagerMatters) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = eager, onCheckedChange = onEager)
+                Text(
+                    "Delete as it goes even while there's room",
+                    color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
         if (plan.sameStorage && !plan.fits) {
             Spacer(Modifier.height(4.dp))
             Text("Even this way it's ${StringUtils.formatBytes(plan.short)} short. Free some space first.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)

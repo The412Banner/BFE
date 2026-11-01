@@ -197,8 +197,10 @@ starting.
 <summary><b>Unpack and delete the download as it goes</b> — when there isn't room for both</summary>
 
 - An optional switch on the Unpack screen (off by default, asks before every start). BFE unpacks the
-  archive in pieces and frees each piece's part of the download once its files are safely written, so
+  archive in pieces and frees the download's space piece by piece once the files are safely written, so
   the download and the unpacked files never need the full space twice. The download is gone at the end.
+- 7z and FreeArc archives free each block right away. ZIP, tar and RAR start freeing space only when
+  storage runs short, unless **Delete as it goes even while there's room** is ticked.
 - Works for ZIP (incl. ZIP64, self-extracting, `.001` splits), tar, 7z (several blocks or non-solid),
   RAR 4 / 5 incl. `.partN.rar` / `.r00` sets (not solid or encrypted ones), FreeArc archives, and
   `.gz` / `.tgz` / multi-block `.xz` streams (read from the front; internal storage only, because SD cards

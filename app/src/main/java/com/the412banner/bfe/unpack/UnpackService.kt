@@ -58,6 +58,8 @@ class UnpackService : Service() {
         const val EXTRA_ENGINE = "engine"   // "7z" | "inno" | "unarc" | "unarc-layers" | "extra" (ExtraFormats) | "inplace" (SpaceSaver)
         // OTA payload.bin: the partitions to write out (engine "extra"); absent = every extractable one.
         const val EXTRA_PARTS = "parts"
+        // Space-saving unpack: delete as it goes even while there is room (bfecut --eager).
+        const val EXTRA_SPACE_EAGER = "spaceEager"
 
         // Process-static so the notification's Cancel action can reach the running process even if
         // onStartCommand hasn't re-published `instance` yet.
@@ -101,7 +103,7 @@ class UnpackService : Service() {
 
         fun start(
             ctx: Context, archive: String, dest: String, mmt: Int, bufferBytes: Int, isInno: Boolean, totalSize: Long,
-            engine: String = "7z", parts: List<String>? = null,
+            engine: String = "7z", parts: List<String>? = null, spaceEager: Boolean = false,
         ) {
             val app = ctx.applicationContext
             val i = Intent(app, UnpackService::class.java).apply {
@@ -114,6 +116,7 @@ class UnpackService : Service() {
                 putExtra(EXTRA_TOTAL_SIZE, totalSize)
                 putExtra(EXTRA_ENGINE, engine)
                 parts?.let { putStringArrayListExtra(EXTRA_PARTS, ArrayList(it)) }
+                putExtra(EXTRA_SPACE_EAGER, spaceEager)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(i) else app.startService(i)
         }
@@ -260,6 +263,7 @@ class UnpackService : Service() {
                 val totalSize = intent.getLongExtra(EXTRA_TOTAL_SIZE, 0L)
                 val engine = intent.getStringExtra(EXTRA_ENGINE) ?: "7z"
                 val parts = intent.getStringArrayListExtra(EXTRA_PARTS)
+                val spaceEager = intent.getBooleanExtra(EXTRA_SPACE_EAGER, false)
                 // A GOG DLC batch arrives as EXTRA_ARCHIVES (base first); a normal job as EXTRA_ARCHIVE.
                 val archives = intent.getStringArrayListExtra(EXTRA_ARCHIVES)
                     ?.map { File(it) }?.takeIf { it.isNotEmpty() }
@@ -276,7 +280,7 @@ class UnpackService : Service() {
                 startForegroundCompat(buildNotification(UnpackManager.current.copy(
                     phase = UnpackPhase.LISTING, archiveName = archives.first().name,
                 )))
-                runExtraction(archives, File(dest), mmt, buffer, isInno, totalSize, engine, parts)
+                runExtraction(archives, File(dest), mmt, buffer, isInno, totalSize, engine, parts, spaceEager)
                 return START_STICKY
             }
         }
@@ -285,7 +289,7 @@ class UnpackService : Service() {
 
     private fun runExtraction(
         archives: List<File>, destDir: File, mmt: Int, buffer: Int, isInno: Boolean, totalSize: Long, engine: String,
-        parts: List<String>? = null,
+        parts: List<String>? = null, spaceEager: Boolean = false,
     ) {
         cancelled = false
         paused = false
@@ -460,7 +464,7 @@ class UnpackService : Service() {
                     UnpackManager.update { it.copy(currentFile = "Checking the download before anything is deleted…") }
                     refresh()
                     val r = SpaceSaver.run(
-                        ctx, archive, destDir, verify = true,
+                        ctx, archive, destDir, verify = true, eager = spaceEager,
                         onProgress = { p ->
                             UnpackManager.update { it.copy(freedBytes = p.freed, currentFile = p.file ?: it.currentFile) }
                             if (p.totalOut > 0) pushBytes(p.out, p.totalOut) else pushBytes(p.freed, dataSize)

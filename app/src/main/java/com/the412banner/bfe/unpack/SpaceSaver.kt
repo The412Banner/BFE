@@ -45,6 +45,8 @@ object SpaceSaver {
         val usable: Boolean get() = supported && sameStorage && (fits || resume)
         /** More than one piece: the download really shrinks along the way. */
         val shrinks: Boolean get() = stream || pieces > 1
+        /** ZIP/tar/RAR wait for low space before freeing anything; "delete as it goes" changes that. */
+        val eagerMatters: Boolean get() = !stream && pieces > 1 && format in setOf("zip", "tar", "rar")
     }
 
     private fun base(context: Context, vararg args: String): ProcessBuilder {
@@ -98,6 +100,8 @@ object SpaceSaver {
         archive: File,
         dest: File,
         verify: Boolean,
+        /** Free each piece as soon as it's out, even while there is room (ZIP/tar/RAR; 7z/FreeArc always do). */
+        eager: Boolean,
         onProgress: (Progress) -> Unit,
         onPhase: (String) -> Unit,
         onProcess: (Process) -> Unit,
@@ -105,6 +109,7 @@ object SpaceSaver {
         dest.mkdirs()
         val args = mutableListOf("run", archive.absolutePath, "--dest", dest.absolutePath, "--keep-free", KEEP_FREE.toString())
         if (!verify) args += "--no-verify"
+        if (eager) args += "--eager"
         val p = base(context, *args.toTypedArray()).start()
         onProcess(p)
         val tail = StringBuilder()
