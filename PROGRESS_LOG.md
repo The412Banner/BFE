@@ -6,6 +6,25 @@ where it stands*.
 
 ---
 
+## 2026-11-01 — Released v1.4.0 stable (main, RELEASED)
+**Why:** user: "merge and release a new stable" after the space-saving unpack app tests.
+**Merge:** `feat/space-saving-unpack` fast-forwarded into main 474e316 → `5e7c9bf` (first push failed with no message,
+retry succeeded); backup `refs/backup/20261101/main-before-space-saving-unpack` = 474e316 pushed and verified BEFORE
+main; merged tree == device-tested build 86e5dd8 (only PROGRESS_LOG differs). Main build **41294015402 GREEN**.
+**Release:** release.yml run **41294565880** (all steps success) → commit `585d03f` "Release 1.4.0 (versionCode 19)" =
+tag **v1.4.0** (Latest, not prerelease); assets BFE-1.4.0.apk (60275598 bytes, sha256 0ec271c3…70bd, badging 1.4.0 /
+vc 19, libbfecut.so 357f8b09) + update.json; manifest branch + raw update.json say vc 19 with the same sha256.
+Notes: space-saving unpack, FreeArc layer list + precomp 0.4.4-0.4.8 (credit Christian Schneider), Run in Bannerlator,
+FreeArc external-layer fix, Keep full unpack logs.
+**Device:** the Pocket FIT has 86e5dd83 (same code, vc 18) installed; the in-app updater should offer 1.4.0 (not checked).
+**Lessons:** `pkill -f`/`pgrep -f` with a pattern that also appears in the rootsh command line kills the relay itself
+(exit 144) → use a self-excluding pattern like `logcat -v tim[e]`. `rm` with `$VAR/*` is blocked by the safety check →
+use literal paths or `"${VAR:?}"`.
+**Open / later:** disc images (stage 4) deferred by the user; not tested in the app: storage actually full, FreeArc
+repack route, RAR, SD card; branch `feat/space-saving-unpack` kept (delete only on the user's word); test files on the
+device: `/sdcard/Download/BFE-space-test/` (~3.6 GB masters), `/sdcard/Download/bfecut-test/`, staged APK
+`/sdcard/Download/BFE-space-saving-unpack-86e5dd83.apk`.
+
 ## 2026-11-01 — Unpack and delete the download as it goes (`feat/space-saving-unpack`, IN PROGRESS)
 
 **Why:** owner wants an unpack option that frees the download while unpacking, so only room for the unpacked files is
