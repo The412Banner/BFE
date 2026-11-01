@@ -21,7 +21,19 @@ beyond their READMEs), build all stages, test each on the device with root ("the
 - Stages: 1 tar, ZIP (+ZIP64), split sets; 2 7z (several blocks), RAR (non-solid), FreeArc (several blocks / volumes);
   3 compressed streams with safe restart points (gzip via own inflate with checkpoints, multi-block xz); 4 disc images if
   feasible. Formats that can't be freed safely get the normal unpack with a plain reason.
-**Resume point:** branch `feat/space-saving-unpack` off main 474e316.
+**Stage 1 (tar, ZIP/ZIP64, split sets) — engine DEVICE-PROVEN as root, commit after 47641a8:**
+- `native/bfecut` (Rust std only): engine (plan/simulate, journal, run loop, cut, abandon), store (single file or `.001`
+  set), own inflate (with checkpoint support for stage 3), tar, zip. ZIP methods other than stored/deflate: the entry is
+  copied into a one-entry temporary ZIP for the bundled 7-Zip (a temporary index in the original was ignored by 7-Zip,
+  which scans local headers — that first attempt plus my deleting its journal in a test damaged two TEST archives;
+  real runs never change the archive before a file has landed).
+- proot: byte-exact for tar (incl. `./`, long names, symlink), ZIP deflate/stored/ZIP64/LZMA/bzip2, split ZIP; kill -9
+  loops 10/10 rounds (tar 81 kills, deflate 100, split 110), LZMA 6/6; low-space mode cut only when needed; give-up →
+  leftover passes `tar -tf` / `unzip -t`, leftover + unpacked = full set.
+- Device (Pocket FIT, root, `/data/local/tmp/bfecut` bionic build): internal storage plain + kill 5/5 for all four;
+  SD card (exFAT) plain + kill 4/4 (128–189 kills per format).
+**Resume point:** branch `feat/space-saving-unpack`; next stage 2 (7z, RAR, FreeArc). Device test kit:
+`/sdcard/Download/bfecut-test/` (devtest.sh, src-archives, want.sha).
 
 ---
 
