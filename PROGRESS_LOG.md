@@ -93,6 +93,10 @@ repack route, RAR through the app, SD card through the app.
 several pieces), build run **41289197973 GREEN**, staged `/sdcard/Download/BFE-space-saving-unpack-86e5dd83.apk`
 sha256 e6041132… (host == device); install needs the user's yes. Then: device check (ZIP with/without the box),
 merge (backup ref first, ff — branch is on top of main 474e316), main build, release.yml 1.4.0 stable.
+**Tick-box test (86e5dd83 APK installed with the user's OK; installed hash e6041132… == staged):** BigTestZip.zip
+(1.20 GB, 120 files, stored). Box OFF: archive stayed 1.20 GB the whole run, deleted at the end, 120 files byte-exact.
+Box ON: archive 1.20 → 1.10 → 0.89 → 0.67 → 0.46 → 0.23 → 0.02 GB → gone while files grew, 120 files byte-exact.
+logcat: bfecut exit 0 ×2, no BFE crash/ANR. Device-proven → merge to main + release 1.4.0 stable (user said so).
 USER DECISIONS (11-01): (1) ZIP/tar/RAR free space only when it runs out, unless the user ticks an option to delete as
 it goes anyway; (2) keep the switch on every supported archive; (3) install the fixed build; (4) merge to main and
 release a new stable; disc images (stage 4) another time.
