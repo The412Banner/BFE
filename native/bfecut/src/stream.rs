@@ -642,6 +642,11 @@ pub fn run(s: &Stream, store: &mut Store, dest: &Path, state_dir: &Path, o: &Str
     let start_len = store.len();
     let resumed = load_cp(state_dir);
     if resumed.is_none() {
+        let dir = store.vols[0].path.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+        if !can_punch(&dir) {
+            let _ = fs::remove_dir_all(state_dir);
+            fail!(Unsupported, "this storage can't free space while reading (SD cards); unpack it normally");
+        }
         s.save_meta(state_dir, known_total.or_else(|| s.total_out(store)))?;
     }
     let mut sink = Sink { tar: s.tar, ts: TarState::default(), dest: dest.to_path_buf(), stage, state_dir: state_dir.to_path_buf(), file_name: s.out_name.clone(), cur: None, out: 0 };

@@ -1,0 +1,131 @@
+name: Build bfecut (arm64 Android)
+
+# Builds native/bfecut, BFE's own "unpack and delete the download as it goes" engine (Rust, std only,
+# no crates), for aarch64-linux-android26 with the NDK's clang as linker, and uploads it as
+# libbfecut.so in the `bfecut-arm64` artifact. Before that, the unit tests and a small round trip
+# (tar.gz, zip, tar.xz made on the runner, unpacked by the host build, compared byte for byte) run on
+# the runner. The binary links only Android's own libc/libdl. It is committed to
+# app/src/main/jniLibs/arm64-v8a/ by hand after a check, like the repack tools.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-bfecut.yml'
+      - 'native/bfecut/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bfecut-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  API: "26"
+  NDK_PKG: "ndk;29.0.14206865"
+  NDK_FALLBACK_URL: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Provision NDK (sdkmanager, fallback to r29 zip)
+      timeout-minutes: 20
+      run: |
+        set -euo pipefail
+        NDK=""
+        if timeout 600 bash -c 'yes | sdkmanager --install "$NDK_PKG"' >/tmp/sdkmanager.log 2>&1; then
+          NDK="$ANDROID_SDK_ROOT/ndk/${NDK_PKG#ndk;}"
+        else
+          echo "sdkmanager failed for $NDK_PKG:"; tail -20 /tmp/sdkmanager.log || true
+        fi
+        if [ -z "$NDK" ] || [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" ]; then
+          curl -sSL --connect-timeout 30 --max-time 900 --retry 3 -o /tmp/ndk.zip "$NDK_FALLBACK_URL"
+          unzip -q /tmp/ndk.zip -d "$HOME"
+          NDK="$(ls -d "$HOME"/android-ndk-r29* | head -1)"
+        fi
+        test -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" || { echo "No usable NDK found"; exit 1; }
+        BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        {
+          echo "NDK=$NDK"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$BIN/aarch64-linux-android${API}-clang"
+          echo "STRIP=$BIN/llvm-strip"
+          echo "READELF=$BIN/llvm-readelf"
+        } >> "$GITHUB_ENV"
+
+    - name: Rust toolchain + Android target
+      run: |
+        set -euo pipefail
+        rustup toolchain install stable --profile minimal
+        rustup default stable
+        rustup target add aarch64-linux-android
+        rustc --version; cargo --version
+
+    - name: Unit tests (host)
+      working-directory: native/bfecut
+      run: cargo test --release
+
+    - name: Round trip (host build)
+      working-directory: native/bfecut
+      run: |
+        set -euo pipefail
+        cargo build --release
+        B="$PWD/target/release/bfecut"
+        W="$RUNNER_TEMP/rt"; rm -rf "$W"; mkdir -p "$W/src/sub"
+        head -c 3000000 /dev/urandom > "$W/src/random.bin"
+        seq 1 400000 > "$W/src/plain.txt"
+        head -c 2000000 /dev/zero > "$W/src/sub/zeros.bin"
+        : > "$W/src/empty.dat"
+        (cd "$W/src" && find . -type f | sort | xargs sha256sum) > "$W/want.sha"
+        tar -C "$W/src" -czf "$W/a.tar.gz" .
+        tar -C "$W/src" -cf - . | xz -T1 --block-size=1MiB > "$W/a.tar.xz"
+        (cd "$W/src" && zip -qr "$W/a.zip" .)
+        tar -C "$W/src" -cf "$W/a.tar" .
+        fail=0
+        for a in a.tar.gz a.tar.xz a.zip a.tar; do
+          d="$W/t-$a"; mkdir -p "$d"; cp "$W/$a" "$d/"
+          "$B" run "$d/$a" --dest "$d/out" --keep-free 0 --eager | tail -1
+          got=$(cd "$d/out" && find . -type f ! -path './.bfe-inplace/*' | sort | xargs sha256sum)
+          if [ "$got" = "$(cat "$W/want.sha")" ] && [ ! -e "$d/$a" ]; then echo "ok   $a"; else echo "::error::$a differs"; fail=1; fi
+        done
+        exit $fail
+
+    - name: Build for Android
+      working-directory: native/bfecut
+      run: |
+        set -euo pipefail
+        cargo build --release --target aarch64-linux-android
+        mkdir -p "$GITHUB_WORKSPACE/build/dist"
+        cp target/aarch64-linux-android/release/bfecut "$GITHUB_WORKSPACE/build/dist/libbfecut.so"
+        cd "$GITHUB_WORKSPACE/build/dist"
+        "$STRIP" libbfecut.so
+        file libbfecut.so
+        "$READELF" -d libbfecut.so | grep NEEDED
+        if "$READELF" -d libbfecut.so | grep NEEDED | grep -v -E '\[(libc|libdl|libm)\.so\]'; then
+          echo "::error::libbfecut.so needs more than Android's libc/libdl/libm"; exit 1
+        fi
+        {
+          echo "bfecut - built $(date -u +%Y-%m-%dT%H:%MZ) from ${GITHUB_SHA}"
+          echo "NDK: $(grep Pkg.Revision "$NDK/source.properties"), target aarch64-linux-android (linker API ${API})"
+          echo "$(rustc --version)"
+          echo
+          sha256sum libbfecut.so
+          ls -la libbfecut.so
+        } > BUILD_INFO.txt
+        cat BUILD_INFO.txt
+
+    - name: Upload bfecut-arm64
+      uses: actions/upload-artifact@v4
+      with:
+        name: bfecut-arm64
+        path: |
+          build/dist/libbfecut.so
+          build/dist/BUILD_INFO.txt
+        if-no-files-found: error
