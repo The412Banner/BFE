@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green a728910, logging + precomp layers device-proven, Bannerlator hand-off untested)
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green a728910, ALL features device-proven, awaiting merge go)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
 with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
@@ -84,7 +84,13 @@ in that block (not proven — can't verify without the source's checksums). Test
 - BFE-test-srep → no extraction started, no error entry (expected: CONTAINER_ONLY card). Screen content not visible in
   logs — owner to confirm the card. No OpenExeActivity start in logcat → "Run in Bannerlator" NOT tested yet.
 - logcat 01:05–01:23 EDT: no FATAL / native crash / ANR for BFE.
-NEXT: owner confirms SREP card + taps Run in Bannerlator once; then merge decision (owner).
+- Screenshot 01:21:36 EDT: SREP card exactly as designed (↻ precomp047, ✕ srep with licence note, ✓ lzma, "Run setup.exe in
+  Bannerlator Bionic PuBG" button). Owner tapped it: logcat 01:24:34 `com.tencent.ig/com.winlator.star.OpenExeActivity`,
+  01:24:42 XServerDisplayActivity; screenshot 01:24:48 = the test setup.exe (Wine Notepad) running in Bannerlator →
+  **Run in Bannerlator DEVICE-PROVEN.** No FATAL.
+**State:** every feature on the branch device-proven (layer list, precomp decoding, SREP card, Bannerlator hand-off, full
+unpack log, block chains). Open: owner's own repack fails in block 3 (likely damaged file, see above).
+NEXT: merge decision (owner's go needed; backup ref first).
 **Device test:** none yet. Test folders: `/sdcard/Download/BFE-test-precomp` (layered archive → expect layer list
 ✓/↻ and byte-exact unpack) and `/sdcard/Download/BFE-test-srep` (SREP → expect "can't unpack" + Run in Bannerlator).
 **Resume point:** ask owner before installing; after install test both folders, check logcat for FATAL.
