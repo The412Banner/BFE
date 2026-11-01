@@ -33,8 +33,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Set up JDK 17 (needed by sdkmanager)
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
     - name: Set up Android SDK
       uses: android-actions/setup-android@v3
+      with:
+        packages: 'platform-tools'
 
     - name: Provision NDK (sdkmanager, fallback to r29 zip)
       timeout-minutes: 20
