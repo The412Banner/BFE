@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green 512b31c, staged, NOT device-tested)
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green a728910, logging device-proven, layer decoding NOT device-tested)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
 with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
@@ -59,8 +59,15 @@ CI 41273210417 (512b31c) GREEN (tests + signing).
 Setup-1.bin, 161 files out in 12–20 s, then "archive data corrupted (decompression fails)" at the same block
 (3.68 GB + 14.18 GB files) every time, exit 2 — deterministic, not the stack-overflow crash. Layers unknown (old log
 had no layer line); next look = new APK's layer list / log.
-**Staged:** `/sdcard/Download/BFE-universal-extractor-512b31c0.apk`, sha256 16cbdd00…be90 (host == device); the older
-bc65bf6e test APK removed (superseded).
+**Installed 512b31c0 (owner, 00:57 EDT; installed hash == staged 16cbdd00…).** Owner reran their installer 04:58 UTC:
+new logging DEVICE-PROVEN (error entry has `Layers:` + kept full log `BFE-unpack-20261101-045839Z.log`). Result: layers
+storing/grzip/rep/4x4/exe/delta (all built-in → old libunarc used), 161 files then "archive data corrupted" at the block
+holding Elliot-Windows.pak (3.7 GB) + .ucas (14.2 GB), exit 2, 12 s. unarc prints that message for ANY decoder error
+incl. out-of-memory. logcat: no allocator errors, light memory pressure. Not reproduced with self-made data: 9 GRZip /
+4x4 / rep / delta / exe chains on 165 MB, rep:882mb + (4x4:)grzip on 915 MB → all byte-exact on both unarc builds.
+**`a728910`:** full log lists every block's chain with settings; error log gets "Block chains: …". CI 41275439191 GREEN.
+**Staged:** `/sdcard/Download/BFE-universal-extractor-a7289101.apk`, sha256 2fd095d0…bc8c (host == device); 512b31c0 and
+bc65bf6e test APKs removed (superseded). NEXT: owner installs, reruns once → read block chains (dictionary sizes).
 **Device test:** none yet. Test folders: `/sdcard/Download/BFE-test-precomp` (layered archive → expect layer list
 ✓/↻ and byte-exact unpack) and `/sdcard/Download/BFE-test-srep` (SREP → expect "can't unpack" + Run in Bannerlator).
 **Resume point:** ask owner before installing; after install test both folders, check logcat for FATAL.
