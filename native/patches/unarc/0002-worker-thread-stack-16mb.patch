@@ -1,0 +1,14 @@
+--- a/Compression/LZMA2/C/ThreadsUnix.c	2023-08-22 12:02:57.000000000 +0000
++++ b/Compression/LZMA2/C/ThreadsUnix.c	2026-11-01 03:34:22.093964533 +0000
+@@ -198,6 +198,11 @@
+ 	ret = pthread_attr_setdetachstate(&attr,PTHREAD_CREATE_JOINABLE);
+ 	if (ret) return ret;
+ 
++	/* BFE: Android's default thread stack (~1 MB) is too small for EXTERNAL_METHOD::DeCompress,
++	   which keeps three MYFILE/MYDIR objects on the stack; give every worker 16 MB like desktop. */
++	ret = pthread_attr_setstacksize(&attr, 16u << 20);
++	if (ret) return ret;
++
+ 	ret = pthread_create(&thread->_tid, &attr, (void * (*)(void *))startAddress, parameter);
+ 
+ 	/* ret2 = */ pthread_attr_destroy(&attr);

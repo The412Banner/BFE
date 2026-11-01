@@ -1,0 +1,180 @@
+name: Build repack tools (arm64 Android)
+
+# Cross-compiles the decoders BFE uses for FreeArc archives with extra layers, for
+# aarch64-linux-android26 with the Android NDK, and uploads them (already renamed lib<name>.so) as the
+# `repack-tools-arm64` artifact:
+#   libunarcx.so        FreeArc 0.67 unarc (mirror/freearc 71f3ab3) + native/patches/unarc   GPL
+#                       Used for archives with external layers: the bundled libunarc.so overflows
+#                       Android's default thread stack there (patch 0002).
+#   libprecomp044.so    precomp 0.4.4 (Christian Schneider)                                 Apache-2.0
+#   libprecomp045.so    precomp 0.4.5                                                        Apache-2.0
+#   libprecomp046.so    precomp 0.4.6                                                        Apache-2.0
+#   libprecomp047.so    precomp 0.4.7                                                        Apache-2.0
+#   libprecomp048.so    precomp 0.4.8 development (master a11b077)                          Apache-2.0
+#   libbfeext.so        native/bfeext: picks the decoder for each external layer           GPL-3.0-or-later
+# A precomp file restores only with the exact version that wrote it, hence one binary per release.
+# All binaries are linked fully static. Every source is pinned by SHA-256. The binaries are committed
+# to app/src/main/jniLibs/arm64-v8a/ by hand after a check (see licenses/NOTICE_*.txt).
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-repack-tools.yml'
+      - 'native/bfeext/**'
+      - 'native/precomp/**'
+      - 'native/unarc/**'
+      - 'native/patches/unarc/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repack-tools-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NDK_PKG: "ndk;29.0.14206865"
+  NDK_FALLBACK_URL: https://dl.google.com/android/repository/android-ndk-r29-linux.zip
+  API: 26
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+
+    - name: Set up JDK 17 (needed by sdkmanager)
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'platform-tools'
+
+    - name: Install host tools
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y -q --no-install-recommends make patch file curl unzip cmake
+
+    - name: Provision NDK (sdkmanager, fallback to r29 zip)
+      timeout-minutes: 25
+      run: |
+        set -euo pipefail
+        NDK=""
+        if timeout 600 bash -c 'yes | sdkmanager --install "$NDK_PKG"' >/tmp/sdkmanager.log 2>&1; then
+          NDK="$ANDROID_SDK_ROOT/ndk/${NDK_PKG#ndk;}"
+        else
+          echo "sdkmanager failed for $NDK_PKG:"; tail -20 /tmp/sdkmanager.log || true
+        fi
+        if [ -z "$NDK" ] || [ ! -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" ]; then
+          curl -sSL --connect-timeout 30 --max-time 900 --retry 3 -o /tmp/ndk.zip "$NDK_FALLBACK_URL"
+          unzip -q /tmp/ndk.zip -d "$HOME"
+          NDK="$(ls -d "$HOME"/android-ndk-r29* | head -1)"
+        fi
+        test -d "$NDK/toolchains/llvm/prebuilt/linux-x86_64" || { echo "No usable NDK found"; exit 1; }
+        cat "$NDK/source.properties"
+        BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        {
+          echo "NDK=$NDK"
+          echo "DIST=$GITHUB_WORKSPACE/build/dist"
+          echo "SRC=$GITHUB_WORKSPACE/build/src"
+          echo "CC=$BIN/aarch64-linux-android${API}-clang"
+          echo "CXX=$BIN/aarch64-linux-android${API}-clang++"
+          echo "STRIP=$BIN/llvm-strip"
+          echo "READELF=$BIN/llvm-readelf"
+        } >> "$GITHUB_ENV"
+        mkdir -p "$GITHUB_WORKSPACE/build/dist" "$GITHUB_WORKSPACE/build/src"
+
+    - name: Fetch sources (pinned SHA-256)
+      working-directory: build/src
+      timeout-minutes: 15
+      run: |
+        set -euo pipefail
+        fetch() {
+          local out=$1 sha=$2 url=$3
+          curl -fsSL --connect-timeout 20 --max-time 300 --retry 4 --retry-delay 5 -o "$out" "$url"
+          echo "$sha  $out" | sha256sum -c --quiet - || { echo "::error::SHA-256 mismatch: $url"; exit 1; }
+          echo "ok  $out"
+        }
+        fetch freearc-71f3ab3.tar.gz 9a7cf4017200c84ff6348406a80d4b91214214bc4bb7f92a962ee25d32c0cd8f \
+          https://github.com/mirror/freearc/archive/71f3ab36df26401fff4301b4c8600a31a90d8da9.tar.gz
+        fetch precomp-0.4.4.tar.gz 10053984fb8dadc8428530df376e7e01aee23e380ae328b6113dad42132c1af1 \
+          https://github.com/schnaader/precomp-cpp/archive/refs/tags/v0.4.4.tar.gz
+        fetch precomp-0.4.5.tar.gz 39add141554f0186200911ab61838b69f5777956b3dfd37d82bb6923607258dc \
+          https://github.com/schnaader/precomp-cpp/archive/refs/tags/v0.4.5.tar.gz
+        fetch precomp-0.4.6.tar.gz 673b9ceb0df62abb5ef12ab0600a18fc3b82003cc9af5e1cc2f196237ed350d3 \
+          https://github.com/schnaader/precomp-cpp/archive/refs/tags/v0.4.6.tar.gz
+        fetch precomp-0.4.7.tar.gz b4064f9a18b9885e574c274f93d73d8a4e7f2bbd9e959beaa773f2e61292fb2b \
+          https://github.com/schnaader/precomp-cpp/archive/refs/tags/v0.4.7.tar.gz
+        fetch precomp-0.4.8-a11b077.tar.gz 415e864cc733544882ea1ed85c1c853ce265ef08ee08495c8ca34c1742299abb \
+          https://github.com/schnaader/precomp-cpp/archive/a11b077425fb6f6c22fc39c3265a2c1af7333665.tar.gz
+        for t in *.tar.gz; do tar xzf "$t"; done
+        mv freearc-71f3ab36df26401fff4301b4c8600a31a90d8da9 freearc
+        mv precomp-cpp-0.4.4 precomp-044; mv precomp-cpp-0.4.5 precomp-045; mv precomp-cpp-0.4.6 precomp-046
+        mv precomp-cpp-0.4.7 precomp-047; mv precomp-cpp-a11b077425fb6f6c22fc39c3265a2c1af7333665 precomp-048
+        ls -la
+
+    - name: Build unarc (FreeArc 0.67 + BFE patches)
+      working-directory: build/src/freearc
+      run: |
+        set -euo pipefail
+        while read -r p; do [ -n "$p" ] && patch -p1 < "$GITHUB_WORKSPACE/native/patches/unarc/$p"; done \
+          < "$GITHUB_WORKSPACE/native/patches/unarc/series"
+        LDFLAGS="-static" bash "$GITHUB_WORKSPACE/native/unarc/build.sh" . "$DIST/libunarcx.so"
+
+    - name: Build precomp 0.4.4 - 0.4.8
+      working-directory: build/src
+      run: |
+        set -euo pipefail
+        for v in 044 045 046 047 048; do
+          echo "::group::precomp $v"
+          LDFLAGS="-static" bash "$GITHUB_WORKSPACE/native/precomp/build.sh" "precomp-$v" "$DIST/libprecomp$v.so"
+          echo "::endgroup::"
+        done
+
+    - name: Build bfeext
+      run: |
+        set -euo pipefail
+        "$CC" -O2 -Wall -Wextra -static -o "$DIST/libbfeext.so" native/bfeext/bfeext.c
+
+    - name: Strip + inspect
+      working-directory: build/dist
+      run: |
+        set -euo pipefail
+        for f in lib*.so; do
+          "$STRIP" "$f"
+          echo "==== $f"
+          file "$f"
+          "$READELF" -d "$f" | grep NEEDED && { echo "::error::$f is not static"; exit 1; } || echo "no NEEDED (static)"
+        done
+        {
+          echo "BFE repack tools - built $(date -u +%Y-%m-%dT%H:%MZ) from ${GITHUB_SHA}"
+          echo "NDK: $(grep Pkg.Revision "$NDK/source.properties"), target aarch64-linux-android${API}"
+          echo
+          echo "Sources (SHA-256):"
+          (cd "$SRC" && sha256sum *.tar.gz)
+          echo
+          echo "Binaries (SHA-256, stripped):"
+          sha256sum lib*.so
+          echo
+          ls -la lib*.so
+        } > BUILD_INFO.txt
+        cat BUILD_INFO.txt
+
+    - name: Upload repack-tools-arm64
+      uses: actions/upload-artifact@v4
+      with:
+        name: repack-tools-arm64
+        path: |
+          build/dist/lib*.so
+          build/dist/BUILD_INFO.txt
+        if-no-files-found: error

@@ -23,6 +23,11 @@ on:
     paths:
       - '.github/workflows/build-extract-tools.yml'
       - 'native/**'
+      # Built by build-repack-tools.yml instead.
+      - '!native/bfeext/**'
+      - '!native/precomp/**'
+      - '!native/unarc/**'
+      - '!native/patches/unarc/**'
 
 permissions:
   contents: read
