@@ -88,6 +88,11 @@ Found + fixed (`198e461`): ZIP/tar/RAR only free space once it gets tight (hybri
 right away) → wording now says which; source card kept the old size after Put back.
 NOT tested in the app: the "won't fit normally" path (305 GB free; engine hybrid low-space is CLI-proven), FreeArc
 repack route, RAR through the app, SD card through the app.
+198e4614 APK installed 11-01 with the user's OK (installed hash 15fc8948… == staged). Option for decision (1) added
+(`86e5dd8`: checkbox "Delete as it goes even while there's room" → bfecut --eager, shown only for ZIP/tar/RAR with
+several pieces), build run **41289197973 GREEN**, staged `/sdcard/Download/BFE-space-saving-unpack-86e5dd83.apk`
+sha256 e6041132… (host == device); install needs the user's yes. Then: device check (ZIP with/without the box),
+merge (backup ref first, ff — branch is on top of main 474e316), main build, release.yml 1.4.0 stable.
 USER DECISIONS (11-01): (1) ZIP/tar/RAR free space only when it runs out, unless the user ticks an option to delete as
 it goes anyway; (2) keep the switch on every supported archive; (3) install the fixed build; (4) merge to main and
 release a new stable; disc images (stage 4) another time.
