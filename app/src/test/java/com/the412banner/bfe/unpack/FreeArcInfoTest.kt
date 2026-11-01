@@ -2,7 +2,6 @@ package com.the412banner.bfe.unpack
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,7 +20,7 @@ class FreeArcInfoTest {
         File(requireNotNull(javaClass.classLoader?.getResource("freearc/$name")) { "missing fixture $name" }.toURI())
 
     @Test fun readsArchiveMadeByFreeArc() {
-        val info = assertNotNull(FreeArcInfo.read(res("builtin.arc")))!!
+        val info = requireNotNull(FreeArcInfo.read(res("builtin.arc"))) { "builtin.arc not read" }
         assertFalse(info.headersEncrypted)
         assertEquals(1, info.blocks.size)
         assertEquals("rep:9kb+lzma:32kb:normal:32", info.blocks[0].compressor)
