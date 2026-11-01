@@ -172,6 +172,22 @@ extern "C" {
     fn signal(sig: i32, handler: extern "C" fn(i32)) -> usize;
     fn statvfs(path: *const std::os::raw::c_char, buf: *mut u64) -> i32;
     fn fallocate(fd: i32, mode: i32, offset: i64, len: i64) -> i32;
+    fn prctl(option: i32, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32;
+}
+
+/// A helper program (7-Zip, unarc) that is killed when bfecut dies, so a stopped or crashed run
+/// never leaves it writing into the stage folder while the next run starts.
+pub fn tool(path: &Path) -> std::process::Command {
+    use std::os::unix::process::CommandExt;
+    let mut c = std::process::Command::new(path);
+    unsafe {
+        c.pre_exec(|| {
+            // PR_SET_PDEATHSIG, SIGKILL
+            prctl(1, 9, 0, 0, 0);
+            Ok(())
+        });
+    }
+    c
 }
 
 pub fn install_signals() {

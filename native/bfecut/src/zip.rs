@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -353,7 +353,7 @@ impl Zip {
 
     fn run_7z(ctx: &Ctx, archive: &Path, test: bool) -> Res<()> {
         let tool = ctx.tool7z.as_ref().ok_or_else(|| Error::new(Kind::Unsupported, "7-Zip is needed for this entry's method"))?;
-        let mut c = Command::new(tool);
+        let mut c = crate::util::tool(tool);
         if test {
             c.arg("t");
         } else {

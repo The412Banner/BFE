@@ -2,6 +2,7 @@
 //!
 //!   bfecut plan    <archive> --dest <dir> [--keep-free BYTES]
 //!   bfecut run     <archive> --dest <dir> [--keep-free BYTES] [--no-verify] [--eager] [--7z PATH] [--unarc PATH]
+//!                  [--unarc-arg ARG]…
 //!   bfecut abandon <archive> --dest <dir>
 //!
 //! Output: one JSON object per line on stdout. Exit codes: 0 done, 1 I/O, 2 usage, 3 not enough
@@ -10,8 +11,12 @@
 #[macro_use]
 mod util;
 mod engine;
+mod freearc;
 mod inflate;
+mod lzma;
+mod rar;
 mod ser;
+mod sevenz;
 mod store;
 mod tar;
 mod zip;
@@ -31,6 +36,7 @@ struct Args {
     eager: bool,
     tool7z: Option<PathBuf>,
     unarc: Option<PathBuf>,
+    unarc_args: Vec<String>,
 }
 
 fn parse_args() -> Res<Args> {
@@ -45,6 +51,7 @@ fn parse_args() -> Res<Args> {
         eager: false,
         tool7z: None,
         unarc: None,
+        unarc_args: Vec::new(),
     };
     while let Some(x) = it.next() {
         match x.as_str() {
@@ -54,6 +61,8 @@ fn parse_args() -> Res<Args> {
             "--eager" => a.eager = true,
             "--7z" => a.tool7z = it.next().map(PathBuf::from),
             "--unarc" => a.unarc = it.next().map(PathBuf::from),
+            // Extra arguments for unarc (e.g. -cfg<arc.ini> -w<temp> for archives with external layers).
+            "--unarc-arg" => a.unarc_args.extend(it.next()),
             s if a.archive.as_os_str().is_empty() && !s.starts_with("--") => a.archive = PathBuf::from(s),
             s => return Err(Error::new(Kind::Usage, format!("unknown argument {s}"))),
         }
@@ -65,15 +74,24 @@ fn parse_args() -> Res<Args> {
 }
 
 /// Opens the archive's description: from the journal when a run is unfinished, else from the archive.
-fn open_format(store: &Store, saved: Option<(&str, &[u8])>) -> Res<Box<dyn Format>> {
+fn open_format(store: &Store, saved: Option<(&str, &[u8])>, a: &Args) -> Res<Box<dyn Format>> {
     if let Some((kind, snap)) = saved {
         return Ok(match kind {
             "zip" => Box::new(zip::Zip::from_snapshot(snap)?),
             "tar" => Box::new(tar::Tar::from_snapshot(snap)?),
+            "7z" => Box::new(sevenz::SevenZ::from_snapshot(snap)?),
+            "freearc" => Box::new(freearc::FreeArc::from_snapshot(snap, a.unarc.clone(), a.unarc_args.clone())?),
+            "rar" => Box::new(rar::Rar::from_snapshot(snap)?),
             k => return Err(Error::new(Kind::Io, format!("journal names an unknown format {k}"))),
         });
     }
     let head = store.read_vec(0, store.len().min(4096) as usize)?;
+    if sevenz::SevenZ::looks_like(&head) {
+        return Ok(Box::new(sevenz::SevenZ::open(store)?));
+    }
+    if rar::Rar::looks_like(&head) {
+        return Ok(Box::new(rar::Rar::open(store, a.tool7z.as_deref())?));
+    }
     if head.starts_with(b"PK\x03\x04") {
         return Ok(Box::new(zip::Zip::open(store)?));
     }
@@ -83,7 +101,20 @@ fn open_format(store: &Store, saved: Option<(&str, &[u8])>) -> Res<Box<dyn Forma
     if zip::Zip::looks_like(&head, store) {
         return Ok(Box::new(zip::Zip::open(store)?));
     }
+    if !store.is_split() && freearc::FreeArc::looks_like(store) {
+        return Ok(Box::new(freearc::FreeArc::open(store, a.unarc.clone(), a.unarc_args.clone())?));
+    }
     Err(Error::new(Kind::Unsupported, "this archive type can't be unpacked while deleting it"))
+}
+
+/// The archive's files: a RAR set by its own naming, else `name.001`-style splits.
+fn volumes_for(path: &Path) -> Vec<PathBuf> {
+    let mut head = [0u8; 8];
+    let n = fs::File::open(path).and_then(|mut f| std::io::Read::read(&mut f, &mut head)).unwrap_or(0);
+    if rar::Rar::looks_like(&head[..n]) {
+        return rar::rar_volumes(path);
+    }
+    Store::volume_paths(path)
 }
 
 fn existing_ancestor(p: &Path) -> PathBuf {
@@ -107,10 +138,10 @@ fn load_saved(dest: &Path) -> Option<(State, Vec<u8>)> {
 }
 
 fn cmd_plan(a: &Args) -> Res<()> {
-    let paths = Store::volume_paths(&a.archive);
+    let paths = volumes_for(&a.archive);
     let store = Store::open(&paths)?;
     let saved = load_saved(&a.dest);
-    let f = match open_format(&store, saved.as_ref().map(|(s, b)| (s.format.as_str(), b.as_slice()))) {
+    let f = match open_format(&store, saved.as_ref().map(|(s, b)| (s.format.as_str(), b.as_slice())), a) {
         Ok(f) => f,
         Err(e) => {
             emit(&format!("{{\"ev\":\"plan\",\"supported\":false,\"code\":{},\"reason\":{}}}", jstr(e.kind.code()), jstr(&e.msg)));
@@ -145,12 +176,23 @@ fn cmd_plan(a: &Args) -> Res<()> {
 }
 
 fn cmd_run(a: &Args, abandon: bool) -> Res<()> {
-    let paths = Store::volume_paths(&a.archive);
+    // Stopped in the last moment of a finished run (archive already deleted)? Then it's done.
+    if !a.archive.exists() {
+        if let Some((st, _)) = load_saved(&a.dest) {
+            if st.done == st.total {
+                let _ = fs::remove_dir_all(engine::state_dir(&a.dest));
+                emit(&format!("{{\"ev\":\"done\",\"total_out\":0,\"freed\":{},\"links_skipped\":0,\"note\":\"finished earlier\"}}", st.start_len));
+                return Ok(());
+            }
+        }
+        fail!(Usage, "{} doesn't exist", a.archive.display());
+    }
+    let paths = volumes_for(&a.archive);
     let mut store = Store::open(&paths)?;
     fs::create_dir_all(&a.dest)?;
     let sdir = engine::state_dir(&a.dest);
     let saved = load_saved(&a.dest);
-    let mut f = open_format(&store, saved.as_ref().map(|(s, b)| (s.format.as_str(), b.as_slice())))?;
+    let mut f = open_format(&store, saved.as_ref().map(|(s, b)| (s.format.as_str(), b.as_slice())), a)?;
     if util::device_of(&a.dest)? != util::device_of(&a.archive)? {
         fail!(Unsupported, "the destination is on different storage than the archive; deleting the archive wouldn't make room there");
     }

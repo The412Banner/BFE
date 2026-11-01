@@ -236,8 +236,18 @@ fn commit(ctx: &mut Ctx) -> Res<()> {
 }
 
 fn clear_stage(stage: &Path) -> Res<()> {
-    if stage.exists() {
-        fs::remove_dir_all(stage)?;
+    // A helper from a killed run may still be exiting; give it a moment instead of failing.
+    let mut tries = 0;
+    while stage.exists() {
+        match fs::remove_dir_all(stage) {
+            Ok(()) => break,
+            Err(e) if tries < 20 => {
+                tries += 1;
+                let _ = e;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
     fs::create_dir_all(stage)?;
     Ok(())
@@ -352,6 +362,7 @@ pub fn run(f: &mut dyn Format, store: &mut Store, ctx: &mut Ctx, st: &mut State,
     f.finish(ctx)?;
     commit(ctx)?;
     let skipped = make_links(ctx)?;
+    // done == total is already saved, so a stop from here on resumes as "finished".
     store.delete_all()?;
     let _ = fs::remove_dir_all(&ctx.state_dir);
     emit(&format!(
