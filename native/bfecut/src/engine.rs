@@ -254,7 +254,16 @@ fn clear_stage(stage: &Path) -> Res<()> {
 }
 
 fn make_links(ctx: &Ctx) -> Res<usize> {
-    let p = ctx.state_dir.join("links");
+    make_links_at(&ctx.dest, &ctx.state_dir)
+}
+
+/// Makes the links recorded in `<state>/links` (after every regular file is out).
+pub fn make_links_at(dest: &Path, state_dir: &Path) -> Res<usize> {
+    struct C<'a> {
+        dest: &'a Path,
+    }
+    let ctx = C { dest };
+    let p = state_dir.join("links");
     let Ok(text) = fs::read_to_string(&p) else { return Ok(0) };
     let mut skipped = 0;
     for line in text.lines() {

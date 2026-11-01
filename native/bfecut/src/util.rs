@@ -124,6 +124,13 @@ impl Crc32 {
     pub fn value(&self) -> u32 {
         self.0 ^ 0xFFFF_FFFF
     }
+    /// The running state (for restart points) and back.
+    pub fn raw(&self) -> u32 {
+        self.0
+    }
+    pub fn from_raw(v: u32) -> Crc32 {
+        Crc32(v)
+    }
 }
 
 pub fn crc32(data: &[u8]) -> u32 {

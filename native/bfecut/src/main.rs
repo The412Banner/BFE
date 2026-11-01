@@ -18,6 +18,7 @@ mod rar;
 mod ser;
 mod sevenz;
 mod store;
+mod stream;
 mod tar;
 mod zip;
 
@@ -137,9 +138,62 @@ fn load_saved(dest: &Path) -> Option<(State, Vec<u8>)> {
     Some((st, snap))
 }
 
+fn head_of(store: &Store) -> Res<Vec<u8>> {
+    store.read_vec(0, store.len().min(4096) as usize)
+}
+
+fn plan_stream(a: &Args, store: &Store, codec: stream::Codec) -> Res<()> {
+    let saved = stream::Stream::load_meta(&engine::state_dir(&a.dest)).map(|(s, _)| s);
+    let opened = match saved {
+        Some(s) => Ok(s),
+        None => stream::Stream::open(store, &a.archive, codec),
+    };
+    let s = match opened {
+        Ok(s) => s,
+        Err(e) => {
+            emit(&format!("{{\"ev\":\"plan\",\"supported\":false,\"code\":{},\"reason\":{}}}", jstr(e.kind.code()), jstr(&e.msg)));
+            return Ok(());
+        }
+    };
+    let anc = existing_ancestor(&a.dest);
+    let same = util::device_of(&anc)? == util::device_of(&a.archive)?;
+    let dir = a.archive.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+    let punch = stream::can_punch(&dir);
+    let free = util::free_bytes(&anc)?;
+    let resume = engine::state_dir(&a.dest).join("stream").exists();
+    let total = stream::Stream::load_meta(&engine::state_dir(&a.dest)).and_then(|(_, t)| t).or_else(|| if resume { None } else { s.total_out(store) });
+    let reason = if !punch { "this storage can't free space while reading (SD cards); unpack it normally" } else if !same { "the destination is on different storage than the archive" } else { "" };
+    // Peak: everything unpacked minus the archive bytes already freed, plus one restart interval.
+    let need = total.map(|t| t.saturating_sub(store.len()) + (64 << 20) + a.keep_free);
+    emit(&format!(
+        "{{\"ev\":\"plan\",\"supported\":{},\"format\":{},\"stream\":true,\"tar\":{},\"pieces\":1,\"volumes\":1,\"archive\":{},\"total_out\":{},\"free\":{},\"keep_free\":{},\"need_normal\":{},\"fits_normal\":{},\"short\":{},\"fits\":{},\"largest\":0,\"same_storage\":{},\"resume\":{},\"done\":0,\"reason\":{}}}",
+        punch && same,
+        jstr(if codec == stream::Codec::Gzip { "gzip" } else { "xz" }),
+        s.tar,
+        store.len(),
+        total.map(|t| t.to_string()).unwrap_or_else(|| "null".into()),
+        free,
+        a.keep_free,
+        total.map(|t| (t + a.keep_free).to_string()).unwrap_or_else(|| "null".into()),
+        total.map(|t| free >= t + a.keep_free).unwrap_or(false),
+        need.map(|n| n.saturating_sub(free)).unwrap_or(0),
+        need.map(|n| free >= n).unwrap_or(true),
+        same,
+        resume,
+        jstr(reason)
+    ));
+    Ok(())
+}
+
 fn cmd_plan(a: &Args) -> Res<()> {
     let paths = volumes_for(&a.archive);
     let store = Store::open(&paths)?;
+    if let Some((s, _)) = stream::Stream::load_meta(&engine::state_dir(&a.dest)) {
+        return plan_stream(a, &store, s.codec);
+    }
+    if let Some(codec) = stream::looks_like(&head_of(&store)?) {
+        return plan_stream(a, &store, codec);
+    }
     let saved = load_saved(&a.dest);
     let f = match open_format(&store, saved.as_ref().map(|(s, b)| (s.format.as_str(), b.as_slice())), a) {
         Ok(f) => f,
@@ -178,6 +232,12 @@ fn cmd_plan(a: &Args) -> Res<()> {
 fn cmd_run(a: &Args, abandon: bool) -> Res<()> {
     // Stopped in the last moment of a finished run (archive already deleted)? Then it's done.
     if !a.archive.exists() {
+        // Stream mode deletes the archive only after everything is out.
+        if stream::Stream::load_meta(&engine::state_dir(&a.dest)).is_some() {
+            let _ = fs::remove_dir_all(engine::state_dir(&a.dest));
+            emit("{\"ev\":\"done\",\"total_out\":0,\"freed\":0,\"links_skipped\":0,\"note\":\"finished earlier\"}");
+            return Ok(());
+        }
         if let Some((st, _)) = load_saved(&a.dest) {
             if st.done == st.total {
                 let _ = fs::remove_dir_all(engine::state_dir(&a.dest));
@@ -191,6 +251,31 @@ fn cmd_run(a: &Args, abandon: bool) -> Res<()> {
     let mut store = Store::open(&paths)?;
     fs::create_dir_all(&a.dest)?;
     let sdir = engine::state_dir(&a.dest);
+    let saved_stream = stream::Stream::load_meta(&sdir);
+    let codec = match &saved_stream {
+        Some((s, _)) => Some(s.codec),
+        None => stream::looks_like(&head_of(&store)?),
+    };
+    if let Some(codec) = codec {
+        let (s, known) = match saved_stream {
+            Some(x) => x,
+            None => (stream::Stream::open(&store, &a.archive, codec)?, None),
+        };
+        if util::device_of(&a.dest)? != util::device_of(&a.archive)? {
+            fail!(Unsupported, "the destination is on different storage than the archive");
+        }
+        if abandon {
+            let started = fs::read(sdir.join("stream")).map(|b| b.len() > 16 && b[8..16] != [0u8; 8]).unwrap_or(false);
+            if started {
+                fail!(Unsupported, "part of this archive is already freed: it can only be continued, not put back");
+            }
+            let _ = fs::remove_dir_all(&sdir);
+            emit("{\"ev\":\"abandoned\",\"pieces_left\":1}");
+            return Ok(());
+        }
+        let o = stream::StreamOpts { keep_free: a.keep_free, verify_first: a.verify };
+        return stream::run(&s, &mut store, &a.dest, &sdir, &o, known);
+    }
     let saved = load_saved(&a.dest);
     let mut f = open_format(&store, saved.as_ref().map(|(s, b)| (s.format.as_str(), b.as_slice())), a)?;
     if util::device_of(&a.dest)? != util::device_of(&a.archive)? {
