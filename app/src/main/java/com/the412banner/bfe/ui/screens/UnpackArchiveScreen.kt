@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,7 +47,9 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -78,6 +81,7 @@ import com.the412banner.bfe.unpack.Innoextract
 import com.the412banner.bfe.unpack.PowerMode
 import com.the412banner.bfe.unpack.ReadBuffer
 import com.the412banner.bfe.unpack.SevenZip
+import com.the412banner.bfe.unpack.SpaceSaver
 import com.the412banner.bfe.unpack.Unarc
 import com.the412banner.bfe.unpack.UnpackManager
 import com.the412banner.bfe.unpack.UnpackPhase
@@ -87,6 +91,7 @@ import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.Bannerlator
 import com.the412banner.bfe.util.DirPicker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -284,6 +289,33 @@ fun UnpackArchiveScreen(
         UnpackManager.clearIfTerminal()
         val parts = if (isPayload) extraProbe?.partitions?.map { it.name }?.filter { it in chosenParts } else null
         UnpackService.start(context, archive.absolutePath, destPath, 1, buffer.bytes, false, sourceSize, ExtraFormats.ENGINE, parts)
+    }
+
+    // ── Space-saving unpack ("unpack and delete the download as it goes", SpaceSaver / bfecut) ──
+    // Plain archives and native FreeArc repacks on a real path; not files another app streamed in
+    // (BFE's own copy), not where All Files access is missing. The engine's plan decides the rest.
+    val spaceTarget = if (innoFreeArcBuiltin) jobArchive else archive
+    val spaceEngine = remember { SpaceSaver.isAvailable(context) }
+    val spaceEligible = spaceEngine && (sevenZipAllowed || innoFreeArcBuiltin) && !gatedByPermission &&
+        !spaceTarget.absolutePath.startsWith(com.the412banner.bfe.util.IncomingFile.incomingDir(context).absolutePath + "/")
+    var spacePlan by remember(archivePath) { mutableStateOf<SpaceSaver.Plan?>(null) }
+    var spaceMode by remember(archivePath) { mutableStateOf(false) }
+    var confirmSpace by remember { mutableStateOf(false) }
+    var abandoning by remember { mutableStateOf(false) }
+    var planTick by remember { mutableIntStateOf(0) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(spaceEligible, destPath, state.phase, planTick) {
+        if (!spaceEligible || state.isRunning) return@LaunchedEffect
+        spacePlan = withContext(Dispatchers.IO) {
+            if (spaceTarget.isFile) SpaceSaver.plan(context, spaceTarget, File(destPath)) else null
+        }
+        if (spacePlan?.let { it.usable && !it.resume } != true) spaceMode = false
+    }
+    val spaceResume = spacePlan?.let { it.supported && it.resume } == true
+    val canSpace = spacePlan?.usable == true && spaceTarget.isFile && !otherJobRunning && !gatedByPermission
+    val startSpace = {
+        UnpackManager.clearIfTerminal()
+        UnpackService.start(context, spaceTarget.absolutePath, destPath, 1, buffer.bytes, false, spaceTarget.length(), SpaceSaver.ENGINE)
     }
 
     // typeLoading flips false only after the whole pre-flight (incl. the DLC scan). Fires at most once:
@@ -655,9 +687,20 @@ fun UnpackArchiveScreen(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                Button(
-                    onClick = startUnarc,
-                    enabled = canUnarc,
+                if (!running) SpaceSaverCard(spacePlan, spaceMode, { spaceMode = it }, abandoning,
+                    onContinue = startSpace, canContinue = canSpace,
+                    onPutBack = {
+                        abandoning = true
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { SpaceSaver.abandon(context, spaceTarget, File(destPath)) }
+                            abandoning = false
+                            AppSnackbar.show(context, if (r.exitCode == 0) "Put back: ${spaceTarget.name} holds the rest again" else SpaceSaver.explain(r.errorCode, r.message))
+                            planTick++
+                        }
+                    })
+                if (!spaceResume) Button(
+                    onClick = if (spaceMode) ({ confirmSpace = true }) else startUnarc,
+                    enabled = if (spaceMode) canSpace else canUnarc,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(20.dp))
@@ -801,15 +844,41 @@ fun UnpackArchiveScreen(
 
             // ── Extract button (plain, non-Inno archives) ──
             if (!running && sevenZipAllowed) {
-                Button(
-                    onClick = startSevenZip,
-                    enabled = canSevenZip,
+                SpaceSaverCard(spacePlan, spaceMode, { spaceMode = it }, abandoning,
+                    onContinue = startSpace, canContinue = canSpace,
+                    onPutBack = {
+                        abandoning = true
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { SpaceSaver.abandon(context, spaceTarget, File(destPath)) }
+                            abandoning = false
+                            AppSnackbar.show(context, if (r.exitCode == 0) "Put back: ${spaceTarget.name} holds the rest again" else SpaceSaver.explain(r.errorCode, r.message))
+                            planTick++
+                        }
+                    })
+                if (!spaceResume) Button(
+                    onClick = if (spaceMode) ({ confirmSpace = true }) else startSevenZip,
+                    enabled = if (spaceMode) canSpace else canSevenZip,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Extract", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (spaceMode) "Extract and delete the download" else "Extract", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 }
+            }
+            if (confirmSpace) {
+                AlertDialog(
+                    onDismissRequest = { confirmSpace = false },
+                    title = { Text("Delete the download while unpacking?") },
+                    text = {
+                        Text(
+                            "${spaceTarget.name} will be deleted bit by bit while it unpacks, and is gone at the end. " +
+                                "If it stops (cancel, no space, phone restart), open it here again to continue" +
+                                (if (spacePlan?.stream == true) "." else ", or to put what's left back as a smaller archive."),
+                        )
+                    },
+                    confirmButton = { TextButton(onClick = { confirmSpace = false; startSpace() }) { Text("Unpack and delete") } },
+                    dismissButton = { TextButton(onClick = { confirmSpace = false }) { Text("Keep it") } },
+                )
             }
 
             // ── Progress ──
@@ -879,6 +948,10 @@ fun UnpackArchiveScreen(
                                 "${state.filesExtracted} files • ${StringUtils.formatBytes(state.archiveSize)} in ${humanDuration(state.elapsedMs)}",
                                 color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp,
                             )
+                            if (state.engine == SpaceSaver.ENGINE) {
+                                Spacer(Modifier.height(2.dp))
+                                Text("The download was deleted as it unpacked.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            }
                             Spacer(Modifier.height(2.dp))
                             Text(state.destPath, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
@@ -958,6 +1031,78 @@ private fun sectionTitle() = MaterialTheme.typography.labelLarge.copy(
     color = MaterialTheme.colorScheme.primary,
     fontWeight = FontWeight.SemiBold,
 )
+
+/**
+ * The space-saving option: a switch while nothing has started; "Continue" / "Put back" once a run
+ * stopped part-way (its journal sits in the destination). Hidden when the engine can't do this archive.
+ */
+@Composable
+private fun SpaceSaverCard(
+    plan: SpaceSaver.Plan?,
+    on: Boolean,
+    onToggle: (Boolean) -> Unit,
+    abandoning: Boolean,
+    onContinue: () -> Unit,
+    canContinue: Boolean,
+    onPutBack: () -> Unit,
+) {
+    if (plan == null) return
+    val small = MaterialTheme.colorScheme.onSurfaceVariant
+    if (plan.supported && plan.resume) {
+        WarnCard {
+            Text("Space-saving unpack stopped part-way", color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (plan.stream) "Part of the download is already freed, so it can only be continued."
+                else "${plan.done} of ${plan.pieces} pieces are unpacked and their part of the download is freed. " +
+                    "Continue, or put what's left back as a smaller archive (the unpacked files stay).",
+                color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row {
+                Button(onClick = onContinue, enabled = canContinue && !abandoning) { Text("Continue") }
+                if (!plan.stream) {
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = onPutBack, enabled = !abandoning) { Text(if (abandoning) "Putting back…" else "Put back what's left") }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        return
+    }
+    if (!plan.supported) return
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Unpack and delete the download as it goes", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+            Switch(checked = on, onCheckedChange = onToggle, enabled = plan.usable)
+        }
+        Spacer(Modifier.height(4.dp))
+        val need = if (plan.totalOut >= 0) StringUtils.formatBytes(plan.totalOut + SpaceSaver.KEEP_FREE) else null
+        if (!plan.fitsNormal && need != null) {
+            Text(
+                "Not enough space to unpack normally: that needs about $need free (with 2 GB spare), ${StringUtils.formatBytes(plan.free)} is free.",
+                color = MaterialTheme.colorScheme.error, fontSize = 12.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        Text(
+            when {
+                !plan.sameStorage -> plan.reason ?: "Only works when the files land on the same storage as the download."
+                plan.stream -> "BFE reads the download from the start and frees what it has read, so it needs much less free space. The download is gone at the end."
+                plan.shrinks -> "BFE unpacks the download piece by piece and frees each piece's space as it lands, so it needs much less free space. The download is gone at the end."
+                else -> "This archive is one solid block: it still needs the full space, and the download is only deleted at the end."
+            },
+            color = small, fontSize = 11.sp,
+        )
+        if (plan.sameStorage && !plan.fits) {
+            Spacer(Modifier.height(4.dp))
+            Text("Even this way it's ${StringUtils.formatBytes(plan.short)} short. Free some space first.", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+}
 
 @Composable
 private fun SectionCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {

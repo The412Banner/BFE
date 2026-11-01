@@ -55,7 +55,7 @@ class UnpackService : Service() {
         const val EXTRA_BUFFER = "buffer"
         const val EXTRA_IS_INNO = "isInno"
         const val EXTRA_TOTAL_SIZE = "totalSize"
-        const val EXTRA_ENGINE = "engine"   // "7z" | "inno" | "unarc" | "unarc-layers" | "extra" (ExtraFormats)
+        const val EXTRA_ENGINE = "engine"   // "7z" | "inno" | "unarc" | "unarc-layers" | "extra" (ExtraFormats) | "inplace" (SpaceSaver)
         // OTA payload.bin: the partitions to write out (engine "extra"); absent = every extractable one.
         const val EXTRA_PARTS = "parts"
 
@@ -80,7 +80,8 @@ class UnpackService : Service() {
         private const val SIGKILL = 9
         private const val SIGCONT = 18
         private const val SIGSTOP = 19
-        private val ENGINE_BINARIES = listOf("lib7zz.so", "libinnoextract.so", "libunarc.so", Unarc.LAYERS_BINARY) + ExtraFormats.TOOL_BINARIES
+        // bfecut (space-saving unpack) is safe to kill at any moment: its journal resumes the job.
+        private val ENGINE_BINARIES = listOf("lib7zz.so", "libinnoextract.so", "libunarc.so", Unarc.LAYERS_BINARY, SpaceSaver.BINARY) + ExtraFormats.TOOL_BINARIES
 
         fun isBusy(): Boolean = busy
 
@@ -331,8 +332,9 @@ class UnpackService : Service() {
             // "inno" = innoextract (standard-Inno/GOG), "extra" = the
             // ExtraFormats engines (lzip/lzop/LZ4/ECM/ALZ/EGG/ACE/LZX/OTA payload), else 7-Zip.
             val isExtra = engine == ExtraFormats.ENGINE
+            val isInplace = engine == SpaceSaver.ENGINE
             val extraProbe = if (isExtra) ExtraFormats.probe(ctx, archive) else null
-            val info = if (isInno || isExtra) null else SevenZip.list(ctx, archive)
+            val info = if (isInno || isExtra || isInplace) null else SevenZip.list(ctx, archive)
             UnpackManager.update {
                 it.copy(
                     phase = UnpackPhase.EXTRACTING,
@@ -341,6 +343,7 @@ class UnpackService : Service() {
                         engine == Unarc.ENGINE_LAYERS -> "FreeArc repack (with extra layers)"
                         isInno -> "InnoSetup installer"
                         isExtra -> extraProbe?.typeLabel
+                        isInplace -> "Space-saving unpack"
                         else -> info?.type
                     },
                 )
@@ -448,8 +451,27 @@ class UnpackService : Service() {
             /** Files this job added to destDir (final tally after the engine exits). */
             fun addedFiles(poll: DestPoll): Int = (measureDir(destDir).first - poll.baseCount).coerceAtLeast(0)
 
+            var inplaceError: String? = null
             val result = runCatching {
-                if (isExtra) {
+                if (isInplace) {
+                    // Unpacks and frees the download as it goes. Progress = bytes written against the
+                    // unpacked total (or the download freed, when the total isn't known up front).
+                    val (baseCount, _) = measureDir(destDir)
+                    UnpackManager.update { it.copy(currentFile = "Checking the download before anything is deleted…") }
+                    refresh()
+                    val r = SpaceSaver.run(
+                        ctx, archive, destDir, verify = true,
+                        onProgress = { p ->
+                            UnpackManager.update { it.copy(freedBytes = p.freed, currentFile = p.file ?: it.currentFile) }
+                            if (p.totalOut > 0) pushBytes(p.out, p.totalOut) else pushBytes(p.freed, dataSize)
+                        },
+                        onPhase = { },
+                        onProcess = { proc = it },
+                    )
+                    files = (measureDir(destDir).first - baseCount).coerceAtLeast(0)
+                    if (r.exitCode != 0) inplaceError = SpaceSaver.explain(r.errorCode, r.message)
+                    SevenZip.Result(if (r.exitCode == 0) 0 else 2, inplaceError ?: r.tail.takeLast(600))
+                } else if (isExtra) {
                     val r = ExtraFormats.extract(
                         ctx, archive, destDir, parts?.toSet(), extraProbe?.totalBytes ?: 0L,
                         object : ExtractSink {
@@ -543,7 +565,7 @@ class UnpackService : Service() {
 
             // Unwrap a single inner .tar (a .wcp/.tzst/.tar.gz decompresses to just its .tar) so one
             // action lands the real files. 7-Zip path only; best-effort; only when the first pass won.
-            if (!isInno && !cancelled && result.exitCode <= 1) {
+            if (!isInno && !isInplace && !cancelled && result.exitCode <= 1) {
                 UnpackManager.update { it.copy(currentFile = "Unpacking inner archive…", percent = 0) }
                 refresh()
                 runCatching {
@@ -571,6 +593,7 @@ class UnpackService : Service() {
                     phase = UnpackPhase.CANCELLED, archivePath = archive.absolutePath,
                     archiveName = archive.name, destPath = destDir.absolutePath, elapsedMs = elapsed,
                     filesExtracted = files, archiveSize = dataSize, isInno = isInno, engine = engine,
+                    freedBytes = UnpackManager.current.freedBytes,
                 )
                 result.exitCode <= 1 -> UnpackManager.current.copy(
                     phase = UnpackPhase.DONE, percent = 100, elapsedMs = elapsed,
@@ -766,6 +789,7 @@ class UnpackService : Service() {
                 append("${s.percent}%")
                 if (!paused && s.speedBps > 0) append("  •  ${StringUtils.formatBytes(s.speedBps)}/s")
                 if (!paused && s.etaSeconds >= 0) append("  •  ETA ${formatDuration(s.etaSeconds * 1000)}")
+                if (s.engine == SpaceSaver.ENGINE && s.freedBytes > 0) append("  •  ${StringUtils.formatBytes(s.freedBytes)} freed")
             }
         }
         val big = if (waiting.isEmpty()) body else body + "\nNext: " + waiting.joinToString(", ")

@@ -56,6 +56,8 @@ data class UnpackState(
     val batchIndex: Int = 0,
     /** How many DLC installers in the batch failed (base-game failure is fatal, not counted here). */
     val batchFailed: Int = 0,
+    /** Space-saving unpack ([SpaceSaver]): bytes of the download already freed. */
+    val freedBytes: Long = 0L,
 ) {
     val isRunning: Boolean get() = phase == UnpackPhase.LISTING || phase == UnpackPhase.EXTRACTING
 }
