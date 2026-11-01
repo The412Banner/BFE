@@ -67,7 +67,17 @@ incl. out-of-memory. logcat: no allocator errors, light memory pressure. Not rep
 4x4 / rep / delta / exe chains on 165 MB, rep:882mb + (4x4:)grzip on 915 MB → all byte-exact on both unarc builds.
 **`a728910`:** full log lists every block's chain with settings; error log gets "Block chains: …". CI 41275439191 GREEN.
 **Staged:** `/sdcard/Download/BFE-universal-extractor-a7289101.apk`, sha256 2fd095d0…bc8c (host == device); 512b31c0 and
-bc65bf6e test APKs removed (superseded). NEXT: owner installs, reruns once → read block chains (dictionary sizes).
+bc65bf6e test APKs removed (superseded).
+**Owner installed a7289101 (hash == staged), reran 05:10 UTC:** block chains logged (device-proven): 1 storing (53 dirs),
+2 `grzip:3kb:m1:l32:h12` (3 files), 3 `rep:96mb+4x4:tor:16mb:c3` (159 files, 16.2 GB packed, 16.78 GiB unpacked),
+4 `rep:96mb+exe+delta+4x4:lzma:96mb:normal:16:mc8` (29 files). Fails in block 3: .pak (3.68 GB, CRC-checked, written
+complete) then .ucas (14.2 GB, starts 3.58 GiB into the block) → "archive data corrupted", no .ucas left.
+**Ruled out with self-made data (all byte-exact, both unarc builds):** that chain over 5.5 GB unpacked (crossing 4 GiB);
+5.3 GB packed (archive offset > 4 GiB); and ON DEVICE with the installed libunarc.so writing to /storage/emulated/0: 3.68 GB +
+4.6 GB files, 8.3 GB packed, same chain → OK in 13 s. Note: "archive data corrupted (decompression fails)" is printed for any
+decoder error. Conclusion: BFE's engine handles this archive shape; the owner's file most likely has damaged/incomplete data
+in that block (not proven — can't verify without the source's checksums). Test files (16.6 GB) deleted.
+NEXT: device-test the layer decoding (BFE-test-precomp / BFE-test-srep), then merge decision.
 **Device test:** none yet. Test folders: `/sdcard/Download/BFE-test-precomp` (layered archive → expect layer list
 ✓/↻ and byte-exact unpack) and `/sdcard/Download/BFE-test-srep` (SREP → expect "can't unpack" + Run in Bannerlator).
 **Resume point:** ask owner before installing; after install test both folders, check logcat for FATAL.
