@@ -47,9 +47,26 @@ restart point, numbered stage file per member). Found+fixed: freed start of .gz/
 stream description saved before punching; shared stage file name let a resume mix two members (caught by the length
 check, nothing written wrong) → numbered stage files. Tests: tar.gz/tgz/multi-member/tar.xz/single .gz/.xz byte-exact;
 3.4 MB archive held 372 KB on disk mid-run; kill loops 25/25 ×3 (93/46/83 kills).
-**Resume point:** device tests for stages 2+3 (root, internal + SD), then stage 4 decision, then app integration
-(Kotlin plan/run wrapper, Unpack screen option, service engine, CI build of bfecut) and the test APK. Device kit:
-`/sdcard/Download/bfecut-test/` (devtest.sh, src-archives, want.sha).
+**Stage 2+3 on the device (root, CLI):** internal storage — all 9 sets (7z blocks, 7z .001 split, FreeArc blocks,
+FreeArc rep, RAR5 8-part set, RAR4 multi-file set, tar.gz, tar.xz, single .gz) byte-exact plain + kill loops 4/4 each.
+SD card (exFAT) run in progress at this entry (streams correctly refused there: no punch-hole).
+**Stream refusal (`6ff65b8`):** a .gz/.xz on storage that can't punch holes is refused before anything starts.
+**CI engine build (`build-bfecut.yml`):** run 41285008045 failed (no JDK before setup-android) → fixed `eb3ad50`,
+run **41285183329 GREEN** (unit tests, host round trip tar.gz/tar.xz/zip/tar byte-exact, arm64 build needs only
+libc/libdl). CI binary sha256 357f8b09… tested on the device first (all 9 stage-2/3 sets byte-exact), then committed
+to jniLibs (`f08d27c`).
+**App integration (`efed10c`):** `SpaceSaver.kt` (plan/run/abandon wrapper, JSON lines → progress, plain-word errors);
+Unpack screen switch "Unpack and delete the download as it goes" (plain archives + native FreeArc repacks; real paths
+only; says when a normal unpack won't fit; confirm dialog every start); "Continue" / "Put back what's left" card when a
+run stopped part-way; service engine `inplace` (bytes-written progress, "X freed" in the notification, Pause/Cancel
+reach it, unwrap-inner-tar skipped). README section + credits row. Compile check run 41285210935 GREEN.
+NOTE (deviation from the plan, for the user to decide): the switch is shown for every supported archive (off by
+default), not only when a normal unpack won't fit — when it won't fit, the screen says so in red.
+**Test APK:** build run 41285755027 on `f08d27c` (in progress at this entry).
+**Resume point:** APK → stage to `/sdcard/Download/BFE-space-saving-unpack-<sha8>.apk` with hashes → ASK before
+install → app test with `/sdcard/Download/BFE-space-test/masters/` (SpaceTest7z.7z 11 blocks, SpaceTestZip.zip,
+SpaceTestGz.tar.gz; want.sha = 32 files): unpack each, cancel + Continue, cancel + Put back, pause/resume, logcat.
+Then stage 4 (disc images) decision and merge only with the user's go (backup ref first).
 
 ---
 
