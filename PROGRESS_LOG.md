@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green bc65bf6, staged, NOT device-tested)
+## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, CI-green 512b31c, staged, NOT device-tested)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
 with the "needs the container installer" message. Owner: "do them all on a new branch … give me a new APK".
@@ -50,7 +50,17 @@ BFE-EXT messages, exit 2. Old vs rebuilt unarc identical on 10 built-in method c
 41270713073 (c6ddc2a) tests failed: xz-java calls FreeArc's LZMA end marker corrupt → `enableRelaxedEndCondition()`
 (bc65bf6); **41271163289 (bc65bf6) GREEN** — assemble, unit tests, signing check ("v2 original, v3 release, lineage").
 APK contains libunarcx (sha matches tools artifact), libbfeext, libprecomp044–048, both NOTICEs; versionCode 18 (no bump).
-**Staged:** `/sdcard/Download/BFE-universal-extractor-bc65bf6e.apk`, sha256 3a679c94…faa4 (host == device).
+**Debug logging (owner: "yes at both"), `512b31c`:** Settings → Troubleshooting → "Keep full unpack logs" (off by
+default; `util/FullUnpackLog`: every engine line of a failed job → `Download/BFE/BFE-unpack-<UTC>.log`, names NOT
+scrubbed, 20 MB cap, 10 kept; deleted on success/cancel). FreeArc error-log entries get `Layers: …`
+(`RepackLayers.summary`) and the kept full-log name; libbfeext's `layer 'x'` → `layer x` so the scrubber keeps it.
+CI 41273210417 (512b31c) GREEN (tests + signing).
+**Owner's failed extractions (error log, 3 entries 02:46/04:17/04:19 UTC):** installed 1.3.0, engine unarc, 16.5 GB
+Setup-1.bin, 161 files out in 12–20 s, then "archive data corrupted (decompression fails)" at the same block
+(3.68 GB + 14.18 GB files) every time, exit 2 — deterministic, not the stack-overflow crash. Layers unknown (old log
+had no layer line); next look = new APK's layer list / log.
+**Staged:** `/sdcard/Download/BFE-universal-extractor-512b31c0.apk`, sha256 16cbdd00…be90 (host == device); the older
+bc65bf6e test APK removed (superseded).
 **Device test:** none yet. Test folders: `/sdcard/Download/BFE-test-precomp` (layered archive → expect layer list
 ✓/↻ and byte-exact unpack) and `/sdcard/Download/BFE-test-srep` (SREP → expect "can't unpack" + Run in Bannerlator).
 **Resume point:** ask owner before installing; after install test both folders, check logcat for FATAL.
