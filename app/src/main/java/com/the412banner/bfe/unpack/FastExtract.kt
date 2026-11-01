@@ -75,9 +75,16 @@ object FastExtract {
                     UnpackService.start(context, job.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, "unarc")
                     Outcome.Started(job.name)
                 }
-                // srep / unarc-unavailable: a silent file extract is impossible — show the container card.
+                SevenZip.InnoRoute.FREEARC_LAYERS -> {
+                    if (!hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
+                    val job = cls.freeArcArchive ?: archive
+                    val dest = defaultDest(archive, isInno = true, overrideBase = destOverride)
+                    UnpackService.start(context, job.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, Unarc.ENGINE_LAYERS)
+                    Outcome.Started(job.name)
+                }
+                // A layer BFE can't decode, or no engine: the Unpack screen explains and offers Bannerlator.
                 SevenZip.InnoRoute.CONTAINER_ONLY ->
-                    Outcome.OpenScreen(file.absolutePath, "This repack needs the container installer — opening Unpack")
+                    Outcome.OpenScreen(file.absolutePath, "This repack has to run its own installer — opening Unpack")
             }
         }
 

@@ -62,8 +62,15 @@ object QuickExtract {
                 val volume = cls.freeArcArchive ?: installer
                 Plan.Run(UnpackJob(listOf(volume.absolutePath), dest, 1, ReadBuffer.MB1.bytes, true, payload, "unarc"))
             }
-            SevenZip.InnoRoute.CONTAINER_ONLY ->
-                Plan.Refuse("${installer.name} is a ${cls.compression ?: "FreeArc"} repack that can't be unpacked in-app.")
+            SevenZip.InnoRoute.FREEARC_LAYERS -> {
+                val volume = cls.freeArcArchive ?: installer
+                Plan.Run(UnpackJob(listOf(volume.absolutePath), dest, 1, ReadBuffer.MB1.bytes, true, payload, Unarc.ENGINE_LAYERS))
+            }
+            SevenZip.InnoRoute.CONTAINER_ONLY -> {
+                val why = cls.layers?.missing?.joinToString("; ") { "${it.name}: ${it.note}" }
+                Plan.Refuse("${installer.name} is a ${cls.compression ?: "FreeArc"} repack that can't be unpacked in-app" +
+                    (why?.takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: "") + ". Run it in Bannerlator instead.")
+            }
         }
     }
 

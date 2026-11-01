@@ -2,8 +2,8 @@ BFE — third-party libraries
 ===========================
 
 BFE is free software under the GNU General Public License v3.0 (see LICENSE_BFE_GPL-3.0.txt).
-Besides the bundled native tools (7-Zip, innoextract, unarc, FFmpeg + x264, lunzip, lzop, lz4,
-unecm, unalz, unace, lzx — see their own notices) and libVLC (NOTICE_LIBVLC.txt), the app includes these libraries. All of them are under licences compatible with the
+Besides the bundled native tools (7-Zip, innoextract, unarc (+ the rebuilt unarc for layered archives),
+precomp, FFmpeg + x264, lunzip, lzop, lz4, unecm, unalz, unace, lzx — see their own notices) and libVLC (NOTICE_LIBVLC.txt), the app includes these libraries. All of them are under licences compatible with the
 GPL-3.0.
 
 Android Jetpack / AndroidX (Compose, Activity, Lifecycle, Navigation, Core, AppCompat, Preference, WebKit)

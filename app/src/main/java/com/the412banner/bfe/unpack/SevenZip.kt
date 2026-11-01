@@ -224,7 +224,9 @@ object SevenZip {
         INNOEXTRACT,
         /** FreeArc/ISDone repack — decode the Setup-*.bin FreeArc volumes in-app with unarc. */
         FREEARC_NATIVE,
-        /** Can't be unpacked in-app (unarc unavailable, or srep-layered) — run Setup.exe in a container. */
+        /** FreeArc with external layers (precomp, …) — the layered unarc engine + libbfeext. */
+        FREEARC_LAYERS,
+        /** Can't be unpacked in-app (a layer BFE can't decode, or no engine) — run Setup.exe (Bannerlator / PC). */
         CONTAINER_ONLY,
     }
 
@@ -235,8 +237,10 @@ object SevenZip {
         val compression: String?,
         /** Declared payload size from Records.ini (already human-formatted), when known. */
         val declaredSize: String?,
-        /** For FREEARC_NATIVE: the first Setup-*.bin FreeArc volume to hand to unarc. */
+        /** For FREEARC_NATIVE / FREEARC_LAYERS: the first Setup-*.bin FreeArc volume to hand to unarc. */
         val freeArcArchive: File? = null,
+        /** The FreeArc layers found in [freeArcArchive] (null when its table of contents couldn't be read). */
+        val layers: RepackLayers.Analysis? = null,
     )
 
     /** The lowest-numbered `Setup-N.bin` FreeArc data volume next to [installer] (the unarc entry point). */
@@ -249,33 +253,42 @@ object SevenZip {
      * Decides how an InnoSetup [installer] must be unpacked. Standard InnoSetup / GOG installers are
      * read directly by innoextract (7-Zip only sees them as a PE and cannot decompress the game).
      * The exception is a FreeArc/ISDone repack (FitGirl/DODI/…): its game data is FreeArc-compressed,
-     * which neither innoextract nor 7-Zip can unpack — the only way in is to run Setup.exe in a Wine
-     * container so the repack's own installer decompresses it.
+     * which neither innoextract nor 7-Zip can unpack — unarc decodes it when every layer is one BFE can
+     * handle; otherwise the repack's own Setup.exe has to run (Bannerlator, or a PC).
      *
-     * Discriminator: a sibling `Records.ini` whose `Type=` starts with "Freearc" → CONTAINER_ONLY
-     * (authoritative; its `Type`/`Size` are surfaced for the UI). Everything else → INNOEXTRACT.
+     * FreeArc is recognised by the first `Setup-N.bin` volume's own table of contents ([FreeArcInfo]) or a
+     * sibling `Records.ini` `Type=FreeArc`. Its layers ([RepackLayers]) pick the engine: built-in only →
+     * FREEARC_NATIVE, external layers → FREEARC_LAYERS, a layer BFE can't decode → CONTAINER_ONLY.
+     * Everything else → INNOEXTRACT.
      *
      * Reads a sibling file, so call it off the main thread.
      */
     fun classifyInno(context: Context, installer: File): InnoClassification {
         val records = readRecordsIni(installer.parentFile)
         val rawType = records?.first
-        val freeArc = rawType?.trim()?.startsWith("freearc", ignoreCase = true) == true
-        // FreeArc → decode the Setup-*.bin volumes natively with unarc when it's available; otherwise
-        // fall back to the container installer. (A srep-layered repack that unarc can't decode fails at
-        // runtime, and the UI turns that into the honest container/PC message — no proactive probe.)
-        val firstBin = if (freeArc) firstFreeArcVolume(installer) else null
+        val bin = firstFreeArcVolume(installer)
+        // The data volume's own table of contents decides when it can be read (it also catches FreeArc
+        // data without a Records.ini); Records.ini `Type=FreeArc` is the fallback signal.
+        val info = bin?.let { FreeArcInfo.read(it) }
+        val freeArc = info != null || rawType?.trim()?.startsWith("freearc", ignoreCase = true) == true
+        val firstBin = if (freeArc) bin else null
+        val layers = info?.let { RepackLayers.analyze(it) }
         val route = when {
             !freeArc -> InnoRoute.INNOEXTRACT
-            firstBin != null && Unarc.isAvailable(context) -> InnoRoute.FREEARC_NATIVE
-            else -> InnoRoute.CONTAINER_ONLY
+            firstBin == null || !Unarc.isAvailable(context) -> InnoRoute.CONTAINER_ONLY
+            // Unreadable table of contents: try unarc as before; a failure offers Bannerlator.
+            layers == null -> InnoRoute.FREEARC_NATIVE
+            layers.missing.isNotEmpty() -> InnoRoute.CONTAINER_ONLY
+            layers.needsExternal -> if (Unarc.layersAvailable(context)) InnoRoute.FREEARC_LAYERS else InnoRoute.CONTAINER_ONLY
+            else -> InnoRoute.FREEARC_NATIVE
         }
         return InnoClassification(
             installer = installer,
             route = route,
-            compression = rawType?.let { prettyCompression(it) },
+            compression = rawType?.let { prettyCompression(it) } ?: if (info != null) "FreeArc" else null,
             declaredSize = records?.second?.let { prettySize(it) },
             freeArcArchive = firstBin,
+            layers = layers,
         )
     }
 

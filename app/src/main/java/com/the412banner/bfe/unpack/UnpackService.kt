@@ -55,7 +55,7 @@ class UnpackService : Service() {
         const val EXTRA_BUFFER = "buffer"
         const val EXTRA_IS_INNO = "isInno"
         const val EXTRA_TOTAL_SIZE = "totalSize"
-        const val EXTRA_ENGINE = "engine"   // "7z" | "inno" | "unarc" | "extra" (ExtraFormats)
+        const val EXTRA_ENGINE = "engine"   // "7z" | "inno" | "unarc" | "unarc-layers" | "extra" (ExtraFormats)
         // OTA payload.bin: the partitions to write out (engine "extra"); absent = every extractable one.
         const val EXTRA_PARTS = "parts"
 
@@ -77,9 +77,10 @@ class UnpackService : Service() {
 
         // Pause = SIGSTOP the engine process (7zz / innoextract / unarc / the ExtraFormats tools),
         // resume = SIGCONT. The in-app EGG / OTA decoders wait on [paused] instead.
+        private const val SIGKILL = 9
         private const val SIGCONT = 18
         private const val SIGSTOP = 19
-        private val ENGINE_BINARIES = listOf("lib7zz.so", "libinnoextract.so", "libunarc.so") + ExtraFormats.TOOL_BINARIES
+        private val ENGINE_BINARIES = listOf("lib7zz.so", "libinnoextract.so", "libunarc.so", Unarc.LAYERS_BINARY) + ExtraFormats.TOOL_BINARIES
 
         fun isBusy(): Boolean = busy
 
@@ -205,6 +206,8 @@ class UnpackService : Service() {
             ACTION_CANCEL, ACTION_CANCEL_ALL -> {
                 if (intent.action == ACTION_CANCEL_ALL) synchronized(lock) { queue.clear() }
                 cancelled = true
+                // External layers run as unarc → sh → libbfeext → precomp; destroy() only reaches unarc.
+                signalEngines(SIGKILL)
                 runCatching { proc?.destroy() }
                 // A stopped process only acts on the kill once it runs again.
                 if (paused) { signalEngines(SIGCONT); paused = false }
@@ -312,7 +315,8 @@ class UnpackService : Service() {
             )
             refresh()
 
-            // engine: "unarc" = FreeArc native, "inno" = innoextract (standard-Inno/GOG), "extra" = the
+            // engine: "unarc" = FreeArc native, "unarc-layers" = FreeArc with external layers (precomp…),
+            // "inno" = innoextract (standard-Inno/GOG), "extra" = the
             // ExtraFormats engines (lzip/lzop/LZ4/ECM/ALZ/EGG/ACE/LZX/OTA payload), else 7-Zip.
             val isExtra = engine == ExtraFormats.ENGINE
             val extraProbe = if (isExtra) ExtraFormats.probe(ctx, archive) else null
@@ -321,7 +325,8 @@ class UnpackService : Service() {
                 it.copy(
                     phase = UnpackPhase.EXTRACTING,
                     archiveType = when {
-                        engine == "unarc" -> "FreeArc repack"
+                        engine == Unarc.ENGINE -> "FreeArc repack"
+                        engine == Unarc.ENGINE_LAYERS -> "FreeArc repack (with extra layers)"
                         isInno -> "InnoSetup installer"
                         isExtra -> extraProbe?.typeLabel
                         else -> info?.type
@@ -448,16 +453,18 @@ class UnpackService : Service() {
                     )
                     files = r.files
                     SevenZip.Result(if (r.exitCode == 0) 0 else 2, r.tail)
-                } else if (engine == "unarc") {
+                } else if (engine == Unarc.ENGINE || engine == Unarc.ENGINE_LAYERS) {
                     // FreeArc: unarc block-buffers stdout, so drive progress by POLLING the destination
                     // size against the total from `unarc l` (140 GB-class). Speed/ETA from the byte delta.
                     val unarcTotal = Unarc.list(ctx, archive)?.totalBytes?.takeIf { it > 0 } ?: dataSize
                     UnpackManager.update { it.copy(archiveSize = unarcTotal) }
+                    val layers = if (engine == Unarc.ENGINE_LAYERS) Unarc.prepareLayers(ctx, archive, destDir) else null
                     val poll = startDestPoller(unarcTotal, "unarc-poller")
                     val r = Unarc.extract(
                         ctx, archive, destDir,
                         listener = { name -> UnpackManager.update { it.copy(currentFile = name) } },
                         onProcess = { proc = it },
+                        layers = layers,
                     )
                     poll.polling.set(false)
                     runCatching { poll.thread.join(3000) }
@@ -668,15 +675,34 @@ class UnpackService : Service() {
         onJobFinished()
     }
 
-    /** Running engine processes of this app (the extractors are exec'd children of our process). */
+    /**
+     * Running engine processes of this app: the extractors exec'd as our children, plus everything they
+     * started in turn (unarc runs external layers through sh → libbfeext → precomp), so Pause / Cancel
+     * reach the whole chain.
+     */
     private fun enginePids(): List<Int> {
         val me = android.os.Process.myPid()
-        return File("/proc").list()?.mapNotNull { it.toIntOrNull() }?.filter { pid ->
+        val parent = HashMap<Int, Int>()
+        File("/proc").list()?.mapNotNull { it.toIntOrNull() }?.forEach { pid ->
             runCatching {
-                val ppid = File("/proc/$pid/stat").readText().substringAfterLast(')').trim().split(' ')[1].toInt()
-                ppid == me && File("/proc/$pid/cmdline").readText().let { cmd -> ENGINE_BINARIES.any { cmd.contains(it) } }
+                parent[pid] = File("/proc/$pid/stat").readText().substringAfterLast(')').trim().split(' ')[1].toInt()
+            }
+        }
+        val engines = parent.filter { (pid, ppid) ->
+            ppid == me && runCatching {
+                File("/proc/$pid/cmdline").readText().let { cmd -> ENGINE_BINARIES.any { cmd.contains(it) } }
             }.getOrDefault(false)
-        }.orEmpty()
+        }.keys
+        fun underEngine(pid: Int): Boolean {
+            var p = parent[pid] ?: return false
+            repeat(16) {
+                if (p in engines) return true
+                if (p == me || p <= 1) return false
+                p = parent[p] ?: return false
+            }
+            return false
+        }
+        return engines.toList() + parent.keys.filter { it !in engines && underEngine(it) }
     }
 
     private fun signalEngines(signal: Int) = enginePids().forEach { runCatching { android.os.Process.sendSignal(it, signal) } }

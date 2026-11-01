@@ -113,6 +113,8 @@ private val LICENSE_DOCS = listOf(
     LicenseDoc("7-Zip license", "Full license text", "License_7zip.txt"),
     LicenseDoc("innoextract", "zlib License, with Boost / liblzma / libiconv", "NOTICE_INNOEXTRACT.txt"),
     LicenseDoc("unarc (FreeArc)", "License and source notice", "NOTICE_UNARC.txt"),
+    LicenseDoc("unarc rebuilt + bfeext", "GNU GPL; FreeArc 0.67 with BFE's patches, for layered archives", "NOTICE_UNARCX.txt"),
+    LicenseDoc("precomp 0.4.4 - 0.4.8", "Apache License 2.0, with packJPG / packMP3 (LGPL v3) and others", "NOTICE_PRECOMP.txt"),
     LicenseDoc("FFmpeg + x264", "GNU GPL v2 or later", "NOTICE_FFMPEG.txt"),
     LicenseDoc("lunzip (lzip)", "GNU GPL v2 or later", "NOTICE_LUNZIP.txt"),
     LicenseDoc("lzop + LZO", "GNU GPL v2 or later", "NOTICE_LZOP.txt"),

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -81,6 +82,9 @@ import com.the412banner.bfe.unpack.Unarc
 import com.the412banner.bfe.unpack.UnpackManager
 import com.the412banner.bfe.unpack.UnpackPhase
 import com.the412banner.bfe.unpack.UnpackService
+import com.the412banner.bfe.unpack.RepackLayers
+import com.the412banner.bfe.util.AppSnackbar
+import com.the412banner.bfe.util.Bannerlator
 import com.the412banner.bfe.util.DirPicker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -201,7 +205,20 @@ fun UnpackArchiveScreen(
     // available (or srep) → run Setup.exe in a container.
     val innoContainerOnly = innoClass?.route == SevenZip.InnoRoute.CONTAINER_ONLY
     val innoExtract = innoClass?.route == SevenZip.InnoRoute.INNOEXTRACT
-    val innoFreeArc = innoClass?.route == SevenZip.InnoRoute.FREEARC_NATIVE
+    val innoFreeArcBuiltin = innoClass?.route == SevenZip.InnoRoute.FREEARC_NATIVE
+    // FreeArc with external layers (precomp, …): the layered unarc engine + libbfeext.
+    val innoLayers = innoClass?.route == SevenZip.InnoRoute.FREEARC_LAYERS
+    val innoFreeArc = innoFreeArcBuiltin || innoLayers
+    val layerInfo = innoClass?.layers
+    // Bannerlator can run the installer itself when BFE can't decode its data (or decoding failed).
+    val bannerlator = remember(archivePath, innoClass) {
+        if (isInno && innoClass != null) Bannerlator.find(context, archive) else null
+    }
+    val runInBannerlator: () -> Unit = {
+        bannerlator?.let { t ->
+            if (!Bannerlator.open(context, archive, t)) AppSnackbar.show(context, "${t.label} couldn't open ${archive.name}")
+        }
+    }
     // The path actually handed to the service (its job key): FreeArc runs on the first Setup-*.bin
     // volume; everything else on `archive` (the resolved Setup.exe or the plain file).
     val jobArchive = if (innoFreeArc) (innoClass?.freeArcArchive ?: archive) else archive
@@ -242,7 +259,8 @@ fun UnpackArchiveScreen(
     val canUnarc = innoFreeArc && !gatedByPermission && jobArchive.isFile && !otherJobRunning
     val startUnarc = {
         UnpackManager.clearIfTerminal()
-        UnpackService.start(context, jobArchive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize, "unarc")
+        UnpackService.start(context, jobArchive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize,
+            if (innoLayers) Unarc.ENGINE_LAYERS else Unarc.ENGINE)
     }
     val canInno = innoExtract && !engineMissingInno && !gatedByPermission && archive.isFile && !otherJobRunning
     val startInno = {
@@ -365,7 +383,8 @@ fun UnpackArchiveScreen(
                 if (innoFreeArc) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "unarc will decode the FreeArc data (${jobArchive.name} + its Setup-*.bin volumes) directly.",
+                        if (innoLayers) "unarc will decode the FreeArc data in ${jobArchive.name}, with BFE's decoders for its extra layers."
+                        else "unarc will decode the FreeArc data (${jobArchive.name} + its Setup-*.bin volumes) directly.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
                     )
@@ -611,6 +630,22 @@ fun UnpackArchiveScreen(
 
             // ── FreeArc repack → native unarc (primary) ──
             if (!running && innoFreeArc) {
+                if (layerInfo != null && layerInfo.layers.isNotEmpty()) {
+                    SectionCard {
+                        Text("Layers in this archive", style = sectionTitle())
+                        Spacer(Modifier.height(6.dp))
+                        LayerList(layerInfo)
+                        if (innoLayers) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Extra layers are decoded into a temporary folder next to the destination, so " +
+                                    "leave free space of about twice the game's size until it finishes.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
                 SectionCard {
                     Text(
                         "FreeArc decompression is I/O-bound: unarc already auto-parallelizes (4x4), so the " +
@@ -627,22 +662,44 @@ fun UnpackArchiveScreen(
                 ) {
                     Icon(Icons.Filled.Unarchive, null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Unpack game natively (unarc)", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (innoLayers) "Unpack game natively (unarc + layers)" else "Unpack game natively (unarc)",
+                        fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                    )
                 }
                 Spacer(Modifier.height(12.dp))
             }
 
-            // ── Can't unpack in-app (unarc unavailable / srep) ──
+            // ── Can't unpack in-app (a layer BFE can't decode, or no engine) ──
             if (!running && innoContainerOnly) {
                 val comp = innoClass?.compression ?: "FreeArc"
+                val missing = layerInfo?.missing.orEmpty()
                 WarnCard {
                     Text("Can't unpack this repack in-app", color = MaterialTheme.colorScheme.error, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "This is a $comp repack whose data can't be decoded in-app (it may use SREP). " +
-                            "Install it by running ${archive.name} on a Windows PC, or unpack it on a PC.",
+                        if (missing.isNotEmpty()) "This $comp archive uses a layer BFE can't decode:"
+                        else "This is a $comp repack whose data can't be decoded in-app.",
                         color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp,
                     )
+                    if (layerInfo != null && layerInfo.layers.isNotEmpty()) {
+                        Spacer(Modifier.height(6.dp))
+                        LayerList(layerInfo)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (bannerlator != null) "Its own installer can still run: open ${archive.name} in ${bannerlator.label} and install it there."
+                        else "Its own installer can still run: install Bannerlator to run ${archive.name} on this device, or run it on a Windows PC.",
+                        color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp,
+                    )
+                }
+                if (bannerlator != null) {
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = runInBannerlator, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                        Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Run ${archive.name} in ${bannerlator.label}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
             }
@@ -830,20 +887,21 @@ fun UnpackArchiveScreen(
                         Spacer(Modifier.height(4.dp))
                         WarnCard {
                             if (state.isInno) {
-                                // The honest fallback for any InnoSetup/repack failure is to run the
-                                // real installer on a PC. FreeArc failures may be SREP.
-                                val freeArc = state.engine == "unarc"
+                                // The fallback for any InnoSetup/repack failure is to run the real
+                                // installer: in Bannerlator on this device, or on a PC.
+                                val freeArc = state.engine == Unarc.ENGINE || state.engine == Unarc.ENGINE_LAYERS
                                 Text(
                                     if (freeArc) "Couldn't decode this FreeArc repack" else "Couldn't unpack this InnoSetup repack",
                                     color = MaterialTheme.colorScheme.error, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                                 )
                                 Spacer(Modifier.height(6.dp))
                                 Text(
-                                    if (freeArc)
-                                        "It may use SREP or a codec this build can't decode. Install it by running " +
-                                            "Setup.exe on a Windows PC, or unpack it on a PC."
-                                    else
-                                        "This InnoSetup repack must be installed by running Setup.exe on a Windows PC.",
+                                    when {
+                                        bannerlator != null -> "Its own installer can still run: open ${archive.name} in ${bannerlator.label} and install it there."
+                                        freeArc -> "It may use a layer BFE can't decode. Install Bannerlator to run ${archive.name} on " +
+                                            "this device, or run it on a Windows PC."
+                                        else -> "This InnoSetup repack must be installed by running ${archive.name} (Bannerlator, or a Windows PC)."
+                                    },
                                     color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp,
                                 )
                             } else {
@@ -852,6 +910,14 @@ fun UnpackArchiveScreen(
                             state.errorTail?.let {
                                 Spacer(Modifier.height(6.dp))
                                 Text(it.takeLast(600), color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                        if (state.isInno && bannerlator != null) {
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = runInBannerlator, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+                                Icon(Icons.Filled.PlayArrow, null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Run ${archive.name} in ${bannerlator.label}", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -864,6 +930,25 @@ fun UnpackArchiveScreen(
                     else -> Unit
                 }
             }
+        }
+    }
+}
+
+/** One line per FreeArc layer: ✓ decoded in unarc, ↻ BFE's decoders try it, ✕ can't be decoded. */
+@Composable
+private fun LayerList(analysis: RepackLayers.Analysis) {
+    analysis.layers.forEach { l ->
+        val (mark, color) = when (l.kind) {
+            RepackLayers.Kind.BUILTIN -> "✓" to MaterialTheme.colorScheme.primary
+            RepackLayers.Kind.EXTERNAL -> "↻" to MaterialTheme.colorScheme.tertiary
+            RepackLayers.Kind.MISSING -> "✕" to MaterialTheme.colorScheme.error
+        }
+        Row(modifier = Modifier.padding(vertical = 2.dp)) {
+            Text(mark, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(18.dp))
+            Text(
+                "${l.name} — ${l.note}",
+                color = MaterialTheme.colorScheme.onSurface, fontSize = 12.sp,
+            )
         }
     }
 }
