@@ -6,6 +6,25 @@ where it stands*.
 
 ---
 
+## 2026-11-01 — Unpack and delete the download as it goes (`feat/space-saving-unpack`, IN PROGRESS)
+
+**Why:** owner wants an unpack option that frees the download while unpacking, so only room for the unpacked files is
+needed. Owner rules: **BFE's own code only** (idea seen in HatchZip/CronosZip; none of their code, docs or source read
+beyond their READMEs), build all stages, test each on the device with root ("the device is yours until finished").
+**Recon (device):** internal storage (FUSE) supports shrinking a file and punching holes; SD card (exFAT) only shrinking.
+**Design:**
+- Native engine `native/bfecut` (Rust, std only, our code) → `libbfecut.so`; BFE runs it like its other tools.
+  `plan` (JSON space plan, nothing touched) / `run` (JSON progress lines) / `abandon`.
+- Unpack pieces from the END, verify, fsync, rename into place, then shrink the download; after each cut the leftover is
+  rewritten into a normal archive. Journal in `<dest>/.bfe-inplace/` (atomic rename) makes every step resumable after a
+  crash. Hybrid: cuts only when free space runs short. Damage check first by default. Keeps 2 GB free. Same storage only.
+- Stages: 1 tar, ZIP (+ZIP64), split sets; 2 7z (several blocks), RAR (non-solid), FreeArc (several blocks / volumes);
+  3 compressed streams with safe restart points (gzip via own inflate with checkpoints, multi-block xz); 4 disc images if
+  feasible. Formats that can't be freed safely get the normal unpack with a plain reason.
+**Resume point:** branch `feat/space-saving-unpack` off main 474e316.
+
+---
+
 ## 2026-11-01 — Universal extractor for repack installers (`feat/universal-extractor`, MERGED to main c9b0d30, all features device-proven, unreleased)
 
 **Why:** owner tried to unpack an installer whose data sits in a FreeArc archive with extra layers; BFE stopped
