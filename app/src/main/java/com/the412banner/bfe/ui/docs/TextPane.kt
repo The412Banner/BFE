@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -129,13 +131,19 @@ internal fun TextPane(
                         }
                     }
                     Row(Modifier.padding(end = 12.dp)) {
+                        // Each row is its own Text, and copying a selection joins them with nothing in
+                        // between. This empty-sized line break, placed before every row that starts a
+                        // new line, keeps the file's line breaks in the copied text.
+                        if (i > 0 && !doc.isContinuation(i)) Text("\n", style = style, modifier = Modifier.size(0.dp))
                         if (lineNumbers) {
-                            Text(
-                                if (doc.isContinuation(i)) "" else doc.lineNumber(i).toString(),
-                                style = style.copy(color = muted, textAlign = TextAlign.End),
-                                softWrap = false,
-                                modifier = Modifier.width(gutterDp).padding(end = 8.dp),
-                            )
+                            DisableSelection {
+                                Text(
+                                    if (doc.isContinuation(i)) "" else doc.lineNumber(i).toString(),
+                                    style = style.copy(color = muted, textAlign = TextAlign.End),
+                                    softWrap = false,
+                                    modifier = Modifier.width(gutterDp).padding(end = 8.dp),
+                                )
+                            }
                         } else {
                             Box(Modifier.width(12.dp))
                         }
