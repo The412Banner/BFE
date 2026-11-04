@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-04 — Text viewer copy keeps line breaks, leaves out line numbers (`fix/text-viewer-copy`, CI pending, NOT device-tested)
+## 2026-11-04 — Text viewer copy keeps line breaks, leaves out line numbers (`fix/text-viewer-copy`, MERGED to main 18f8bdd, device-proven, unreleased)
 **Why:** user copied a .txt from BFE's text viewer into Discord and got "…1.1.114)23Device: …": the line numbers were
 copied and every line break was gone. The file itself has normal `\n` line breaks (checked with `od -c`).
 **Cause:** `ui/docs/TextPane.kt` puts the whole `LazyColumn` in one `SelectionContainer`; every row is a `Row` of a
@@ -19,10 +19,13 @@ row that starts a new line (`i > 0 && !doc.isContinuation(i)`), so it sorts afte
 row's text. Compose's selection includes a selectable that lies between the two handles (by its position), so a copy
 across rows gets one line break per real line; wrapped pieces of one long line stay joined. Not changed: only rows on
 screen can be selected (LazyColumn disposes the rest), as before.
-**CI:** build.yml run 41858586021 (headSha dc50c27). **Device test:** pending — copy several lines with and without
-line numbers, a blank line, a long wrapped line, paste into another app.
-**Resume:** wait for CI, stage `/sdcard/Download/BFE-fix-text-viewer-copy-<sha8>.apk` (hash on host + device), ask the
-user before installing.
+**CI:** build.yml run 41858586021 green (headSha dc50c27; assemble, unit tests, check-signing v2 original / v3 release key).
+**Device test:** APK `BFE-fix-text-viewer-copy-dc50c278.apk` (sha256 e9fe1fff…03d5, same on host, device and installed
+base.apk) installed on the Pocket FIT Elite (Android 16) 2026-11-04 10:48 EST; user copied lines from the viewer into
+Discord: "it works" (no line numbers, line breaks kept).
+**Merge:** user "it works, merge it to main". Backup `refs/backup/20261104/main-before-text-viewer-copy` = 086444e
+(pushed, verified), then fast-forward main 086444e → 18f8bdd; app tree == tested build dc50c27 (only PROGRESS_LOG.md
+differs). Branch `fix/text-viewer-copy` kept until the user says to delete it. Not released.
 
 ## 2026-11-01 — Released v1.4.0 stable (main, RELEASED)
 **Why:** user: "merge and release a new stable" after the space-saving unpack app tests.
