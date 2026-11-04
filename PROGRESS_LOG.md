@@ -6,6 +6,24 @@ where it stands*.
 
 ---
 
+## 2026-11-04 — Text viewer copy keeps line breaks, leaves out line numbers (`fix/text-viewer-copy`, CI pending, NOT device-tested)
+**Why:** user copied a .txt from BFE's text viewer into Discord and got "…1.1.114)23Device: …": the line numbers were
+copied and every line break was gone. The file itself has normal `\n` line breaks (checked with `od -c`).
+**Cause:** `ui/docs/TextPane.kt` puts the whole `LazyColumn` in one `SelectionContainer`; every row is a `Row` of a
+line-number `Text` + a content `Text`. Compose builds the copied text by appending each selected `Text` in screen order
+with no separator, so the numbers were included and rows were glued together. Same pane is used by the document viewer
+and the APK internals code screen. The editor (`TextEditorPane`, one `BasicTextField`, numbers drawn in `drawBehind`) was
+not affected.
+**Fix (dc50c27):** line-number `Text` wrapped in `DisableSelection`; a zero-size `Text("\n")` is placed first in every
+row that starts a new line (`i > 0 && !doc.isContinuation(i)`), so it sorts after the previous row and before this
+row's text. Compose's selection includes a selectable that lies between the two handles (by its position), so a copy
+across rows gets one line break per real line; wrapped pieces of one long line stay joined. Not changed: only rows on
+screen can be selected (LazyColumn disposes the rest), as before.
+**CI:** build.yml run 41858586021 (headSha dc50c27). **Device test:** pending — copy several lines with and without
+line numbers, a blank line, a long wrapped line, paste into another app.
+**Resume:** wait for CI, stage `/sdcard/Download/BFE-fix-text-viewer-copy-<sha8>.apk` (hash on host + device), ask the
+user before installing.
+
 ## 2026-11-01 — Released v1.4.0 stable (main, RELEASED)
 **Why:** user: "merge and release a new stable" after the space-saving unpack app tests.
 **Merge:** `feat/space-saving-unpack` fast-forwarded into main 474e316 → `5e7c9bf` (first push failed with no message,
