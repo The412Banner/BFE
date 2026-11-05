@@ -1,11 +1,11 @@
 {
-  "versionCode": 19,
-  "versionName": "1.4.0",
-  "notes": "New in 1.4.0:\n• Unpack and delete the download as it goes: a new switch on the Unpack screen for when there isn't room for both a download and its unpacked files. BFE unpacks in pieces and frees the download's space along the way, so it needs much less free space. The download is gone at the end. Works with ZIP, tar, 7z, RAR (including multi-part sets), FreeArc and .gz / .xz files. 7z and FreeArc free each block right away; ZIP, tar and RAR start freeing space when storage runs short, or right away if you tick \"Delete as it goes even while there's room\". If it stops (Cancel, storage full, phone restart), open the archive again to continue, or put what's left back as a smaller archive. Off by default, and it asks before every start.\n• FreeArc repacks with extra layers: before unpacking, the Unpack screen lists the layers each part of a repack uses. precomp layers (versions 0.4.4 to 0.4.8, precomp by Christian Schneider) are now decoded on the device; layers BFE can't decode are named up front.\n• Run in Bannerlator: when BFE can't decode an installer, one button opens its Setup.exe in Bannerlator (3.1.7 or newer).\n• Fixed: unpacking FreeArc archives with extra layers could fail now and then.\n• Keep full unpack logs: Settings › Troubleshooting can save the complete log of every unpack in Download/BFE (off by default).",
-  "apkName": "BFE-1.4.0.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.4.0/BFE-1.4.0.apk",
-  "sha256": "0ec271c371a4747760b264b8beef6bce2c4cbf331b6a6386e785cbbd5ec770bd",
-  "size": 60275598,
-  "publishedAt": "2026-11-01",
+  "versionCode": 20,
+  "versionName": "1.5.0",
+  "notes": "- Properties now shows the size of a folder and how many files and folders it holds.\n- Select several files or folders and tap Properties to see how many, where they are and their total size.\n- Every delete confirmation now shows how much space you get back.\n- Copying text from the text viewer keeps the line breaks and leaves out the line numbers.",
+  "apkName": "BFE-1.5.0.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.5.0/BFE-1.5.0.apk",
+  "sha256": "e2b33291dac79222f385514a0f0b9d3eed1d1c7f28efc66b5605ac1ffe730255",
+  "size": 60279694,
+  "publishedAt": "2026-11-05",
   "minSupported": 1
 }
