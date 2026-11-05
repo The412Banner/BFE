@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-05 — Selection size in Properties and delete confirmations (`feat/selection-size`, CI pending, NOT device-tested)
+## 2026-11-05 — Selection size in Properties and delete confirmations (`feat/selection-size`, MERGED to main 0209f9db, device-proven, released in v1.5.0)
 **Why:** user: the Properties page for a folder or file should say the size of what is selected, and the delete
 confirmation for one or several items should show their combined size, so it's clear how much storage comes back.
 **Before:** Properties showed a size for files only (no folder size), and only for exactly one item; both delete
@@ -20,6 +20,11 @@ Stops at 2,000,000 entries (partial). UI (`FileManagerScreen.kt`): folder Proper
 item): count, files / folders picked, common location, total size, contents; single + bulk delete dialogs get a
 bold "Frees X" line ("Counting… X" while it walks, "Frees at least X" when partial). Category screen bulk delete
 and the photo viewer delete show "Frees X" from the sizes they already have.
+**CI:** build.yml run 42062580150 green (headSha 0209f9db). **Device test:** APK `BFE-feat-selection-size-0209f9db.apk`
+(sha256 a37eeca4…, same on host, device and installed base.apk) installed on the Pocket FIT Elite 2026-11-05 11:25 EST;
+user: "it works" (folder Properties size, several-item Properties, delete confirmations).
+**Merge:** user "it works, merge it to main and release a new stable". Backup `refs/backup/20261105/main-before-selection-size`
+= 1bf929a, fast-forward main → 0209f9db (app tree == tested build). Released as v1.5.0 together with the text viewer copy fix.
 
 ## 2026-11-04 — Text viewer copy keeps line breaks, leaves out line numbers (`fix/text-viewer-copy`, MERGED to main 18f8bdd, device-proven, unreleased)
 **Why:** user copied a .txt from BFE's text viewer into Discord and got "…1.1.114)23Device: …": the line numbers were
