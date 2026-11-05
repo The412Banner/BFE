@@ -190,6 +190,8 @@ import com.the412banner.bfe.storage.RootAccess
 import com.the412banner.bfe.storage.RootBackend
 import com.the412banner.bfe.storage.DocumentsProviderApps
 import com.the412banner.bfe.storage.Loc
+import com.the412banner.bfe.storage.LocSize
+import com.the412banner.bfe.storage.SizeTotal
 import com.the412banner.bfe.storage.PinnedLocation
 import com.the412banner.bfe.storage.PinnedStorage
 import com.the412banner.bfe.storage.SafBackend
@@ -1508,6 +1510,8 @@ fun BrowserPane(
     var pendingBulkDelete by remember { mutableStateOf<List<Loc>>(emptyList()) }
     var renameTarget by remember { mutableStateOf<Loc?>(null) }
     var propertiesTarget by remember { mutableStateOf<Loc?>(null) }
+    // Properties of several picked items (or of one SAF / root item): count, location, total size.
+    var selectionProperties by remember { mutableStateOf<List<Loc>>(emptyList()) }
     var isOperationRunning by remember { mutableStateOf(false) }
     var operationLabel by remember { mutableStateOf("") }
     var operationDeterminate by remember { mutableStateOf(false) }
@@ -2849,6 +2853,9 @@ fun BrowserPane(
     // …and the read-only details of an archive or an entry inside one, or of a remote entry.
     (propertiesTarget as? Loc.ArchiveLoc)?.let { ArchivePropertiesDialog(it, onDismiss = { propertiesTarget = null }) }
     (propertiesTarget as? Loc.RemoteLoc)?.let { RemotePropertiesDialog(it, onDismiss = { propertiesTarget = null }) }
+    if (selectionProperties.isNotEmpty()) {
+        SelectionPropertiesDialog(selectionProperties, onDismiss = { selectionProperties = emptyList() })
+    }
 
     // Archive password prompt + Extract to… (default: the other pane, else next to the archive).
     ArchiveDialogs(
@@ -2864,7 +2871,13 @@ fun BrowserPane(
         OutlinedAlertDialog(
             onDismissRequest = { selectedEntry = null },
             title = { Text("Delete?") },
-            text = { Text("Delete \"${file.name}\" permanently?") },
+            text = {
+                Column {
+                    Text("Delete \"${file.name}\" permanently?")
+                    Spacer(Modifier.height(6.dp))
+                    FreesLine(rememberLocSize(listOf(file)))
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     selectedEntry = null
@@ -2883,6 +2896,8 @@ fun BrowserPane(
             text = {
                 Column {
                     Text("This can't be undone.")
+                    Spacer(Modifier.height(6.dp))
+                    FreesLine(rememberLocSize(victims))
                     Spacer(Modifier.height(6.dp))
                     // Name a few so an accidental Select-All is obvious before it's too late.
                     victims.take(5).forEach {
@@ -3079,6 +3094,7 @@ fun BrowserPane(
                 if (videoSel().isNotEmpty()) add(SelAction("Convert", Icons.Filled.Movie, true) { convertTargets = videoSel() })
             }
             if (!paneState.isArchive) add(SelAction("Delete", Icons.Filled.Delete, any, SelTone.DANGER) { pendingBulkDelete = picked() })
+            if (!paneState.isArchive && selectedIds.size > 1) add(SelAction("Properties", Icons.Filled.Info, true) { selectionProperties = picked() })
         }
         // Exactly one item picked: its own extras too (Classic's ☰ menu lists them first).
         val one = picked().singleOrNull()
@@ -3086,6 +3102,7 @@ fun BrowserPane(
             if (!one.isDir) add(SelAction("Open with…", Icons.Filled.OpenInNew, true) { picked().singleOrNull()?.let { openWith(it) } })
             if (!paneState.isArchive && !pickMode) add(SelAction("Rename", Icons.Filled.Edit, true) { renameTarget = picked().singleOrNull() })
             if (one is Loc.FileLoc || one is Loc.ArchiveLoc || one is Loc.RemoteLoc) add(SelAction("Properties", Icons.Filled.Info, true) { propertiesTarget = picked().singleOrNull() })
+            else if (one is Loc.SafLoc || one is Loc.RootLoc) add(SelAction("Properties", Icons.Filled.Info, true) { selectionProperties = picked() })
         }
         PaneSelectionUi(
             count = selectedIds.size,
@@ -4471,6 +4488,11 @@ private fun FilePropertiesDialog(
                     else file.extension.uppercase().let { if (it.isBlank()) "File" else "$it file" },
                 )
                 if (!file.isDirectory) PropertyLine("Size", StringUtils.formatBytes(file.length()))
+                else {
+                    val size = rememberLocSize(listOf(Loc.FileLoc(file)))
+                    PropertyLine("Size", sizeText(size))
+                    if (size?.done == true) PropertyLine("Contains", containsText(size))
+                }
                 created?.let { PropertyLine("Created", DateText.dateTime(context, it)) }
                 PropertyLine("Modified", DateText.dateTime(context, file.lastModified()))
 
@@ -4499,6 +4521,80 @@ private fun FilePropertiesDialog(
                         }
                     },
                 )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
+}
+
+// Running size of [locs] while it is counted (null before the first number). Keyed by the items' ids,
+// so a dialog that rebuilds its list on recomposition does not restart the count.
+@Composable
+private fun rememberLocSize(locs: List<Loc>): SizeTotal? {
+    val context = LocalContext.current
+    val key = locs.joinToString("\n") { it.id }
+    var total by remember(key) { mutableStateOf<SizeTotal?>(null) }
+    LaunchedEffect(key) { LocSize.measure(context, locs).collect { total = it } }
+    return total
+}
+
+private fun sizeText(t: SizeTotal?): String = when {
+    t == null -> "Counting\u2026"
+    !t.done -> "Counting\u2026 ${StringUtils.formatBytes(t.bytes)}"
+    t.partial -> "At least ${StringUtils.formatBytes(t.bytes)}"
+    else -> StringUtils.formatBytes(t.bytes)
+}
+
+private fun countText(n: Int, one: String) = "%,d %s%s".format(n, one, if (n == 1) "" else "s")
+
+private fun containsText(t: SizeTotal): String = countText(t.files, "file") + ", " + countText(t.folders, "folder")
+
+// The delete confirmation's "how much space comes back" line.
+@Composable
+private fun FreesLine(t: SizeTotal?) {
+    Text(
+        text = when {
+            t == null || !t.done -> sizeText(t)
+            t.partial -> "Frees at least ${StringUtils.formatBytes(t.bytes)}"
+            else -> "Frees ${StringUtils.formatBytes(t.bytes)}"
+        },
+        color = MaterialTheme.colorScheme.onSurface,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 13.sp,
+    )
+}
+
+// Properties of several picked items, or of one SAF / root item: how many, where, and their total size.
+@Composable
+private fun SelectionPropertiesDialog(locs: List<Loc>, onDismiss: () -> Unit) {
+    val size = rememberLocSize(locs)
+    val dirs = locs.count { it.isDir }
+    val parents = locs.map {
+        when (it) {
+            is Loc.FileLoc -> it.file.parent
+            is Loc.RootLoc -> it.path.substringBeforeLast('/', "").ifEmpty { "/" }
+            else -> null
+        }
+    }.distinct()
+    OutlinedAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Properties") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    text = if (locs.size == 1) locs[0].name else countText(locs.size, "item") + " selected",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(6.dp))
+                if (locs.size > 1) PropertyLine("Selected", countText(locs.size - dirs, "file") + ", " + countText(dirs, "folder"))
+                else PropertyLine("Type", if (dirs == 1) "Folder" else "File")
+                parents.singleOrNull()?.let { PropertyLine("Location", it) }
+                PropertyLine("Size", sizeText(size))
+                if (size?.done == true && dirs > 0) PropertyLine("Contains", containsText(size))
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },

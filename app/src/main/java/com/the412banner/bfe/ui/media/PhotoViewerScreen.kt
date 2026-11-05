@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
@@ -260,7 +261,19 @@ internal fun PhotoViewerScreen(request: MediaRequest, onCurrentChanged: (String)
         OutlinedAlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("Delete this photo?") },
-            text = { Text("${item.name} will be deleted. This can't be undone.") },
+            text = {
+                val bytes = item.size.takeIf { it > 0 } ?: item.path?.let { java.io.File(it).length() } ?: 0L
+                Column {
+                    Text("${item.name} will be deleted. This can't be undone.")
+                    if (bytes > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Frees ${com.the412banner.bfe.core.StringUtils.formatBytes(bytes)}",
+                            color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = { confirmDelete = null; delete(item) }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
             },

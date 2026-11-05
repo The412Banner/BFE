@@ -400,6 +400,11 @@ fun CategoryScreen(
                 Column {
                     Text("This can't be undone.")
                     Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Frees ${StringUtils.formatBytes(victims.sumOf { it.size.coerceAtLeast(0L) })}",
+                        color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(6.dp))
                     victims.take(5).forEach { Text("• ${it.name}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
                     if (victims.size > 5) Text("…and ${victims.size - 5} more", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                 }

@@ -6,6 +6,21 @@ where it stands*.
 
 ---
 
+## 2026-11-05 — Selection size in Properties and delete confirmations (`feat/selection-size`, CI pending, NOT device-tested)
+**Why:** user: the Properties page for a folder or file should say the size of what is selected, and the delete
+confirmation for one or several items should show their combined size, so it's clear how much storage comes back.
+**Before:** Properties showed a size for files only (no folder size), and only for exactly one item; both delete
+dialogs (one item, several items) listed names only.
+**Change:** new `storage/LocSize.kt`: `measure(context, locs)` is a Flow of running `SizeTotal` (bytes, files and
+folders inside, partial, done), off the main thread, cancelled with the dialog. File = `Files.walkFileTree`
+(symlinks not followed, like the home screen's folder stats); Root = `du -sk` + two `find | wc -l` through libsu,
+only when root is already granted; SAF = one children query per folder; archive / remote folders mark it partial.
+Stops at 2,000,000 entries (partial). UI (`FileManagerScreen.kt`): folder Properties gets Size + Contains; new
+`SelectionPropertiesDialog` (Properties in the selection actions when 2+ items are picked, and for one SAF / root
+item): count, files / folders picked, common location, total size, contents; single + bulk delete dialogs get a
+bold "Frees X" line ("Counting… X" while it walks, "Frees at least X" when partial). Category screen bulk delete
+and the photo viewer delete show "Frees X" from the sizes they already have.
+
 ## 2026-11-04 — Text viewer copy keeps line breaks, leaves out line numbers (`fix/text-viewer-copy`, MERGED to main 18f8bdd, device-proven, unreleased)
 **Why:** user copied a .txt from BFE's text viewer into Discord and got "…1.1.114)23Device: …": the line numbers were
 copied and every line break was gone. The file itself has normal `\n` line breaks (checked with `od -c`).
