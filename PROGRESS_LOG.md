@@ -6,6 +6,29 @@ where it stands*.
 
 ---
 
+## 2026-11-15 — One remote for home and away + pull to refresh everywhere (`feat/remote-home-away`, `feat/pull-to-refresh`, test build `test/home-away-refresh`, NOT device-tested)
+**Why:** user: one SFTP connection should work at home and away without touching the router. Their home router
+does not loop the public address back inside the house, so the away address fails at home and the home address
+fails away. Also: "a user can tap and swipe down to refresh folders or menus".
+**Home address (aec60ee6):** SFTP, FTP and SMB remotes get an optional "Home address" field, saved with the remote
+as rclone config key `bfe_home_host` (rclone keeps unknown keys). New `cloud/RemoteHosts.kt` + `RcClient.Router`:
+before each rc call, the `fs` / `srcFs` / `dstFs` values (and served reads) of a remote with a home address are
+checked once per network: TCP connect (800 ms) plus the server greeting (`SSH-` for SFTP, `220` for FTP). If it
+answers, the fs string becomes an rclone connection string `name,host="H",port=N:path`; otherwise the remote's own
+Host is used. The config is never rewritten. Checked again after a network change (default-network callback in
+`RcloneDaemon`), a failed routed call, a config change, or 10 minutes. Checked first with BFE's rclone v1.75.2-bfe
+against a real SFTP server: `config/create` keeps the key, the connection string lists the share in 0.4 s, served
+range reads work through it. Unit tests: `RemoteHostsTest`.
+Limits: existing remotes have no edit form, so the field only appears when adding a remote; no SSH host-key check
+(as before), so on a foreign network a different server at the same address and port would be offered the login.
+**Pull to refresh (03fb010d):** folder panes already refreshed on a pull, but only when the list had items; the
+empty-folder, error and no-match messages were not scrollable. Those (PaneMessage, EmptyState, FolderError,
+CategoryMessage, Apps empty) now scroll while staying centred, and a shared `PullRefreshBox`
+(`ui/screens/PullRefresh.kt`) adds the pull to Home (both looks, same as the menu's Refresh), the category pages,
+Apps, the Cloud / Remote lists and the remote browser.
+**CI:** build.yml run 43682460304 green (aec60ee6), run 43682635392 green (03fb010d). Combined test build: below.
+**Next:** device test at home (Wi-Fi) and away (hotspot) + pulls on each screen; merge / release only on the user's word.
+
 ## 2026-11-05 — Selection size in Properties and delete confirmations (`feat/selection-size`, MERGED to main 0209f9db, device-proven, released in v1.5.0)
 **Why:** user: the Properties page for a folder or file should say the size of what is selected, and the delete
 confirmation for one or several items should show their combined size, so it's clear how much storage comes back.
