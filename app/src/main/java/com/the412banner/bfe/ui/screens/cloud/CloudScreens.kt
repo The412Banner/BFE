@@ -2,6 +2,7 @@
 
 package com.the412banner.bfe.ui.screens.cloud
 
+import com.the412banner.bfe.ui.screens.PullRefreshBox
 import com.the412banner.bfe.ui.components.bfeTopBarColors
 import com.the412banner.bfe.ui.components.bfeCardColors
 import com.the412banner.bfe.ui.components.bfeScreenColor
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -404,7 +406,7 @@ private fun AccountsPage(
         bottomBar = { CloudTransferPill(onClick = onTransfers) },
     ) { pad ->
         val list = remotes
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        PullRefreshBox(onRefresh = { tick++ }, modifier = Modifier.padding(pad).fillMaxSize()) {
             when {
                 list == null -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
@@ -667,8 +669,13 @@ internal fun EmptyState(
     action: String? = null,
     onAction: () -> Unit = {},
 ) {
+    // Scrollable (though it fits) so pull-to-refresh works on it too.
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .heightIn(min = maxHeight)
+            .padding(32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -682,5 +689,6 @@ internal fun EmptyState(
             Spacer(Modifier.height(16.dp))
             Button(onClick = onAction) { Text(action) }
         }
+    }
     }
 }

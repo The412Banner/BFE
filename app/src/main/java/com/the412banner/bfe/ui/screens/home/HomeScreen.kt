@@ -2,6 +2,7 @@
 
 package com.the412banner.bfe.ui.screens.home
 
+import com.the412banner.bfe.ui.screens.PullRefreshBox
 import android.content.res.Configuration
 import android.text.format.Formatter
 import androidx.compose.foundation.BorderStroke
@@ -279,32 +280,34 @@ fun HomeScreen(
             val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
             val grid = homeGrid(maxWidth, landscape, sidePadding = 12.dp)
             val heights = rememberHomeTileHeights(tiles.chunked(grid.tilesAcross), grid.tileWidth)
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(grid.columns),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(tiles, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile -> HomeTileCard(tile, heights[tile.key] ?: HOME_TILE_HEIGHT) }
-
-                // Other apps' storage pinned to Home, then a ＋ tile to add another.
-                item(key = "appstorage-header", span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        "App storage",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 4.dp, top = 8.dp),
-                    )
-                }
-                items(appStorage.pins, key = { "pin:" + it.key }, span = { GridItemSpan(grid.appSpan) }) { pin ->
-                    AppStorageTileCard(pin, onClick = { appStorage.open(pin) }, onLongClick = { appStorage.remove(pin) })
-                }
-                item(key = "appstorage-add", span = { GridItemSpan(grid.appSpan) }) { AddAppStorageTile(onClick = appStorage.add) }
-
-                item(key = "favorites", span = { GridItemSpan(maxLineSpan) }) {
-                    FavoritesRow(favorites, onOpen = { onOpenFolder(FmLocationRequest.folder(it)) })
+            PullRefreshBox(onRefresh = { HomeStatsStore.refresh(context, force = true) }, modifier = Modifier.fillMaxSize()) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(grid.columns),
+                    contentPadding = PaddingValues(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(tiles, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile -> HomeTileCard(tile, heights[tile.key] ?: HOME_TILE_HEIGHT) }
+    
+                    // Other apps' storage pinned to Home, then a ＋ tile to add another.
+                    item(key = "appstorage-header", span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            "App storage",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                        )
+                    }
+                    items(appStorage.pins, key = { "pin:" + it.key }, span = { GridItemSpan(grid.appSpan) }) { pin ->
+                        AppStorageTileCard(pin, onClick = { appStorage.open(pin) }, onLongClick = { appStorage.remove(pin) })
+                    }
+                    item(key = "appstorage-add", span = { GridItemSpan(grid.appSpan) }) { AddAppStorageTile(onClick = appStorage.add) }
+    
+                    item(key = "favorites", span = { GridItemSpan(maxLineSpan) }) {
+                        FavoritesRow(favorites, onOpen = { onOpenFolder(FmLocationRequest.folder(it)) })
+                    }
                 }
             }
         }

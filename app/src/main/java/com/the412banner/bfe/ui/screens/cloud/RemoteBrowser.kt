@@ -2,6 +2,9 @@
 
 package com.the412banner.bfe.ui.screens.cloud
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
+import com.the412banner.bfe.ui.screens.PullRefreshBox
 import com.the412banner.bfe.ui.components.bfeBarBackground
 import com.the412banner.bfe.ui.components.bfeTopBarColors
 import com.the412banner.bfe.ui.components.bfeScreenColor
@@ -474,7 +477,7 @@ internal fun RemoteBrowser(
                 Breadcrumb(remote.name, path, onGo = { go(it) })
                 if (loading && entries != null) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp)) else Spacer(Modifier.height(2.dp))
                 val list = entries
-                Box(Modifier.fillMaxSize()) {
+                PullRefreshBox(onRefresh = { cache.remove(path); reload++ }, modifier = Modifier.fillMaxSize()) {
                     when {
                         list == null && error == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                         list == null -> FolderError(
@@ -825,8 +828,13 @@ private fun EntryRow(
 
 @Composable
 private fun FolderError(error: String, canSignIn: Boolean, onRetry: () -> Unit, onSignIn: () -> Unit) {
+    // Scrollable (though it fits) so pull-to-refresh retries from here too.
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
+        modifier = Modifier.fillMaxWidth()
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            .heightIn(min = maxHeight)
+            .padding(32.dp),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -847,6 +855,7 @@ private fun FolderError(error: String, canSignIn: Boolean, onRetry: () -> Unit, 
                 OutlinedButton(onClick = onSignIn) { Text("Sign in again") }
             }
         }
+    }
     }
 }
 

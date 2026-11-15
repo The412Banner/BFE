@@ -4674,8 +4674,13 @@ internal fun PaneMessage(
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
+    // Scrollable (though it fits) so pull-to-refresh also works on an empty folder or an error.
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+        modifier = Modifier.fillMaxWidth()
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
+            .heightIn(min = maxHeight)
+            .padding(horizontal = 32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -4696,6 +4701,7 @@ internal fun PaneMessage(
             Spacer(Modifier.height(12.dp))
             OutlinedButton(onClick = onAction) { Text(actionLabel) }
         }
+    }
     }
 }
 
