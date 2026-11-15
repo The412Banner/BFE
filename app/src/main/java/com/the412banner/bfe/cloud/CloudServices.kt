@@ -227,6 +227,7 @@ object CloudServices {
             icon = Icons.Filled.Terminal, color = Color(0xFF455A64), blurb = "SSH file transfer",
             fields = listOf(
                 ServiceField("host", "Host", required = true, hint = "192.168.1.20 or server.example.com"),
+                HOME_ADDRESS,
                 ServiceField("port", "Port", FieldKind.NUMBER, default = "22"),
                 ServiceField("user", "Username", required = true),
                 ServiceField("pass", "Password", FieldKind.PASSWORD, hint = "Leave empty to use a key file"),
@@ -239,6 +240,7 @@ object CloudServices {
             icon = Icons.Filled.Dns, color = Color(0xFF5D4037), blurb = "FTP or FTPS server",
             fields = listOf(
                 ServiceField("host", "Host", required = true, hint = "192.168.1.20 or ftp.example.com"),
+                HOME_ADDRESS,
                 ServiceField("port", "Port", FieldKind.NUMBER, default = "21"),
                 ServiceField("user", "Username", hint = "Empty = anonymous", blankValue = "anonymous"),
                 ServiceField("pass", "Password", FieldKind.PASSWORD),
@@ -252,6 +254,7 @@ object CloudServices {
             icon = Icons.Filled.Computer, color = Color(0xFF1565C0), blurb = "PC, NAS or router share",
             fields = listOf(
                 ServiceField("host", "Host", required = true, hint = "192.168.1.20 or NAS-NAME"),
+                HOME_ADDRESS,
                 ServiceField("user", "Username", hint = "Empty = guest", blankValue = "guest"),
                 ServiceField("pass", "Password", FieldKind.PASSWORD),
                 ServiceField("domain", "Domain / workgroup", default = "WORKGROUP"),
@@ -273,6 +276,12 @@ object CloudServices {
             icon = Icons.Filled.Public, color = Color(0xFF6A1B9A), blurb = "Read-only web directory",
             fields = listOf(ServiceField("url", "Address", FieldKind.URL, required = true, hint = "https://downloads.example.com/")),
         ),
+    )
+
+    /** Optional second address for server remotes, used whenever it answers ([RemoteHosts]). */
+    private val HOME_ADDRESS get() = ServiceField(
+        RemoteHosts.KEY, "Home address", hint = "Optional, e.g. 192.168.1.20",
+        help = "Used instead of Host whenever it answers, e.g. on your home Wi-Fi.",
     )
 
     fun forSection(section: CloudSection) = all.filter { it.section == section }

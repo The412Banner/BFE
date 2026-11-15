@@ -30,7 +30,34 @@ class RcClient(val port: Int, user: String, pass: String) {
 
     data class JobStatus(val finished: Boolean, val success: Boolean, val error: String, val output: JSONObject?)
 
+    /** Rewrites the fs strings of each call before it is sent (the app uses [RemoteHosts]). */
+    interface Router {
+        fun route(fs: String): String
+        /** A call sent with a rewritten fs failed. */
+        fun failed(fs: String)
+        fun configChanged()
+    }
+
+    @Volatile var router: Router? = null
+
     fun call(path: String, params: JSONObject = JSONObject(), readTimeoutMs: Int = 120_000): JSONObject {
+        val r = router ?: return send(path, params, readTimeoutMs)
+        val rewritten = FS_KEYS.filter { params.has(it) }.mapNotNull { k ->
+            val fs = params.optString(k)
+            r.route(fs).takeIf { it != fs }?.let { k to it }
+        }
+        val body = if (rewritten.isEmpty()) params else JSONObject(params.toString()).apply { rewritten.forEach { (k, v) -> put(k, v) } }
+        try {
+            return send(path, body, readTimeoutMs)
+        } catch (e: RcException) {
+            rewritten.forEach { (k, _) -> r.failed(params.optString(k)) }
+            throw e
+        } finally {
+            if (path in CONFIG_WRITES) r.configChanged()
+        }
+    }
+
+    private fun send(path: String, params: JSONObject, readTimeoutMs: Int): JSONObject {
         val c = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             doOutput = true
@@ -92,6 +119,17 @@ class RcClient(val port: Int, user: String, pass: String) {
      * Closing the stream closes the connection. Building block for reading a cloud file without staging it first.
      */
     fun openRead(fs: String, path: String, range: LongRange? = null): InputStream {
+        val r = router
+        val routed = r?.route(fs) ?: fs
+        try {
+            return openReadRaw(routed, path, range)
+        } catch (e: java.io.IOException) {
+            if (routed != fs) r?.failed(fs)
+            throw e
+        }
+    }
+
+    private fun openReadRaw(fs: String, path: String, range: LongRange?): InputStream {
         val url = baseUrl + "[" + encode(fs) + "]/" + path.split('/').filter { it.isNotEmpty() }.joinToString("/") { encode(it) }
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 5_000
@@ -116,4 +154,9 @@ class RcClient(val port: Int, user: String, pass: String) {
     }
 
     private fun encode(s: String): String = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
+
+    private companion object {
+        val FS_KEYS = listOf("fs", "srcFs", "dstFs")
+        val CONFIG_WRITES = setOf("config/create", "config/update", "config/delete", "config/password")
+    }
 }

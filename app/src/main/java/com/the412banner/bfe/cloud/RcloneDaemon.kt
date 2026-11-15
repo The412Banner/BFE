@@ -1,6 +1,8 @@
 package com.the412banner.bfe.cloud
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,9 +78,27 @@ object RcloneDaemon {
                 onLog = { Log.i(TAG, it) },
             )
         }
+        RemoteHosts.configChanged()
+        started.client.router = RemoteHosts.routerFor(started.client)
+        watchNetwork(app)
         rcd = started
         Log.i(TAG, "rcd running on ${started.client.baseUrl}")
         RcloneApi(started.client)
+    }
+
+    @Volatile private var watchingNetwork = false
+
+    /** Home addresses ([RemoteHosts]) are checked again whenever the device's network changes. */
+    private fun watchNetwork(app: Context) {
+        if (watchingNetwork) return
+        val cm = app.getSystemService(ConnectivityManager::class.java) ?: return
+        runCatching {
+            cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) = RemoteHosts.networkChanged()
+                override fun onLost(network: Network) = RemoteHosts.networkChanged()
+            })
+            watchingNetwork = true
+        }.onFailure { Log.w(TAG, "Couldn't watch network changes: ${it.message}") }
     }
 
     /**
