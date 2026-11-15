@@ -6,6 +6,29 @@ where it stands*.
 
 ---
 
+## 2026-11-15 — Edit for saved server connections (`feat/edit-remote`, MERGED to main a05a36da, released in v1.5.2, NOT device-tested)
+**Why:** user: "add the edit form for existing connections". BFE had no way to change a saved connection, so one made
+before 1.5.1 couldn't get a Home address without being removed and added again.
+**Change (93846673):** connections made from a form-based service (`CloudServices.forRemote`, not OAuth, has fields:
+SFTP, FTP, SMB, WebDAV, HTTP, S3-style and the rest) get **Edit** in their ⋮ menu. `EditAccountPage` (AddAccount.kt)
+shows the service's fields filled from the saved settings (`cloud/RemoteEdit.kt` `remoteEditValues`): passwords are
+never shown (empty = keep the saved one), a value equal to the field's blank value shows empty, the start folder comes
+from BFE's own pref. Save → `remoteEdit()` keeps only changed keys (an emptied number goes back to its default, since
+rclone can't read an empty number) → `CloudSetup.edit()` (Session.editing) → `RcloneApi.updateRemote`
+(`config/update`, nonInteractive + obscure; `RcClient` tells `RemoteHosts` the config changed) → the usual question
+loop and test listing → "Saved X". A failed check after an edit offers Edit or Keep, never Remove; the failure title
+reads "Couldn't save X". Sign-in accounts keep "Sign in again". Unit tests: `RemoteEditTest`. README (a05a36da): home
+address, Edit and pull to refresh.
+**CI:** build.yml run 43687370320 green (a05a36da; 43687320592 on 93846673 cancelled for the README commit).
+**Device:** APK `BFE-edit-remote-a05a36da.apk` (sha256 c099f8b6…, same on host, device and installed base.apk)
+installed on the Pocket FIT 2026-11-15 02:09 EST; BFE was not opened before the merge (logcat), so Edit is untried.
+**Merge + release:** user: "merge to main and release 1.5.2 stable". Backup `refs/backup/20261115/main-before-edit-remote`
+= ee2116e9, fast-forward main → a05a36da (tree == tested build). release.yml run 43689299624 green: "Release 1.5.2
+(versionCode 22)" 3af3b084 = tag v1.5.2 (parent a05a36da, only app/build.gradle), assets BFE-1.5.2.apk (sha256
+b17c90ca…, 60,300,174 B) + update.json (vc 22, sha matches), manifest 55f8ac1 == the release update.json,
+releases/latest = v1.5.2.
+**Next:** try Edit on the NAS connection (add the Home address), plus the 1.5.1 checks (away via hotspot, pulls).
+
 ## 2026-11-15 — One remote for home and away + pull to refresh everywhere (`feat/remote-home-away`, `feat/pull-to-refresh`, MERGED to main 621bb59b, released in v1.5.1, NOT device-tested)
 **Why:** user: one SFTP connection should work at home and away without touching the router. Their home router
 does not loop the public address back inside the house, so the away address fails at home and the home address
