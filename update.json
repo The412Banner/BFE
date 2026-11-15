@@ -1,11 +1,11 @@
 {
-  "versionCode": 20,
-  "versionName": "1.5.0",
-  "notes": "- Properties now shows the size of a folder and how many files and folders it holds.\n- Select several files or folders and tap Properties to see how many, where they are and their total size.\n- Every delete confirmation now shows how much space you get back.\n- Copying text from the text viewer keeps the line breaks and leaves out the line numbers.",
-  "apkName": "BFE-1.5.0.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.5.0/BFE-1.5.0.apk",
-  "sha256": "e2b33291dac79222f385514a0f0b9d3eed1d1c7f28efc66b5605ac1ffe730255",
-  "size": 60279694,
-  "publishedAt": "2026-11-05",
+  "versionCode": 21,
+  "versionName": "1.5.1",
+  "notes": "- One connection for home and away: SFTP, FTP and SMB connections have a new, optional Home address. BFE uses it whenever it answers (for example on your home Wi-Fi) and the normal address everywhere else, so the same connection works in both places. It checks again each time your network changes. The field shows up when you add a connection (existing connections can't be edited yet).\n- Pull down to refresh now works on Home, the category pages (Images, Videos and so on), Apps, the Cloud and Remote lists and inside remote folders, and also on empty folders and error screens, for example to retry a server that couldn't be reached.\n\nTested: the home/away switch was checked against a real SFTP server with BFE's own rclone. Using it on a phone away from home hasn't been tried yet.",
+  "apkName": "BFE-1.5.1.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.5.1/BFE-1.5.1.apk",
+  "sha256": "aa5e4751cefb0dd954e4b9db04df5a4aaa4a8cd85e76e6cd42231b865d14c1f3",
+  "size": 60291982,
+  "publishedAt": "2026-11-15",
   "minSupported": 1
 }
