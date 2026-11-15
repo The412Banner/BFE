@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-15 — One remote for home and away + pull to refresh everywhere (`feat/remote-home-away`, `feat/pull-to-refresh`, test build `test/home-away-refresh`, NOT device-tested)
+## 2026-11-15 — One remote for home and away + pull to refresh everywhere (`feat/remote-home-away`, `feat/pull-to-refresh`, MERGED to main 621bb59b, released in v1.5.1, NOT device-tested)
 **Why:** user: one SFTP connection should work at home and away without touching the router. Their home router
 does not loop the public address back inside the house, so the away address fails at home and the home address
 fails away. Also: "a user can tap and swipe down to refresh folders or menus".
@@ -27,7 +27,17 @@ CategoryMessage, Apps empty) now scroll while staying centred, and a shared `Pul
 (`ui/screens/PullRefresh.kt`) adds the pull to Home (both looks, same as the menu's Refresh), the category pages,
 Apps, the Cloud / Remote lists and the remote browser.
 **CI:** build.yml run 43682460304 green (aec60ee6), run 43682635392 green (03fb010d). Combined test build: below.
-**Next:** device test at home (Wi-Fi) and away (hotspot) + pulls on each screen; merge / release only on the user's word.
+**Test build:** `test/home-away-refresh` 621bb59b (both branches + this log), CI run 43683430416 green. APK
+`BFE-home-away-refresh-621bb59b.apk` (sha256 6d8a0c45…, same on host, device and installed base.apk) installed on the
+Pocket FIT 2026-11-15 01:30 EST. Before the merge the app had been opened twice for a few seconds, no crash, and no
+rclone activity in logcat: the home/away switch and the pulls were not tried on the device.
+**Merge + release:** user: "merge to main, release 1.5.1 stable". Backup `refs/backup/20261115/main-before-home-away-refresh`
+= f5afcc58, fast-forward main → 621bb59b (tree == tested build). release.yml run 43685947716 green: commit
+"Release 1.5.1 (versionCode 21)" b21ac888 = tag v1.5.1 (parent 621bb59b, only app/build.gradle changed), assets
+BFE-1.5.1.apk (sha256 aa5e4751…, 60,291,982 B) + update.json (vc 21, sha matches), manifest branch 117840e == the
+release update.json, releases/latest = v1.5.1. Notes say the away-from-home use hasn't been tried yet.
+**Next:** device test at home (Wi-Fi) and away (hotspot) + pulls on each screen; an Edit form for existing remotes
+(so old connections can get a Home address); optional SSH host-key pinning.
 
 ## 2026-11-05 — Selection size in Properties and delete confirmations (`feat/selection-size`, MERGED to main 0209f9db, device-proven, released in v1.5.0)
 **Why:** user: the Properties page for a folder or file should say the size of what is selected, and the delete
