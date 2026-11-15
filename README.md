@@ -311,6 +311,13 @@ starting.
 - **Cloud:** Google Drive, OneDrive, Dropbox, Box, pCloud, Yandex Disk, MEGA, Proton Drive, Nextcloud,
   ownCloud, Amazon S3, Backblaze B2, Wasabi, Cloudflare R2, MinIO and more.
 - **Remote:** SFTP, FTP/FTPS, SMB and WebDAV.
+- **Home and away:** SFTP, FTP and SMB connections can have a second, **Home address** (for example
+  the NAS's address on your home Wi-Fi). BFE uses it whenever it answers and the normal address
+  everywhere else, so one connection works in both places; it checks again when the network changes.
+- **Edit** (in a connection's ⋮ menu) changes a saved server connection, for example to add a Home
+  address. Passwords are never shown; left empty, the saved one stays.
+- **Pull down to refresh** on Home, the categories, Apps, the Cloud / Remote lists and any folder,
+  including an empty one or an error page.
 - Browse, open, download, upload, rename and delete with background transfers. Powered by **rclone**,
   downloaded once on first use (15 MB, SHA-256 checked).
 - **Open in file manager:** any account or server also opens as a normal folder in the file manager
