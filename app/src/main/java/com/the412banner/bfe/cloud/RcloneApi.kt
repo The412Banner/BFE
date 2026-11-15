@@ -254,6 +254,17 @@ class RcloneApi(val rc: RcClient) {
         return RcConfigStep.parse(out)
     }
 
+    /** Changes settings of remote [name] (only the keys in [params]); plain passwords are obscured by rclone. */
+    fun updateRemote(name: String, params: Map<String, String>): RcConfigStep {
+        val out = rc.call(
+            "config/update",
+            JSONObject().put("name", name).put("parameters", JSONObject(params))
+                .put("opt", JSONObject().put("nonInteractive", true).put("obscure", true)),
+            readTimeoutMs = 300_000,
+        )
+        return RcConfigStep.parse(out)
+    }
+
     /** Re-runs a remote's setup (e.g. to sign in again) from the start. */
     fun reconfigure(name: String, params: Map<String, String> = emptyMap()): RcConfigStep {
         val out = rc.call(

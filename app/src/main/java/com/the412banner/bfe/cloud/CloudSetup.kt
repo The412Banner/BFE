@@ -54,6 +54,8 @@ object CloudSetup {
         val form: Map<String, String>,
         val isNew: Boolean,
         val phase: Phase,
+        /** Changing the settings of an existing remote ([edit]). */
+        val editing: Boolean = false,
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -99,6 +101,28 @@ object CloudSetup {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "setup failed", e)
+                fail(friendly(e.message))
+            }
+        }
+    }
+
+    /**
+     * Saves [changes] to existing remote [remote] (only the settings that changed; an empty password
+     * is left out so the saved one stays) and checks it opens. [startPath] null keeps the current one.
+     */
+    fun edit(ctx: Context, remote: RcRemote, service: CloudService, changes: Map<String, String>, startPath: String?) {
+        if (job?.isActive == true) return
+        val app = ctx.applicationContext
+        _session.value = Session(remote.name, remote.type, service, changes, isNew = false, phase = Phase.Working("Saving…"), editing = true)
+        job = scope.launch {
+            try {
+                val api = RcloneDaemon.api(app)
+                if (startPath != null) setStartPath(app, remote.name, startPath)
+                run(app, api, api.updateRemote(remote.name, changes), startPath(app, remote.name))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "edit failed", e)
                 fail(friendly(e.message))
             }
         }

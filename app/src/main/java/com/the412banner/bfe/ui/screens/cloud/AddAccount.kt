@@ -88,6 +88,9 @@ import com.the412banner.bfe.cloud.CloudSetup
 import com.the412banner.bfe.cloud.FieldKind
 import com.the412banner.bfe.cloud.RcOption
 import com.the412banner.bfe.cloud.RcProvider
+import com.the412banner.bfe.cloud.RcRemote
+import com.the412banner.bfe.cloud.remoteEditValues
+import com.the412banner.bfe.cloud.remoteEdit
 import com.the412banner.bfe.cloud.RcloneDaemon
 import com.the412banner.bfe.cloud.ServiceField
 import com.the412banner.bfe.ui.components.BfeDropdownMenu
@@ -335,6 +338,57 @@ private fun ServiceForm(service: CloudService, taken: List<String>, prefill: Clo
     }
 }
 
+/**
+ * Edit an existing connection made from a curated service: the same fields, filled from the saved
+ * settings. Passwords are never shown; left empty they stay as they are. Only changed settings are
+ * saved ([CloudSetup.edit]), then the connection is checked like a new one.
+ */
+@Composable
+internal fun EditAccountPage(remote: RcRemote, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val service = remember(remote) { CloudServices.forRemote(remote) }
+    BackHandler { onBack() }
+    if (service == null) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
+    val values = remember(remote) {
+        mutableStateMapOf<String, String>().apply {
+            putAll(remoteEditValues(service.fields, remote.params, CloudSetup.startPath(context, remote.name)))
+        }
+    }
+    val missing = service.fields.any { it.required && it.kind != FieldKind.PASSWORD && values[it.key].isNullOrBlank() }
+
+    PageScaffold("Edit ${remote.name}", onBack) { pad ->
+        Column(
+            Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ServiceAvatar(service.icon, service.color, size = 48)
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text(remote.name, style = MaterialTheme.typography.titleLarge)
+                    Text(service.label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            service.fields.forEach { f ->
+                val shown = if (f.kind == FieldKind.PASSWORD) f.copy(required = false, hint = "", help = "Leave empty to keep the saved one") else f
+                FieldInput(shown, values[f.key].orEmpty()) { values[f.key] = it }
+            }
+            Spacer(Modifier.height(4.dp))
+            Button(
+                enabled = !missing,
+                onClick = {
+                    val edit = remoteEdit(service.fields, remote.params, values)
+                    CloudSetup.edit(context, remote, service, edit.changes, edit.startPath)
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+            ) { Text("Save") }
+        }
+    }
+}
+
 @Composable
 private fun NoteCard(text: String, link: Pair<String, String>?) {
     val context = LocalContext.current
@@ -520,7 +574,7 @@ private fun OptionInput(o: RcOption, value: String, onChange: (String) -> Unit) 
 // ── Setup dialogs (driven by CloudSetup) ─────────────────────────────────
 
 @Composable
-internal fun SetupDialogs(session: CloudSetup.Session, onEdit: () -> Unit) {
+internal fun SetupDialogs(session: CloudSetup.Session, onEdit: () -> Unit, onKeep: () -> Unit = { CloudSetup.dismiss() }) {
     val context = LocalContext.current
     val noDismiss = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
     val label = session.service?.label ?: session.name
@@ -598,22 +652,24 @@ internal fun SetupDialogs(session: CloudSetup.Session, onEdit: () -> Unit) {
             title = { Text("${session.name} didn't open") },
             text = {
                 Text(
-                    "It was saved, but listing its files failed:\n\n${ph.error}\n\n" +
+                    if (session.editing) "The changes were saved, but listing its files failed:\n\n${ph.error}\n\n" +
+                        "Edit the details again, or keep them (e.g. if the server is offline right now)."
+                    else "It was saved, but listing its files failed:\n\n${ph.error}\n\n" +
                         "Edit the details, keep it anyway (e.g. if the server is offline right now), or remove it.",
                 )
             },
             confirmButton = {
                 Row {
-                    TextButton(onClick = { CloudSetup.discard(context) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
-                    if (session.isNew) TextButton(onClick = onEdit) { Text("Edit") }
-                    TextButton(onClick = { CloudSetup.dismiss() }) { Text("Keep") }
+                    if (!session.editing) TextButton(onClick = { CloudSetup.discard(context) }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                    if (session.isNew || session.editing) TextButton(onClick = onEdit) { Text("Edit") }
+                    TextButton(onClick = onKeep) { Text("Keep") }
                 }
             },
         )
 
         is CloudSetup.Phase.Failed -> OutlinedAlertDialog(
             onDismissRequest = { CloudSetup.cancel(context) },
-            title = { Text(if (session.isNew) "Couldn't add ${session.name}" else "Couldn't sign in") },
+            title = { Text(if (session.isNew) "Couldn't add ${session.name}" else if (session.editing) "Couldn't save ${session.name}" else "Couldn't sign in") },
             text = { Text(ph.error) },
             confirmButton = { TextButton(onClick = { CloudSetup.cancel(context) }) { Text("OK") } },
         )

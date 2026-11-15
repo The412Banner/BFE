@@ -29,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Cloud
@@ -174,6 +175,7 @@ private fun RcloneSection(section: CloudSection, onBack: () -> Unit, onOpenInFil
     var openRemote by remember { mutableStateOf<RcRemote?>(null) }
     var adding by rememberSaveable(section) { mutableStateOf(false) }
     var prefill by remember { mutableStateOf<CloudSetup.Session?>(null) }
+    var editTarget by remember { mutableStateOf<RcRemote?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
     var showTransfers by remember { mutableStateOf(false) }
     val session by CloudSetup.session.collectAsState()
@@ -181,10 +183,11 @@ private fun RcloneSection(section: CloudSection, onBack: () -> Unit, onOpenInFil
     LaunchedEffect(session?.phase) {
         val s = session ?: return@LaunchedEffect
         if (s.phase is CloudSetup.Phase.Done) {
-            AppSnackbar.show(context, if (s.isNew) "Connected ${s.name}" else "Signed in to ${s.name} again")
+            AppSnackbar.show(context, if (s.isNew) "Connected ${s.name}" else if (s.editing) "Saved ${s.name}" else "Signed in to ${s.name} again")
             CloudSetup.dismiss()
             adding = false
             prefill = null
+            editTarget = null
             CloudCache.forget(s.name)
             reloadKey++
         }
@@ -206,19 +209,32 @@ private fun RcloneSection(section: CloudSection, onBack: () -> Unit, onOpenInFil
                 prefill = prefill,
                 onBack = { adding = false; prefill = null },
             )
+            editTarget != null -> EditAccountPage(
+                remote = editTarget!!,
+                onBack = { editTarget = null },
+            )
             else -> AccountsPage(
                 section = section,
                 reloadKey = reloadKey,
                 onBack = onBack,
                 onOpen = { openRemote = it },
                 onAdd = { prefill = null; adding = true },
+                onEdit = { editTarget = it },
                 onTransfers = { showTransfers = true },
                 onOpenInFiles = onOpenInFiles,
             )
         }
     }
     session?.let { s ->
-        SetupDialogs(s, onEdit = { prefill = s; adding = true; CloudSetup.dismiss() })
+        SetupDialogs(
+            s,
+            // After a failed check, an edit stays on its page; a new connection reopens the add form.
+            onEdit = { if (!s.editing) { prefill = s; adding = true }; CloudSetup.dismiss() },
+            onKeep = {
+                CloudSetup.dismiss()
+                if (s.editing) { editTarget = null; CloudCache.forget(s.name); reloadKey++ }
+            },
+        )
     }
     if (showTransfers) TransfersSheet(onDismiss = { showTransfers = false })
 }
@@ -331,6 +347,7 @@ private fun AccountsPage(
     onBack: () -> Unit,
     onOpen: (RcRemote) -> Unit,
     onAdd: () -> Unit,
+    onEdit: (RcRemote) -> Unit,
     onTransfers: () -> Unit,
     onOpenInFiles: ((FmLocationRequest) -> Unit)?,
 ) {
@@ -441,6 +458,7 @@ private fun AccountsPage(
                                 if (r.type in CloudServices.OAUTH_TYPES && !r.hasToken) CloudSetup.reconnect(context, r) else onOpen(r)
                             },
                             onRename = { renameTarget = r },
+                            onEdit = if (CloudServices.forRemote(r)?.let { !it.oauth && it.fields.isNotEmpty() } == true) { { onEdit(r) } } else null,
                             onReconnect = { CloudSetup.reconnect(context, r) },
                             onRemove = { removeTarget = r },
                             onOpenInFiles = onOpenInFiles?.let { open ->
@@ -574,6 +592,7 @@ private fun AccountCard(
     providers: List<RcProvider>?,
     onOpen: () -> Unit,
     onRename: () -> Unit,
+    onEdit: (() -> Unit)?,
     onReconnect: () -> Unit,
     onRemove: () -> Unit,
     onOpenInFiles: (() -> Unit)?,
@@ -614,6 +633,13 @@ private fun AccountCard(
                             text = { Text("Open in file manager") },
                             leadingIcon = { Icon(Icons.Filled.FolderOpen, null) },
                             onClick = { menu = false; onOpenInFiles() },
+                        )
+                    }
+                    if (onEdit != null) {
+                        DropdownMenuItem(
+                            text = { Text("Edit") },
+                            leadingIcon = { Icon(Icons.Filled.Edit, null) },
+                            onClick = { menu = false; onEdit() },
                         )
                     }
                     DropdownMenuItem(
