@@ -1,5 +1,6 @@
 package com.the412banner.bfe.ui.screens.home
 
+import com.the412banner.bfe.ui.screens.PullRefreshBox
 import android.content.res.Configuration
 import android.os.SystemClock
 import android.text.format.Formatter
@@ -152,37 +153,39 @@ internal fun AuroraHome(
                     )
                     // Entrance order for the staggered fade-in: tiles in reading order.
                     val order = remember(tiles) { tiles.mapIndexed { i, t -> t.key to i }.toMap() }
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(grid.columns),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = if (landscape) 16.dp else 96.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        listOf("Storage" to storage, "Library" to library, "Connect" to connect).forEach { (label, group) ->
-                            if (group.isEmpty()) return@forEach
-                            item(key = "label:$label", span = { GridItemSpan(maxLineSpan) }) { SectionLabel(label) }
-                            items(group, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile ->
-                                AuroraHomeTile(
-                                    tile,
-                                    heights[tile.key] ?: HOME_TILE_HEIGHT,
-                                    Modifier.staggeredEnter(order[tile.key] ?: 0, Unit, enabled = SystemClock.uptimeMillis() - bornAt < 700),
-                                    onLaunch = { launchFrom(it) },
-                                )
+                    PullRefreshBox(onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(grid.columns),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = if (landscape) 16.dp else 96.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            listOf("Storage" to storage, "Library" to library, "Connect" to connect).forEach { (label, group) ->
+                                if (group.isEmpty()) return@forEach
+                                item(key = "label:$label", span = { GridItemSpan(maxLineSpan) }) { SectionLabel(label) }
+                                items(group, key = { it.key }, span = { GridItemSpan(grid.tileSpan) }) { tile ->
+                                    AuroraHomeTile(
+                                        tile,
+                                        heights[tile.key] ?: HOME_TILE_HEIGHT,
+                                        Modifier.staggeredEnter(order[tile.key] ?: 0, Unit, enabled = SystemClock.uptimeMillis() - bornAt < 700),
+                                        onLaunch = { launchFrom(it) },
+                                    )
+                                }
                             }
-                        }
-                        // Other apps' storage pinned to Home, then the ＋ tile to add another.
-                        item(key = "label:appstorage", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("App storage") }
-                        items(appStorage.pins, key = { "pin:" + it.key }, span = { GridItemSpan(grid.appSpan) }) { pin ->
-                            val holder = remember { CoordsHolder() }
-                            Box(Modifier.onGloballyPositioned { holder.coords = it }) {
-                                AppStorageTileCard(pin, onClick = { launchFrom(holder); appStorage.open(pin) }, onLongClick = { appStorage.remove(pin) })
+                            // Other apps' storage pinned to Home, then the ＋ tile to add another.
+                            item(key = "label:appstorage", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("App storage") }
+                            items(appStorage.pins, key = { "pin:" + it.key }, span = { GridItemSpan(grid.appSpan) }) { pin ->
+                                val holder = remember { CoordsHolder() }
+                                Box(Modifier.onGloballyPositioned { holder.coords = it }) {
+                                    AppStorageTileCard(pin, onClick = { launchFrom(holder); appStorage.open(pin) }, onLongClick = { appStorage.remove(pin) })
+                                }
                             }
-                        }
-                        item(key = "appstorage-add", span = { GridItemSpan(grid.appSpan) }) { AddAppStorageTile(onClick = appStorage.add) }
-                        item(key = "label:favorites", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Favorites") }
-                        item(key = "favorites", span = { GridItemSpan(maxLineSpan) }) {
-                            AuroraFavoritesRow(favorites, onOpen = { holder, dir -> launchFrom(holder); onOpenFolder(FmLocationRequest.folder(dir)) })
+                            item(key = "appstorage-add", span = { GridItemSpan(grid.appSpan) }) { AddAppStorageTile(onClick = appStorage.add) }
+                            item(key = "label:favorites", span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Favorites") }
+                            item(key = "favorites", span = { GridItemSpan(maxLineSpan) }) {
+                                AuroraFavoritesRow(favorites, onOpen = { holder, dir -> launchFrom(holder); onOpenFolder(FmLocationRequest.folder(dir)) })
+                            }
                         }
                     }
                 }

@@ -2,6 +2,10 @@
 
 package com.the412banner.bfe.ui.screens.apps
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.the412banner.bfe.ui.screens.PullRefreshBox
 import com.the412banner.bfe.ui.components.bfeTopBarColors
 import com.the412banner.bfe.ui.components.bfeCardColors
 import com.the412banner.bfe.ui.components.bfeCardBorder
@@ -423,18 +427,24 @@ fun AppsScreen(onBack: () -> Unit, onBrowseData: (FmLocationRequest) -> Unit) {
                 }
             }
 
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            PullRefreshBox(onRefresh = { reloadTick++ }, modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val list = apps
                 when {
                     list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-                    shown.isEmpty() -> Column(
-                        modifier = Modifier.fillMaxSize().padding(32.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(Icons.Filled.SearchOff, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(48.dp))
-                        Spacer(Modifier.height(12.dp))
-                        Text(if (query.isBlank()) "No apps here" else "No apps match “$query”", fontSize = 15.sp)
+                    // Scrollable (though it fits) so pull-to-refresh works here too.
+                    shown.isEmpty() -> androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .heightIn(min = maxHeight)
+                                .padding(32.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Icon(Icons.Filled.SearchOff, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(48.dp))
+                            Spacer(Modifier.height(12.dp))
+                            Text(if (query.isBlank()) "No apps here" else "No apps match “$query”", fontSize = 15.sp)
+                        }
                     }
                     else -> LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(shown, key = { it.packageName }) { app ->

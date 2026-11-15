@@ -6,6 +6,10 @@
 
 package com.the412banner.bfe.ui.screens.categories
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.the412banner.bfe.ui.screens.PullRefreshBox
 import com.the412banner.bfe.ui.components.bfeBarBackground
 import com.the412banner.bfe.ui.components.bfeTopBarColors
 import com.the412banner.bfe.ui.components.bfeCardColors
@@ -499,7 +503,7 @@ fun CategoryScreen(
                 }
             }
 
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            PullRefreshBox(onRefresh = { reloadTick++ }, modifier = Modifier.weight(1f).fillMaxWidth()) {
                 val list = allItems
                 when {
                     list == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -798,8 +802,13 @@ private fun MediaListRow(
 
 @Composable
 private fun CategoryMessage(icon: ImageVector, title: String, detail: String?) {
+    // Scrollable (though it fits) so pull-to-refresh works on it too.
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+        modifier = Modifier.fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .heightIn(min = maxHeight)
+            .padding(horizontal = 32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -810,5 +819,6 @@ private fun CategoryMessage(icon: ImageVector, title: String, detail: String?) {
             Spacer(Modifier.height(4.dp))
             Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, textAlign = TextAlign.Center)
         }
+    }
     }
 }
