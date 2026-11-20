@@ -134,6 +134,14 @@ class BundlesTest {
         dir.deleteRecursively()
     }
 
+    @Test fun obbStagingItems() {
+        val t = "Android/obb/com.example.game/main.12.com.example.game.obb"
+        assertEquals("D$t", com.the412banner.bfe.apk.bundle.ObbStaging.item(root = false, createdDir = false, target = t))
+        assertEquals("d$t", com.the412banner.bfe.apk.bundle.ObbStaging.item(root = false, createdDir = true, target = t))
+        assertEquals("r$t", com.the412banner.bfe.apk.bundle.ObbStaging.item(root = true, createdDir = true, target = t))
+        assertEquals("Android/obb/com.example.game/.main.12.com.example.game.obb.bfe-part", com.the412banner.bfe.apk.bundle.ObbStaging.tempOf(t))
+    }
+
     @Test fun describeIsShort() {
         val p = Bundles.classify("split_config.arm64_v8a.apk", 1, null)
         assertEquals("Processor: arm64-v8a", Bundles.describe(p))

@@ -196,10 +196,9 @@ class BundleInstallService : Service() {
                     val target = o.getString("t")
                     progress(BundleStage.OBB, done)
                     val base = done
-                    val viaRoot = writeObb(target) { out ->
+                    writtenObbs += writeObb(target) { out ->
                         open(o.getString("e")).use { input -> copy(input, out) { n -> progress(BundleStage.OBB, base + n) } }
                     }
-                    writtenObbs += (if (viaRoot) "R" else "D") + target
                     done += o.getLong("s")
                 }
                 // 2. One install session with every chosen part.
@@ -277,17 +276,23 @@ class BundleInstallService : Service() {
      * name only once Android reports the install ([ObbStaging.commit]), so a failed or cancelled
      * install never touches game data that was already there. Direct first (an installer app may write
      * Android/obb); if Android refuses and root is available, as root into the same folder on /data/media
-     * with the folder's owner and group. Returns true when root was used.
+     * with the folder's owner and group. Returns the [ObbStaging] item for it (how it was written,
+     * and whether BFE created the package's folder). A write that fails removes its partial file and
+     * the folder again when BFE created it.
      */
-    private fun writeObb(target: String, body: (OutputStream) -> Unit): Boolean {
+    private fun writeObb(target: String, body: (OutputStream) -> Unit): String {
         val dest = File(Environment.getExternalStorageDirectory(), target)
+        val dir = dest.parentFile!!
         val tmp = File(Environment.getExternalStorageDirectory(), ObbStaging.tempOf(target))
+        val created = !dir.exists()
         val direct = runCatching {
-            dest.parentFile?.mkdirs()
+            dir.mkdirs()
             tmp.outputStream().use(body)
         }
-        if (direct.isSuccess) return false
+        if (direct.isSuccess) return ObbStaging.item(root = false, createdDir = created, target = target)
         runCatching { tmp.delete() }
+        // File.delete() only removes a directory when it is empty.
+        if (created) runCatching { dir.delete() }
         val cause = direct.exceptionOrNull()
         if (cause is InterruptedException) throw cause
         Log.w(TAG, "direct OBB write refused: ${cause?.message}")
@@ -295,18 +300,24 @@ class BundleInstallService : Service() {
             throw IOException("Android didn't let BFE write the game data into ${File(target).parent} (${cause?.message}). Untick it to install the app alone.")
         }
         val raw = "/data/media/0/" + ObbStaging.tempOf(target)
-        val dir = File(raw).parent!!
+        val rawDir = File(raw).parent!!
         val q = { s: String -> "'" + s.replace("'", "'\\''") + "'" }
         // A new folder gets Android/obb's own layout (media_rw:ext_obb_rw, setgid); Android hands it to
         // the app's uid at install. An existing folder keeps its owner, and the file gets the same.
         val prep = Shell.cmd(
-            "[ -d ${q(dir)} ] || { mkdir -p ${q(dir)} && chown 1023:1079 ${q(dir)} && chmod 2770 ${q(dir)}; }",
+            "if [ -d ${q(rawDir)} ]; then echo kept; else mkdir -p ${q(rawDir)} && chown 1023:1079 ${q(rawDir)} && chmod 2770 ${q(rawDir)} && echo made; fi",
         ).exec()
         if (!prep.isSuccess) throw IOException("Couldn't create ${File(target).parent} as root")
-        SuFileOutputStream.open(SuFile(raw)).use(body)
-        val fix = Shell.cmd("chown \$(stat -c %u:%g ${q(dir)}) ${q(raw)} && chmod 0660 ${q(raw)} && restorecon ${q(raw)} 2>/dev/null; true").exec()
-        if (!fix.isSuccess) throw IOException("Couldn't set the owner of ${dest.name}")
-        return true
+        val rootCreated = prep.out.lastOrNull()?.trim() == "made"
+        try {
+            SuFileOutputStream.open(SuFile(raw)).use(body)
+            val fix = Shell.cmd("chown \$(stat -c %u:%g ${q(rawDir)}) ${q(raw)} && chmod 0660 ${q(raw)} && restorecon ${q(raw)} 2>/dev/null; true").exec()
+            if (!fix.isSuccess) throw IOException("Couldn't set the owner of ${dest.name}")
+        } catch (t: Throwable) {
+            runCatching { Shell.cmd("rm -f ${q(raw)}" + if (rootCreated) "; rmdir ${q(rawDir)} 2>/dev/null; true" else "").exec() }
+            throw t
+        }
+        return ObbStaging.item(root = true, createdDir = rootCreated, target = target)
     }
 
     override fun onDestroy() {
@@ -382,10 +393,19 @@ class BundleInstallReceiver : BroadcastReceiver() {
 }
 
 /**
- * Staged OBB files: "D<target>" was written directly, "R<target>" as root. The staged copy sits next
- * to the real name as ".<name>.bfe-part" until the install succeeds.
+ * Staged OBB files, one item each: "D<target>" was written directly, "R<target>" as root; lower case
+ * ("d" / "r") when BFE created the package's Android/obb folder for it. The staged copy sits next to
+ * the real name as ".<name>.bfe-part" until the install succeeds. A folder BFE created is removed again
+ * when the install doesn't happen and the folder is empty (Android only hands it to the app's uid at
+ * install, so a leftover one would stay owned by BFE).
  */
 internal object ObbStaging {
+    fun item(root: Boolean, createdDir: Boolean, target: String): String =
+        (if (root) "R" else "D").let { if (createdDir) it.lowercase() else it } + target
+
+    private fun isRoot(item: String) = item[0] == 'R' || item[0] == 'r'
+    private fun createdDir(item: String) = item[0].isLowerCase()
+
     fun tempOf(target: String): String {
         val f = File(target)
         return (f.parent?.let { "$it/" } ?: "") + ".${f.name}.bfe-part"
@@ -397,7 +417,7 @@ internal object ObbStaging {
     fun commit(items: List<String>): String? {
         val failed = ArrayList<String>()
         for (it in items) {
-            val root = it.startsWith("R")
+            val root = isRoot(it)
             val target = it.substring(1)
             val ok = if (!root) {
                 val sd = Environment.getExternalStorageDirectory()
@@ -412,11 +432,20 @@ internal object ObbStaging {
     }
 
     fun discard(items: List<String>) {
+        val sd = Environment.getExternalStorageDirectory()
+        val rootOk = items.any { isRoot(it) } && RootAccess.ensure()
+        // Every staged file first, so a folder holding several (main + patch) is empty before it goes.
         for (it in items) {
             val target = it.substring(1)
-            if (it.startsWith("R")) {
-                if (RootAccess.ensure()) runCatching { Shell.cmd("rm -f ${q("/data/media/0/" + tempOf(target))}").exec() }
-            } else runCatching { File(Environment.getExternalStorageDirectory(), tempOf(target)).delete() }
+            if (isRoot(it)) {
+                if (rootOk) runCatching { Shell.cmd("rm -f ${q("/data/media/0/" + tempOf(target))}").exec() }
+            } else runCatching { File(sd, tempOf(target)).delete() }
+        }
+        items.filter { createdDir(it) }.distinctBy { File(it.substring(1)).parent }.forEach { item ->
+            val dir = File(item.substring(1)).parent ?: return@forEach
+            if (isRoot(item)) {
+                if (rootOk) runCatching { Shell.cmd("rmdir ${q("/data/media/0/$dir")} 2>/dev/null; true").exec() }
+            } else runCatching { File(sd, dir).delete() }   // only succeeds when empty
         }
     }
 }
