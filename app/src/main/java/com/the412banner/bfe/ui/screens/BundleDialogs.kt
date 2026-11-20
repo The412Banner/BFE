@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 import com.the412banner.bfe.apk.KeyRef
 import com.the412banner.bfe.apk.SignSchemes
 import com.the412banner.bfe.apk.SigningKeys
@@ -68,9 +69,17 @@ internal const val CONVERT_CAVEATS =
 
 /** Reads [file] (a bundle or a folder of APKs) for the dialog. Blocking — call off the main thread. */
 internal fun loadBundle(context: Context, file: File, displayName: String, staged: File?): BundleTarget {
-    val info = Bundles.refineWithManifests(Bundles.read(file))
-    val icon = info.iconEntry?.let { e ->
+    var info = Bundles.refineWithManifests(Bundles.read(file))
+    var icon = info.iconEntry?.let { e ->
         runCatching { ZipFile(file).use { z -> z.getInputStream(z.getEntry(e)).use { BitmapFactory.decodeStream(it) } } }.getOrNull()
+    }
+    // No name or icon in the bundle's own metadata (bundletool .apks, a folder of splits, an XAPK
+    // without icon.png): ask Android's parser, which resolves the label resource and adaptive icons.
+    if (info.label == null || icon == null) {
+        baseLook(context, info)?.let { (label, bmp) ->
+            if (info.label == null && label != null) info = info.copy(label = label)
+            if (icon == null) icon = bmp
+        }
     }
     val dm = context.resources.displayMetrics
     val locales = context.resources.configuration.locales
@@ -78,6 +87,38 @@ internal fun loadBundle(context: Context, file: File, displayName: String, stage
     val auto = Bundles.autoSelect(info.parts, Build.SUPPORTED_ABIS.toList(), dm.densityDpi, langs)
     return BundleTarget(info, displayName, icon, staged, auto)
 }
+
+/** A base APK bigger than this isn't copied out of a bundle just for its name and icon. */
+private const val LOOK_MAX_BYTES = 512L shl 20
+
+/**
+ * The base APK's label and launcher icon via `PackageManager.getPackageArchiveInfo`, like
+ * [com.the412banner.bfe.core.ApkIconLoader]. The parser needs a path: a folder's base APK is used in
+ * place, a zip's is copied to the cache for the moment it takes and deleted again.
+ */
+private fun baseLook(context: Context, info: Bundles.Info): Pair<String?, Bitmap?>? = runCatching {
+    val base = info.base ?: return null
+    var tmp: File? = null
+    try {
+        val path = if (info.isFolder) File(info.source, base.entry).absolutePath else {
+            if (base.size > LOOK_MAX_BYTES) return null
+            val t = File(context.cacheDir, "bundle-look-${System.nanoTime()}.apk")
+            tmp = t
+            ZipFile(info.source).use { z -> Bundles.open(info, base.entry, z).use { i -> t.outputStream().use { o -> i.copyTo(o, 1 shl 20) } } }
+            t.absolutePath
+        }
+        val pm = context.packageManager
+        val ai = pm.getPackageArchiveInfo(path, 0)?.applicationInfo ?: return null
+        ai.sourceDir = path
+        ai.publicSourceDir = path
+        val label = pm.getApplicationLabel(ai).toString().takeIf { it.isNotBlank() && it != ai.packageName }
+        val px = (48 * context.resources.displayMetrics.density).toInt().coerceAtLeast(48)
+        val bmp = runCatching { ai.loadIcon(pm).toBitmap(px, px) }.getOrNull()
+        label to bmp
+    } finally {
+        tmp?.delete()
+    }
+}.getOrNull()
 
 private fun fmt(context: Context, b: Long): String = android.text.format.Formatter.formatShortFileSize(context, b)
 
