@@ -47,7 +47,7 @@ Not yet tried: the split folder, Install, Convert.
 **Name + icon (user: "yes do both improvements and install it when ready"):** 1ad1d053 — when the bundle's metadata has
 no label or no icon, `baseLook` asks Android's parser (getPackageArchiveInfo + getApplicationLabel/loadIcon, like
 ApkIconLoader) on the base APK (folder: in place; zip: copied to cache ≤512 MB, deleted after). CI run 44767538733 GREEN;
-staged `/sdcard/Download/BFE-bundle-install-1ad1d053.apk`; installing.
+staged `/sdcard/Download/BFE-bundle-install-1ad1d053.apk` sha256 3984dfcf… (CI == host == device == installed); INSTALLED on the FIT 11:00 EST, crash buffer clean. Next: user re-taps the .apks / folder (expect "GitHub" + real icon), then Install / Convert tests.
 **Resume point (older):** 0f9b0925 installed on the FIT. Next: user (or me, after asking) opens BFE → Download/BFE-bundle-tests →
 tap each test bundle: dialog should show GitHub 1.285.0, 3 of 3 parts ticked (Main app, Processor arm64-v8a, Screen
 xxhdpi), XAPK also "Game data (1 file)". Install = reinstalls GitHub over itself (same version + key, data kept,
