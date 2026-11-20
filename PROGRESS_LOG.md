@@ -6,6 +6,30 @@ where it stands*.
 
 ---
 
+## 2026-11-20 — App bundles: install XAPK / APKS / APKM + split-APK folders, convert to one APK (`feat/bundle-install`, IN PROGRESS, NOT device-tested)
+**Why:** user asked "bfe, can it install xapk and others" — checked main a063683 (v1.5.2): a plain .apk installs, but
+XAPK/APKS/APKM only open as archives; tapping a piece inside fails for split apps; no OBB copy; split merging existed only
+for cloning installed apps. User: "both, go ahead and install it when ready" (install bundles + convert to one APK).
+**Change (8bb66d91):** `apk/bundle/Bundles.kt` (read zip/folder + format metadata manifest.json / info.json / meta.sai,
+each part's real split name from its own manifest via ARSCLib `AndroidManifestBlock.load(stream)`, classify base /
+feature / ABI / density / language, `autoSelect` for this device), `BundleInstallService` + `BundleInstallReceiver`
+(one PackageInstaller session streamed from the bundle, progress + Cancel, PACKAGE_SOURCE_LOCAL_FILE on 13+, OBB staged
+as `.<name>.bfe-part` in Android/obb/<pkg> — direct write, root fallback on /data/media with the folder's owner — moved
+into place only after STATUS_SUCCESS, dropped on failure/cancel), `ui/screens/BundleDialogs.kt` (parts checklist,
+unneeded parts folded, game data tick, Install / Convert to APK / Open as folder; Convert dialog = output name + key +
+schemes + install-when-done), new `ApkJobKind.CONVERT` reusing the ARSCLib merge + apksig path. Tap / Open-with sheet /
+⋮ menu route .xapk/.apks/.apkm here; a folder with 2+ APKs gets "Install APKs as one app". Own code only (BFE rule).
+Tests: `BundlesTest` (+ testImplementation org.json).
+**CI:** build.yml run 44757666772 (headSha 8bb66d91) — result pending.
+**Test bundles (Pocket FIT, /sdcard/Download/BFE-bundle-tests):** built from the installed GitHub app 1.285.0
+(vc 10353; base + split_config.arm64_v8a + split_config.xxhdpi): `GitHub-1.285.0-test.xapk` (APKPure layout + 2 MB
+fake OBB main.10353.com.github.android.obb), `.apkm` (info.json), `.apks` (bundletool splits/ layout + toc.pb),
+`GitHub-split-folder/`. Installing one reinstalls GitHub (same version + signature) and makes BFE its installer of
+record (was Play) — ask the user first. Fake OBB must be removed after the test.
+**Resume point:** wait for CI → stage APK `/sdcard/Download/BFE-bundle-install-<sha8>.apk` (hash host == device) →
+install (user already said yes) → test reading all four test bundles in the dialog (parts + auto-pick) → install test
+needs the user's OK for reinstalling GitHub.
+
 ## 2026-11-15 — Edit for saved server connections (`feat/edit-remote`, MERGED to main a05a36da, released in v1.5.2, NOT device-tested)
 **Why:** user: "add the edit form for existing connections". BFE had no way to change a saved connection, so one made
 before 1.5.1 couldn't get a Home address without being removed and added again.
