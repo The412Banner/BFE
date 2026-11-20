@@ -393,7 +393,8 @@ starting.
   screen size, languages) already ticked; the rest stay folded away.
 - **Install** sends every ticked part to Android in one install session, with progress and Cancel.
 - **XAPK game data** (OBB) is copied into `Android/obb/<package>` (root is used only if Android refuses) and put in
-  place only once Android reports the app installed; a cancelled or failed install leaves no game data behind.
+  place only once Android reports the app installed; a cancelled or failed install leaves no game data behind,
+  and removes the `Android/obb/<package>` folder again if BFE made it and it is empty.
 - **Convert to one APK** joins the ticked parts into a single APK, signed with the built-in key or your own. It can't
   update a copy installed from a store (different signature).
 - Name and icon come from the bundle, or from the app itself when the bundle has none.

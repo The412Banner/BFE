@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-20 — Empty Android/obb folder left after a cancelled bundle install (`fix/obb-empty-folder`, DEVICE-PROVEN, not merged)
+## 2026-11-20 — Empty Android/obb folder left after a cancelled bundle install (`fix/obb-empty-folder`, DEVICE-PROVEN, MERGED + releasing 1.6.1)
 **Why:** found in the 1.6.0 test (12:24 EST): Cancel removed the staged OBB but left the EMPTY `Android/obb/com.github.android`
 folder BFE created (owner 10182 = BFE). Android hands the folder to the app's uid only at install, so a leftover stays
 BFE-owned. User: "fix the empty folder bug and install it when ready".
@@ -17,6 +17,7 @@ up its own partial file + created folder. Test `obbStagingItems`.
 `/sdcard/Download/BFE-obb-empty-folder-4b8a5ded.apk` sha256 00cc9a6c… (CI == host == device == installed); INSTALLED on the FIT 12:53 EST (label 1.6.0 vc23, from main after the release bump), crash buffer clean. NOT device-tested.
 **Test:** XAPK install → Cancel on Android's screen → `/sdcard/Android/obb/com.github.android` must be gone.
 **Resume (14:20 EST):** root-d8 FIT takeover 13:57–14:20 over; FIT free, Termux in front; installed BFE still sha 00cc9a6c…; obb folder absent before the test. User runs the test next (opens BFE); then check the folder + logcat crash buffer.
+**Merge (user 16:5x "merge and release a new stable"):** backup `refs/backup/20261120/main-before-obb-empty-folder` = dc051f84; main ff → this branch (code == tested 4b8a5ded; after it only PROGRESS_LOG + README line on the folder clean-up); then release.yml 1.6.1.
 **16:53 EST try 2 = PASS (device-proven, FIT):** user: Install in BFE → Cancel on Android's screen. logcat: PackageInstallerActivity (session vmdl451411253) finished 16:53:13.053; `/data/media/0/Android/obb` mtime = 16:53:13.053 (entry removed at the cancel), `com.github.android` gone, 0 `.bfe-part` files, only portosole + egggame folders left (untouched). Crash buffer empty. Not tested: the root write path, a failed write mid-copy, a finished install.
 **16:46 EST try 1 = NOT a test of the fix:** logcat: BFE opened 16:46:36, bundle read (bundle-look) 16:46:47, BFE dialog closed 16:46:50; no Android confirm activity started, no OBB written, folder absent (never made). User cancelled in BFE's own dialog, before Install. (Session 1804058907 applied 16:46:22 = root-d8's DroidDeck reinstall, not BFE.) Crash buffer empty. Retry: Install in BFE → wait for Android's screen → Cancel there.
 
