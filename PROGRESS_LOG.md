@@ -17,6 +17,7 @@ up its own partial file + created folder. Test `obbStagingItems`.
 `/sdcard/Download/BFE-obb-empty-folder-4b8a5ded.apk` sha256 00cc9a6c… (CI == host == device == installed); INSTALLED on the FIT 12:53 EST (label 1.6.0 vc23, from main after the release bump), crash buffer clean. NOT device-tested.
 **Test:** XAPK install → Cancel on Android's screen → `/sdcard/Android/obb/com.github.android` must be gone.
 **Resume (14:20 EST):** root-d8 FIT takeover 13:57–14:20 over; FIT free, Termux in front; installed BFE still sha 00cc9a6c…; obb folder absent before the test. User runs the test next (opens BFE); then check the folder + logcat crash buffer.
+**16:46 EST try 1 = NOT a test of the fix:** logcat: BFE opened 16:46:36, bundle read (bundle-look) 16:46:47, BFE dialog closed 16:46:50; no Android confirm activity started, no OBB written, folder absent (never made). User cancelled in BFE's own dialog, before Install. (Session 1804058907 applied 16:46:22 = root-d8's DroidDeck reinstall, not BFE.) Crash buffer empty. Retry: Install in BFE → wait for Android's screen → Cancel there.
 
 ## 2026-11-20 — App bundles: install XAPK / APKS / APKM + split-APK folders, convert to one APK (`feat/bundle-install`, MERGED + released 1.6.0, partly device-tested)
 **Why:** user asked "bfe, can it install xapk and others" — checked main a063683 (v1.5.2): a plain .apk installs, but
