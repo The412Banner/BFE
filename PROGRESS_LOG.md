@@ -64,6 +64,13 @@ also remove a folder it created when it is empty. Finished install (success path
 the folder to the app's uid) NOT tried; Convert and split folder NOT tried.
 **Merge + release (user 12:2x EST: "merge and release a new stable"):** tree at merge == installed 1ad1d053 code
 (later commits: PROGRESS_LOG + README only). Backup refs/backup/20261120/main-before-bundle-install = a063683.
+main ff a063683 → 145ed1d2 (pushed; tree == tested 1ad1d053 + README/log). release.yml run **44783954401** green
+(version 1.6.0, notes in scratchpad bfe-1.6.0-notes.txt, honest "not tried yet" line): "Release 1.6.0 (versionCode 23)"
+d2093914 = tag v1.6.0 (parent 145ed1d2, only app/build.gradle), releases/latest = v1.6.0 (not prerelease), assets
+BFE-1.6.0.apk (60,345,230 B, sha256 894691c3…, downloaded and re-hashed) + update.json (vc 23, same sha), manifest branch
+20b5eb6 "manifest: v1.6.0" (raw URL the updater reads returns vc 23). Branch feat/bundle-install + worktree kept
+(delete on user word). FIT runs 1ad1d053 (labelled 1.5.2 vc22) → updater will offer 1.6.0 (same code).
+**Open:** empty-folder clean-up on cancel (see above); finished install, Convert, split folder untested.
 **Resume point (older):** 0f9b0925 installed on the FIT. Next: user (or me, after asking) opens BFE → Download/BFE-bundle-tests →
 tap each test bundle: dialog should show GitHub 1.285.0, 3 of 3 parts ticked (Main app, Processor arm64-v8a, Screen
 xxhdpi), XAPK also "Game data (1 file)". Install = reinstalls GitHub over itself (same version + key, data kept,
