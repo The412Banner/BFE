@@ -2834,26 +2834,33 @@ fun BrowserPane(
     var bundleTarget by remember { mutableStateOf<BundleTarget?>(null) }
     var bundleConvert by remember { mutableStateOf<Pair<BundleTarget, List<com.the412banner.bfe.apk.bundle.Bundles.Part>>?>(null) }
     fun dropStaged(t: BundleTarget) { t.staged?.let { d -> scope.launch { withContext(Dispatchers.IO) { d.deleteRecursively() } } } }
+    // The request is cleared only once it has been handled: clearing it first would change this
+    // effect's key and cancel the read it just started (the "Reading…" bar would never go away).
     LaunchedEffect(bundleRequest) {
-        val (loc, convert) = bundleRequest ?: return@LaunchedEffect
-        bundleRequest = null
+        val req = bundleRequest ?: return@LaunchedEffect
+        val (loc, convert) = req
         isOperationRunning = true; operationDeterminate = false; operationLabel = "Reading ${loc.name}\u2026"
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val (file, staged) = if (loc is Loc.FileLoc) loc.file to null
-                    else realApkFile(loc) ?: throw java.io.IOException("couldn't copy it from ${loc.name}")
-                try {
-                    loadBundle(context, file, loc.name, staged)
-                } catch (e: Exception) {
-                    staged?.deleteRecursively(); throw e
+        try {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val (file, staged) = if (loc is Loc.FileLoc) loc.file to null
+                        else realApkFile(loc) ?: throw java.io.IOException("couldn't copy it from ${loc.name}")
+                    try {
+                        loadBundle(context, file, loc.name, staged)
+                    } catch (e: Exception) {
+                        staged?.deleteRecursively(); throw e
+                    }
                 }
             }
-        }
-        isOperationRunning = false
-        result.onSuccess { t ->
-            if (convert) bundleConvert = t to t.info.parts.filter { it.entry in t.autoSelected } else bundleTarget = t
-        }.onFailure { e ->
-            AppSnackbar.show(context, "Couldn't read ${loc.name} as an app bundle: ${e.message ?: e.javaClass.simpleName}", long = true)
+            result.onSuccess { t ->
+                if (convert) bundleConvert = t to t.info.parts.filter { it.entry in t.autoSelected } else bundleTarget = t
+            }.onFailure { e ->
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                AppSnackbar.show(context, "Couldn't read ${loc.name} as an app bundle: ${e.message ?: e.javaClass.simpleName}", long = true)
+            }
+        } finally {
+            // A newer request (another tap) owns the bar and the slot from here on.
+            if (bundleRequest == req) { isOperationRunning = false; bundleRequest = null }
         }
     }
     // Convert: the chosen parts are copied out of the bundle, then the APK job merges + signs them.
