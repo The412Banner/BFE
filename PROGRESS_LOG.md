@@ -50,6 +50,13 @@ ApkIconLoader) on the base APK (folder: in place; zip: copied to cache ≤512 MB
 staged `/sdcard/Download/BFE-bundle-install-1ad1d053.apk` sha256 3984dfcf… (CI == host == device == installed); INSTALLED on the FIT 11:00 EST, crash buffer clean. Next: user re-taps the .apks / folder (expect "GitHub" + real icon), then Install / Convert tests.
 **Device check 12:18 EST (user screenshot):** the .xapk (no icon.png) now shows the real GitHub icon from the base APK,
 "GitHub", 3 of 3 parts + game data — icon path DEVICE-PROVEN. .apks / folder name not shown yet.
+**Install test (12:23 EST, user tapped Install on the .xapk):** BundleInstallService started (FGS allowed, uidState TOP),
+game data written DIRECTLY (no root) as `Android/obb/com.github.android/.main.10353.com.github.android.obb.bfe-part`
+(2,097,152 B, owner u0_a182 = BFE, group ext_obb_rw, dir created by BFE) → session committed → Android's
+CONFIRM_INSTALL started from the receiver (BAL_ALLOW_VISIBLE_WINDOW) → screen "Update this app from Banners File
+Explorer? This app normally receives updates from Google Play Store…" [Cancel] [Update anyway] (Android 14 update
+ownership). Waiting for the user's choice. After: check GitHub lastUpdateTime/installer, .bfe-part renamed (success) or
+deleted (cancel), dir owner handed to GitHub's uid by Android.
 **Resume point (older):** 0f9b0925 installed on the FIT. Next: user (or me, after asking) opens BFE → Download/BFE-bundle-tests →
 tap each test bundle: dialog should show GitHub 1.285.0, 3 of 3 parts ticked (Main app, Processor arm64-v8a, Screen
 xxhdpi), XAPK also "Game data (1 file)". Install = reinstalls GitHub over itself (same version + key, data kept,
