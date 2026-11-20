@@ -1,10 +1,10 @@
 {
-  "versionCode": 23,
-  "versionName": "1.6.0",
-  "notes": "New: install app bundles.\n- Tap an XAPK, APKS or APKM file (or use the menu on a folder of split APKs): BFE shows the app, its version and the parts this device needs, already ticked. Install sends them to Android in one go, with progress and Cancel.\n- XAPK game data goes into Android/obb, and only once Android reports the app installed. A cancelled install leaves nothing behind.\n- Convert to one APK: joins a bundle into a single APK signed with your key.\n- The app name and icon are read from the app itself when the bundle has none.\n\nTried on a Pocket FIT: reading XAPK, APKM and APKS files, an install up to Android's confirm screen, and cancelling it. Not tried yet: a finished install, Convert, and folders of split APKs.",
-  "apkName": "BFE-1.6.0.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.6.0/BFE-1.6.0.apk",
-  "sha256": "894691c3c10b34ad786359269099d597d7ac56e98f0ef1f2490e0c960db96b23",
+  "versionCode": 24,
+  "versionName": "1.6.1",
+  "notes": "Fix: a cancelled app-bundle install no longer leaves an empty folder behind.\n- In 1.6.0, cancelling (or a failed) install of an XAPK with game data removed the copied game data but left an empty Android/obb/<app> folder that BFE had made. BFE now removes that folder again, only when BFE made it and it is empty. Folders and game data that were already there are not touched.\n\nTried on a Pocket FIT: installing an XAPK with game data and pressing Cancel on Android's screen. The folder is gone afterwards. Not tried yet: a finished install, Convert, folders of split APKs, and the clean-up when BFE needs root to copy game data.",
+  "apkName": "BFE-1.6.1.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.6.1/BFE-1.6.1.apk",
+  "sha256": "9b4a565074ac6bc8febc184c30ddbe5a8b5029432377b6c497dbbd817eb13274",
   "size": 60345230,
   "publishedAt": "2026-11-20",
   "minSupported": 1
