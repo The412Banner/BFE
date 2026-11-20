@@ -20,15 +20,24 @@ unneeded parts folded, game data tick, Install / Convert to APK / Open as folder
 schemes + install-when-done), new `ApkJobKind.CONVERT` reusing the ARSCLib merge + apksig path. Tap / Open-with sheet /
 ⋮ menu route .xapk/.apks/.apkm here; a folder with 2+ APKs gets "Install APKs as one app". Own code only (BFE rule).
 Tests: `BundlesTest` (+ testImplementation org.json).
-**CI:** build.yml run 44757666772 (headSha 8bb66d91) — result pending.
+**CI:** run 44757666772 (8bb66d91) FAILED compile: `FileRowActions` (FileManagerAurora.kt, Aurora rows) had no
+onBundle → fixed 0f9b0925 (field + pass-through). Run **44758458185** (headSha 0f9b0925) GREEN: assemble, signature
+rotation, `testReleaseUnitTest` executed (compileReleaseUnitTestKotlin + testReleaseUnitTest ran, not cached), cert check.
+**Installed:** APK `/sdcard/Download/BFE-bundle-install-0f9b0925.apk` sha256 6f9a8ae5… (CI artifact == host == device ==
+installed base.apk), dex has BundleInstallService, on the Pocket FIT 2026-11-20 10:05 EST (pm install -r, label 1.5.2;
+user had said "install it when ready"). NOT opened yet = NOT device-tested.
 **Test bundles (Pocket FIT, /sdcard/Download/BFE-bundle-tests):** built from the installed GitHub app 1.285.0
 (vc 10353; base + split_config.arm64_v8a + split_config.xxhdpi): `GitHub-1.285.0-test.xapk` (APKPure layout + 2 MB
 fake OBB main.10353.com.github.android.obb), `.apkm` (info.json), `.apks` (bundletool splits/ layout + toc.pb),
 `GitHub-split-folder/`. Installing one reinstalls GitHub (same version + signature) and makes BFE its installer of
 record (was Play) — ask the user first. Fake OBB must be removed after the test.
-**Resume point:** wait for CI → stage APK `/sdcard/Download/BFE-bundle-install-<sha8>.apk` (hash host == device) →
-install (user already said yes) → test reading all four test bundles in the dialog (parts + auto-pick) → install test
-needs the user's OK for reinstalling GitHub.
+**Resume point:** 0f9b0925 installed on the FIT. Next: user (or me, after asking) opens BFE → Download/BFE-bundle-tests →
+tap each test bundle: dialog should show GitHub 1.285.0, 3 of 3 parts ticked (Main app, Processor arm64-v8a, Screen
+xxhdpi), XAPK also "Game data (1 file)". Install = reinstalls GitHub over itself (same version + key, data kept,
+installer becomes BFE) — user's OK needed. After an XAPK install check `/sdcard/Android/obb/com.github.android/` holds
+main.10353.com.github.android.obb (no .bfe-part left), then delete that fake OBB. Convert test: output APK in the folder,
+check apksigner + ARSCLib merge; installing it over GitHub must fail with a signature conflict (expected).
+Logs: `logcat -s BundleInstall ApkJobService ApkRewriter AndroidRuntime`.
 
 ## 2026-11-15 — Edit for saved server connections (`feat/edit-remote`, MERGED to main a05a36da, released in v1.5.2, NOT device-tested)
 **Why:** user: "add the edit form for existing connections". BFE had no way to change a saved connection, so one made
