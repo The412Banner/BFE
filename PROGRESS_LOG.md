@@ -14,7 +14,7 @@ BFE-owned. User: "fix the empty folder bug and install it when ready".
 staged files first, then those folders (File.delete / rmdir only remove empty ones); a failed direct or root write cleans
 up its own partial file + created folder. Test `obbStagingItems`.
 **CI:** build.yml run 44785832964 GREEN (assemble, rotation, testReleaseUnitTest ran, cert). APK staged
-`/sdcard/Download/BFE-obb-empty-folder-4b8a5ded.apk`; installing (user said install when ready).
+`/sdcard/Download/BFE-obb-empty-folder-4b8a5ded.apk` sha256 00cc9a6c… (CI == host == device == installed); INSTALLED on the FIT 12:53 EST (label 1.6.0 vc23, from main after the release bump), crash buffer clean. NOT device-tested.
 **Test:** XAPK install → Cancel on Android's screen → `/sdcard/Android/obb/com.github.android` must be gone.
 
 ## 2026-11-20 — App bundles: install XAPK / APKS / APKM + split-APK folders, convert to one APK (`feat/bundle-install`, MERGED + released 1.6.0, partly device-tested)
