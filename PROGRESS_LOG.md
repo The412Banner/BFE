@@ -6,6 +6,17 @@ where it stands*.
 
 ---
 
+## 2026-11-20 — Empty Android/obb folder left after a cancelled bundle install (`fix/obb-empty-folder`, IN PROGRESS)
+**Why:** found in the 1.6.0 test (12:24 EST): Cancel removed the staged OBB but left the EMPTY `Android/obb/com.github.android`
+folder BFE created (owner 10182 = BFE). Android hands the folder to the app's uid only at install, so a leftover stays
+BFE-owned. User: "fix the empty folder bug and install it when ready".
+**Change (4b8a5ded):** ObbStaging items record whether BFE created the folder (lower-case d/r); `discard()` deletes all
+staged files first, then those folders (File.delete / rmdir only remove empty ones); a failed direct or root write cleans
+up its own partial file + created folder. Test `obbStagingItems`.
+**CI:** build.yml run 44785832964 GREEN (assemble, rotation, testReleaseUnitTest ran, cert). APK staged
+`/sdcard/Download/BFE-obb-empty-folder-4b8a5ded.apk`; installing (user said install when ready).
+**Test:** XAPK install → Cancel on Android's screen → `/sdcard/Android/obb/com.github.android` must be gone.
+
 ## 2026-11-20 — App bundles: install XAPK / APKS / APKM + split-APK folders, convert to one APK (`feat/bundle-install`, MERGED + released 1.6.0, partly device-tested)
 **Why:** user asked "bfe, can it install xapk and others" — checked main a063683 (v1.5.2): a plain .apk installs, but
 XAPK/APKS/APKM only open as archives; tapping a piece inside fails for split apps; no OBB copy; split merging existed only
