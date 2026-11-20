@@ -1,11 +1,11 @@
 {
-  "versionCode": 22,
-  "versionName": "1.5.2",
-  "notes": "- Edit saved connections: SFTP, FTP, SMB, WebDAV and other server connections now have Edit in their ⋮ menu. It opens the same form filled in with the saved details, so you can change the address or port, or add a Home address to a connection you made before 1.5.1. Passwords are never shown; leave the box empty to keep the saved one. Only what you change is saved, and BFE checks the connection afterwards. Cloud accounts that sign in through the browser keep using \"Sign in again\".\n\nTested: the build and its unit tests passed; it hasn't been tried on a phone yet.",
-  "apkName": "BFE-1.5.2.apk",
-  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.5.2/BFE-1.5.2.apk",
-  "sha256": "b17c90ca63d3dc62b8bb80abdc646dff0b6d652e7c25e7d93fbb0c8228bcf19c",
-  "size": 60300174,
-  "publishedAt": "2026-11-15",
+  "versionCode": 23,
+  "versionName": "1.6.0",
+  "notes": "New: install app bundles.\n- Tap an XAPK, APKS or APKM file (or use the menu on a folder of split APKs): BFE shows the app, its version and the parts this device needs, already ticked. Install sends them to Android in one go, with progress and Cancel.\n- XAPK game data goes into Android/obb, and only once Android reports the app installed. A cancelled install leaves nothing behind.\n- Convert to one APK: joins a bundle into a single APK signed with your key.\n- The app name and icon are read from the app itself when the bundle has none.\n\nTried on a Pocket FIT: reading XAPK, APKM and APKS files, an install up to Android's confirm screen, and cancelling it. Not tried yet: a finished install, Convert, and folders of split APKs.",
+  "apkName": "BFE-1.6.0.apk",
+  "apkUrl": "https://github.com/The412Banner/BFE/releases/download/v1.6.0/BFE-1.6.0.apk",
+  "sha256": "894691c3c10b34ad786359269099d597d7ac56e98f0ef1f2490e0c960db96b23",
+  "size": 60345230,
+  "publishedAt": "2026-11-20",
   "minSupported": 1
 }
