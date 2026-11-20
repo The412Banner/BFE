@@ -153,6 +153,8 @@ dependencies {
     // JVM unit tests (app/src/test): the archive-listing parser against real 7zz output fixtures, and
     // the document converters against real pandoc / LibreOffice files (resources/docs).
     testImplementation 'junit:junit:4.13.2'
+    // Real org.json for the app-bundle metadata tests (android.jar only has stubs on the JVM).
+    testImplementation 'org.json:json:20240303'
 
     implementation 'androidx.appcompat:appcompat:1.4.0'
     // Built-in HTML viewer: WebView dark-theme handling (HtmlViewerActivity).

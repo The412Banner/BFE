@@ -782,6 +782,17 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- App bundles (XAPK / APKS / APKM): one PackageInstaller session, same lifecycle; the
+             session result comes back to the receiver (not exported, the system calls it through
+             the PendingIntent BFE hands to the session). -->
+        <service
+            android:name="com.the412banner.bfe.apk.bundle.BundleInstallService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+        <receiver
+            android:name="com.the412banner.bfe.apk.bundle.BundleInstallReceiver"
+            android:exported="false" />
+
         <!-- Video conversion (bundled ffmpeg), same lifecycle. -->
         <service
             android:name="com.the412banner.bfe.video.ConvertService"

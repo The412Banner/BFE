@@ -1890,6 +1890,11 @@ fun BrowserPane(
         }
     }
 
+    // XAPK / APKS / APKM bundles and folders of split APKs: read off the main thread further down
+    // (it needs realApkFile and startApkJob), then the bundle dialog installs or converts them.
+    var bundleRequest by remember { mutableStateOf<Pair<Loc, Boolean>?>(null) }
+    fun openBundle(loc: Loc, convert: Boolean) { showMenuFor = null; bundleRequest = loc to convert }
+
     // Install an .apk via the system package installer (needs REQUEST_INSTALL_PACKAGES).
     fun installApk(loc: Loc) {
         if (loc is Loc.RemoteLoc) { withRemoteCopies(listOf(loc)) { installApk(Loc.FileLoc(it.first())) }; return }
@@ -1905,6 +1910,7 @@ fun BrowserPane(
     fun openBuiltInOrSheet(loc: Loc, fromArchive: Loc.ArchiveLoc?) {
         val f = (loc as? Loc.FileLoc)?.file
         if (loc.name.lowercase().endsWith(".apk")) { installApk(loc); return }
+        if (com.the412banner.bfe.apk.bundle.Bundles.isBundleName(loc.name)) { openBundle(loc, false); return }
         scope.launch {
             // Archives by EXTENSION only: .docx / .odt / .epub / .apk are zips too and must not open as
             // folders. Inno / GOG installers are unpack-only, so they get the sheet (Unpack / Install).
@@ -2818,7 +2824,102 @@ fun BrowserPane(
     if (showKeyManager) KeyManagerDialog(onDismiss = { showKeyManager = false })
     if (showInstalledPicker) InstalledAppPickerDialog(onDismiss = { showInstalledPicker = false }, onPick = { openInstalledClone(it) })
     apkResult?.let { (report, loc) ->
-        ApkResultDialog(report = report, onInstall = { apkResult = null; installApk(loc) }, onDismiss = { apkResult = null })
+        ApkResultDialog(
+            report = report, onInstall = { apkResult = null; installApk(loc) }, onDismiss = { apkResult = null },
+            caveats = if (apkState.kind == com.the412banner.bfe.apk.ApkJobKind.CONVERT) CONVERT_CAVEATS else CLONE_CAVEATS,
+        )
+    }
+
+    // ── App bundles (XAPK / APKS / APKM, folders of split APKs) ──
+    var bundleTarget by remember { mutableStateOf<BundleTarget?>(null) }
+    var bundleConvert by remember { mutableStateOf<Pair<BundleTarget, List<com.the412banner.bfe.apk.bundle.Bundles.Part>>?>(null) }
+    fun dropStaged(t: BundleTarget) { t.staged?.let { d -> scope.launch { withContext(Dispatchers.IO) { d.deleteRecursively() } } } }
+    LaunchedEffect(bundleRequest) {
+        val (loc, convert) = bundleRequest ?: return@LaunchedEffect
+        bundleRequest = null
+        isOperationRunning = true; operationDeterminate = false; operationLabel = "Reading ${loc.name}\u2026"
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                val (file, staged) = if (loc is Loc.FileLoc) loc.file to null
+                    else realApkFile(loc) ?: throw java.io.IOException("couldn't copy it from ${loc.name}")
+                try {
+                    loadBundle(context, file, loc.name, staged)
+                } catch (e: Exception) {
+                    staged?.deleteRecursively(); throw e
+                }
+            }
+        }
+        isOperationRunning = false
+        result.onSuccess { t ->
+            if (convert) bundleConvert = t to t.info.parts.filter { it.entry in t.autoSelected } else bundleTarget = t
+        }.onFailure { e ->
+            AppSnackbar.show(context, "Couldn't read ${loc.name} as an app bundle: ${e.message ?: e.javaClass.simpleName}", long = true)
+        }
+    }
+    // Convert: the chosen parts are copied out of the bundle, then the APK job merges + signs them.
+    fun startBundleConvert(t: BundleTarget, parts: List<com.the412banner.bfe.apk.bundle.Bundles.Part>, outName: String, key: com.the412banner.bfe.apk.KeyRef, schemes: com.the412banner.bfe.apk.SignSchemes, install: Boolean) {
+        com.the412banner.bfe.apk.ApkJobService.busyReason()?.let { AppSnackbar.show(context, it); dropStaged(t); return }
+        scope.launch {
+            isOperationRunning = true; operationDeterminate = false; operationLabel = "Reading the parts of ${t.name}\u2026"
+            val res = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = File(context.cacheDir, "bundle-parts-${System.currentTimeMillis()}").apply { mkdirs() }
+                    val zip = if (t.info.isFolder) null else java.util.zip.ZipFile(t.info.source)
+                    try {
+                        val base = t.info.base ?: throw java.io.IOException("no base APK")
+                        fun extract(p: com.the412banner.bfe.apk.bundle.Bundles.Part, f: File): File {
+                            com.the412banner.bfe.apk.bundle.Bundles.open(t.info, p.entry, zip).use { i -> f.outputStream().use { o -> i.copyTo(o, 1 shl 20) } }
+                            return f
+                        }
+                        val baseFile = extract(base, File(dir, "base.apk"))
+                        // File names double as ARSCLib module names, so they must be unique.
+                        val splits = parts.filter { it.entry != base.entry }.mapIndexed { i, p -> extract(p, File(dir, "split$i.apk")) }
+                        Triple(dir, baseFile, splits)
+                    } catch (e: Exception) {
+                        dir.deleteRecursively(); throw e
+                    } finally {
+                        runCatching { zip?.close() }
+                    }
+                }
+            }
+            isOperationRunning = false
+            dropStaged(t)
+            res.onSuccess { (dir, baseFile, splits) ->
+                // An archive pane is read-only: the APK lands in the folder the archive sits in.
+                val dest = if (currentLoc is Loc.ArchiveLoc) Loc.FileLoc(File(paneState.path)) else currentLoc
+                startApkJob(
+                    com.the412banner.bfe.apk.ApkJobKind.CONVERT, baseFile, splits,
+                    com.the412banner.bfe.apk.ApkEdits(null, null, null, null, null, null, null, null, null, null),
+                    outName, dest, key, schemes, install, dir,
+                )
+            }.onFailure { e -> AppSnackbar.show(context, "Couldn't read the parts of ${t.name}: ${e.message}", long = true) }
+        }
+    }
+    bundleTarget?.let { t ->
+        BundleDialog(
+            target = t,
+            onDismiss = { bundleTarget = null; com.the412banner.bfe.apk.bundle.BundleInstallManager.clearIfTerminal(); dropStaged(t) },
+            onInstall = { parts, obbs ->
+                com.the412banner.bfe.apk.bundle.BundleInstallService.start(
+                    context, t.info.source, t.info.label ?: t.name.substringBeforeLast('.'), t.info.packageName, parts, obbs,
+                )
+            },
+            onConvert = { parts -> bundleTarget = null; bundleConvert = t to parts },
+            onBrowse = if (t.info.isFolder || t.staged != null) null else ({ bundleTarget = null; browseArchive(t.info.source) }),
+        )
+    }
+    bundleConvert?.let { (t, parts) ->
+        val defName = listOfNotNull(t.info.label ?: t.name.substringBeforeLast('.'), t.info.versionName).joinToString("-")
+            .replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_") + ".apk"
+        ConvertBundleDialog(
+            sourceName = t.name, partCount = parts.size, defaultOutputName = defName,
+            onDismiss = { bundleConvert = null; dropStaged(t) },
+            onManageKeys = { showKeyManager = true },
+            onConfirm = { outName, key, schemes, install ->
+                bundleConvert = null
+                startBundleConvert(t, parts, outName, key, schemes, install)
+            },
+        )
     }
 
     // Compress… — name prefilled from the single item (minus its extension) or the current folder.
@@ -3017,6 +3118,7 @@ fun BrowserPane(
                     // itself, install an APK, extract the entry somewhere real, or look at its details.
                     if (f != null && com.the412banner.bfe.unpack.SevenZip.looksLikeArchive(f)) add(SheetAction("Open as folder", SheetIcons.Browse) { browseArchive(f) })
                     if (lower.endsWith(".apk")) add(SheetAction("Install", SheetIcons.Install) { installApk(loc) })
+                    if (com.the412banner.bfe.apk.bundle.Bundles.isBundleName(lower)) add(SheetAction("Install\u2026", SheetIcons.Install) { openBundle(loc, false) })
                     add(SheetAction("Extract to\u2026", SheetIcons.ExtractTo) { archivePane.extractTargets = listOf(fromArchive) })
                     add(SheetAction("Properties", SheetIcons.Properties) { propertiesTarget = fromArchive })
                     return@buildList
@@ -3031,6 +3133,10 @@ fun BrowserPane(
                 if (lower.endsWith(".apk")) {
                     add(SheetAction("Install", SheetIcons.Install) { installApk(loc) })
                     add(SheetAction("Clone APK\u2026", Icons.Filled.FileCopy) { openApkEditorFor(loc, com.the412banner.bfe.apk.ApkJobKind.CLONE) })
+                }
+                if (com.the412banner.bfe.apk.bundle.Bundles.isBundleName(lower)) {
+                    add(SheetAction("Install\u2026", SheetIcons.Install) { openBundle(loc, false) })
+                    add(SheetAction("Convert to one APK\u2026", Icons.Filled.FileCopy) { openBundle(loc, true) })
                 }
                 if (com.the412banner.bfe.video.VideoFormats.isVideoName(loc.name) || com.the412banner.bfe.video.VideoFormats.isBink2Name(loc.name)) {
                     add(SheetAction("Convert to MP4\u2026", SheetIcons.Convert) { convertTargets = listOf(loc) })
@@ -3145,6 +3251,7 @@ fun BrowserPane(
             onSelect = { selectionMode = true; selectedIds = selectedIds + file.id; showMenuFor = null },
             onOpenWith = { openWith(file) },
             onInstallApk = { installApk(file) },
+            onBundle = { convert -> openBundle(file, convert) },
             onShare = { shareFile(file) },
             onUnpack = { launchUnpack(file) },
             onFastExtract = { launchFastExtract(file) },
@@ -3509,6 +3616,7 @@ fun BrowserPane(
                             },
                             onOpenWith = { openWith(file) },
                             onInstallApk = { installApk(file) },
+                            onBundle = { convert -> openBundle(file, convert) },
                             onShare = { shareFile(file) },
                             onUnpack = { launchUnpack(file) },
                             onFastExtract = { launchFastExtract(file) },
@@ -3590,6 +3698,7 @@ fun BrowserPane(
                             },
                             onOpenWith = { openWith(file) },
                             onInstallApk = { installApk(file) },
+                            onBundle = { convert -> openBundle(file, convert) },
                             onShare = { shareFile(file) },
                             onCopy = { clipboard = listOf(file); isCutOperation = false; showMenuFor = null },
                             onCut = { clipboard = listOf(file); isCutOperation = true; showMenuFor = null },
@@ -3644,6 +3753,7 @@ internal fun FileContextMenuItems(
     onSelect: () -> Unit,
     onOpenWith: () -> Unit,
     onInstallApk: () -> Unit,
+    onBundle: (convert: Boolean) -> Unit = {},
     onShare: () -> Unit,
     onUnpack: () -> Unit,
     onFastExtract: () -> Unit,
@@ -3672,6 +3782,11 @@ internal fun FileContextMenuItems(
     // SAF ("app storage") entries only get the backend-agnostic actions.
     val fileLoc = (file as? Loc.FileLoc)?.file
     val isApk = !isDir && file.name.lowercase().endsWith(".apk")
+    val isBundle = !isDir && com.the412banner.bfe.apk.bundle.Bundles.isBundleName(file.name)
+    // A folder of split APKs (what an installed app is made of) installs as one app too.
+    val isApkFolder = isDir && fileLoc != null && remember(fileLoc.absolutePath) {
+        (fileLoc.listFiles { f -> f.isFile && f.name.endsWith(".apk", ignoreCase = true) }?.size ?: 0) >= 2
+    }
     // Content-aware archive check: extension OR a cheap magic-byte sniff (a few header bytes, read only
     // when the menu opens — never `7zz l` per entry). Extraction is File-only (engines need a real path).
     // For an InnoSetup repack the screen decides between payload extraction and running Setup.exe.
@@ -3723,6 +3838,10 @@ internal fun FileContextMenuItems(
             }
         }
     }
+    if (isBundle || isApkFolder) {
+        Item(if (isBundle) "Install app bundle\u2026" else "Install APKs as one app\u2026", Icons.Filled.Android) { onBundle(false) }
+        Item("Convert to one APK\u2026", Icons.Filled.FileCopy) { onBundle(true) }
+    }
     if (isArchive) {
         // Browse it like a folder (read-only). InnoSetup/FreeArc installers are unpack-only.
         if (!isInno) Item("Open as folder", Icons.Filled.FolderOpen, action = onBrowse)
@@ -3768,6 +3887,7 @@ private fun FileItemRow(
     onSelect: () -> Unit = {},
     onOpenWith: () -> Unit,
     onInstallApk: () -> Unit,
+    onBundle: (convert: Boolean) -> Unit = {},
     onShare: () -> Unit,
     onCopy: () -> Unit,
     onCut: () -> Unit,
@@ -3913,6 +4033,7 @@ private fun FileItemRow(
                                 onSelect = onSelect,
                                 onOpenWith = onOpenWith,
                                 onInstallApk = onInstallApk,
+                                onBundle = onBundle,
                                 onShare = onShare,
                                 onUnpack = onUnpack,
                                 onFastExtract = onFastExtract,
@@ -4056,6 +4177,7 @@ private fun FileItemRow(
                         onSelect = onSelect,
                         onOpenWith = onOpenWith,
                         onInstallApk = onInstallApk,
+                        onBundle = onBundle,
                         onShare = onShare,
                         onUnpack = onUnpack,
                         onFastExtract = onFastExtract,
@@ -4301,6 +4423,7 @@ private fun FileGridTile(
     onSelect: () -> Unit = {},
     onOpenWith: () -> Unit = {},
     onInstallApk: () -> Unit = {},
+    onBundle: (convert: Boolean) -> Unit = {},
     onShare: () -> Unit = {},
     onUnpack: () -> Unit = {},
     onFastExtract: () -> Unit = {},
@@ -4415,6 +4538,7 @@ private fun FileGridTile(
                 onSelect = onSelect,
                 onOpenWith = onOpenWith,
                 onInstallApk = onInstallApk,
+                onBundle = onBundle,
                 onShare = onShare,
                 onUnpack = onUnpack,
                 onFastExtract = onFastExtract,
