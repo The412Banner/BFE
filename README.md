@@ -154,7 +154,7 @@ Tap any line for the details.
 |---|---|---|
 | Common archives | 7z, zip, zipx, rar / rar5 (incl. multi-part), cab, arj, lzh / lha, cpio, xar, chm, wim / esd, msi | 7-Zip |
 | Tar & compressors | tar, gz / tgz, bz2 / tbz, xz / txz, zst / tzst, lzma, Z, Winlator `.wcp` | 7-Zip |
-| Packages | apk, xapk, apks, apkm, jar, deb, rpm, mtz | 7-Zip |
+| Packages | apk, xapk, apks, apkm, jar, deb, rpm, mtz | 7-Zip (XAPK / APKS / APKM also install, see above) |
 | Disc & disk images | iso, udf, img, bin / cue, cso, dmg, vhd / vhdx, vmdk, vdi, qcow, squashfs, cramfs | 7-Zip |
 | Split volumes | .001, .z01, .r00 | 7-Zip |
 | lzip · lzop · LZ4 | `.lz` / `.tlz`, `.lzo` / `.tzo`, `.lz4` | lunzip · lzop · lz4 |
@@ -382,6 +382,21 @@ starting.
 - Clone an APK or an installed app with a new package name, label, version and icon — providers,
   permissions and components are renamed properly so clones install beside the original.
 - Sign with v1 + v2 + v3 schemes using the built-in key or your own PKCS12 / BKS key.
+
+</details>
+
+<details>
+<summary><b>App bundle installer</b> — install XAPK, APKS and APKM files, or convert them to one APK</summary>
+
+- Tap an **XAPK**, **APKS** (SAI, bundletool, or BFE's own Apps backup) or **APKM** file, or use ⋮ → Install APKs as
+  one app on a folder of split APKs: BFE shows the app, its version and the parts this device needs (processor,
+  screen size, languages) already ticked; the rest stay folded away.
+- **Install** sends every ticked part to Android in one install session, with progress and Cancel.
+- **XAPK game data** (OBB) is copied into `Android/obb/<package>` (root is used only if Android refuses) and put in
+  place only once Android reports the app installed; a cancelled or failed install leaves no game data behind.
+- **Convert to one APK** joins the ticked parts into a single APK, signed with the built-in key or your own. It can't
+  update a copy installed from a store (different signature).
+- Name and icon come from the bundle, or from the app itself when the bundle has none.
 
 </details>
 

@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-20 — App bundles: install XAPK / APKS / APKM + split-APK folders, convert to one APK (`feat/bundle-install`, IN PROGRESS, NOT device-tested)
+## 2026-11-20 — App bundles: install XAPK / APKS / APKM + split-APK folders, convert to one APK (`feat/bundle-install`, MERGED + released 1.6.0, partly device-tested)
 **Why:** user asked "bfe, can it install xapk and others" — checked main a063683 (v1.5.2): a plain .apk installs, but
 XAPK/APKS/APKM only open as archives; tapping a piece inside fails for split apps; no OBB copy; split merging existed only
 for cloning installed apps. User: "both, go ahead and install it when ready" (install bundles + convert to one APK).
@@ -57,6 +57,13 @@ CONFIRM_INSTALL started from the receiver (BAL_ALLOW_VISIBLE_WINDOW) → screen 
 Explorer? This app normally receives updates from Google Play Store…" [Cancel] [Update anyway] (Android 14 update
 ownership). Waiting for the user's choice. After: check GitHub lastUpdateTime/installer, .bfe-part renamed (success) or
 deleted (cancel), dir owner handed to GitHub's uid by Android.
+**Result:** the user chose **Cancel** → GitHub unchanged (lastUpdateTime 11-19 02:00, installer Play), the staged
+`.bfe-part` was deleted at 12:24 (cancel clean-up DEVICE-PROVEN). Left behind: the EMPTY `Android/obb/com.github.android`
+folder BFE created (owner 10182 = BFE, 1079); removed by hand (rmdir as root) 12:29. Follow-up fix: discard() should
+also remove a folder it created when it is empty. Finished install (success path, OBB moved into place, Android handing
+the folder to the app's uid) NOT tried; Convert and split folder NOT tried.
+**Merge + release (user 12:2x EST: "merge and release a new stable"):** tree at merge == installed 1ad1d053 code
+(later commits: PROGRESS_LOG + README only). Backup refs/backup/20261120/main-before-bundle-install = a063683.
 **Resume point (older):** 0f9b0925 installed on the FIT. Next: user (or me, after asking) opens BFE → Download/BFE-bundle-tests →
 tap each test bundle: dialog should show GitHub 1.285.0, 3 of 3 parts ticked (Main app, Processor arm64-v8a, Screen
 xxhdpi), XAPK also "Game data (1 file)". Install = reinstalls GitHub over itself (same version + key, data kept,
