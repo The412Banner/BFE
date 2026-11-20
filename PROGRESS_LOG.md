@@ -31,7 +31,13 @@ user had said "install it when ready"). NOT opened yet = NOT device-tested.
 fake OBB main.10353.com.github.android.obb), `.apkm` (info.json), `.apks` (bundletool splits/ layout + toc.pb),
 `GitHub-split-folder/`. Installing one reinstalls GitHub (same version + signature) and makes BFE its installer of
 record (was Play) — ask the user first. Fake OBB must be removed after the test.
-**Resume point:** 0f9b0925 installed on the FIT. Next: user (or me, after asking) opens BFE → Download/BFE-bundle-tests →
+**Bug found on device (10:09 EST, user: "is it stuck reading the file?"):** tapping the .xapk left "Reading
+GitHub-1.285.0-test.xapk…" forever (screenshot; BFE alive, no crash). Cause: the LaunchedEffect cleared its own key
+(`bundleRequest = null`) at its start → Compose restarted the effect and cancelled the read; isOperationRunning stayed
+true. Fix 3e34423b: clear the request only in `finally`, and only when it is still ours. (Not slow I/O: AndroidManifest.xml
+is entry 0 in the test APKs.) CI run 44760622388 GREEN; staged `/sdcard/Download/BFE-bundle-install-3e34423b.apk`
+sha256 4d4d917a… (host == device); install awaits the user's yes.
+**Resume point (older):** 0f9b0925 installed on the FIT. Next: user (or me, after asking) opens BFE → Download/BFE-bundle-tests →
 tap each test bundle: dialog should show GitHub 1.285.0, 3 of 3 parts ticked (Main app, Processor arm64-v8a, Screen
 xxhdpi), XAPK also "Game data (1 file)". Install = reinstalls GitHub over itself (same version + key, data kept,
 installer becomes BFE) — user's OK needed. After an XAPK install check `/sdcard/Android/obb/com.github.android/` holds
