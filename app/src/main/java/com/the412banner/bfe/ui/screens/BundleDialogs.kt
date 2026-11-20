@@ -198,7 +198,7 @@ internal fun BundleDialog(
                 ) { Text("Install") }
             }
         },
-        dismissButton = if (running || finished) null else ({ TextButton(onClick = onDismiss) { Text("Cancel") } }),
+        dismissButton = { if (!running && !finished) TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

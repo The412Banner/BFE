@@ -282,6 +282,7 @@ internal class FileRowActions(
     val onProperties: () -> Unit,
     val onBrowse: () -> Unit,
     val onExtractTo: () -> Unit,
+    val onBundle: (convert: Boolean) -> Unit = {},
 )
 
 /** The entry's ⋮ menu: exactly Classic's items (FileContextMenuItems). */
@@ -293,7 +294,7 @@ private fun FileRowMenu(file: Loc, isFavorite: Boolean, a: FileRowActions) {
         onCompress = a.onCompress, onCloneApk = a.onCloneApk, onEditApk = a.onEditApk, onSignApk = a.onSignApk,
         onConvert = a.onConvert, onRename = a.onRename, onCopy = a.onCopy, onCut = a.onCut, onDelete = a.onDelete,
         onToggleFavorite = a.onToggleFavorite, onProperties = a.onProperties, onDismissMenu = a.onDismissMenu,
-        onBrowse = a.onBrowse, onExtractTo = a.onExtractTo,
+        onBrowse = a.onBrowse, onExtractTo = a.onExtractTo, onBundle = a.onBundle,
     )
 }
 
