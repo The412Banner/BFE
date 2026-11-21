@@ -70,6 +70,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -310,6 +311,8 @@ internal class FmChrome {
     var onAddAppStorage: () -> Unit = {}
     var onUnpin: (PinnedLocation) -> Unit = {}
     var listBottomPadding by mutableStateOf(12.dp)
+    /** Opens BFE's destination picker over the whole file manager: (title, on pick, on cancel). */
+    var pickLocation: ((String, (Loc, String) -> Unit, () -> Unit) -> Unit)? = null
 }
 
 internal val LocalFmChrome = staticCompositionLocalOf { FmChrome() }
@@ -393,7 +396,7 @@ internal fun AuroraPaneLayout(
     pickMode: Boolean,
     pickDirMode: Boolean,
     pickerTitle: String?,
-    onPickFolder: (File) -> Unit,
+    onPickHere: (() -> Unit)?,
     clipboard: List<Loc>,
     isCut: Boolean,
     onPaste: () -> Unit,
@@ -425,13 +428,20 @@ internal fun AuroraPaneLayout(
                 modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
             )
         }
-        if (pickDirMode && currentFile != null) {
-            AccentButton(
-                "Select this folder",
-                onClick = { onPickFolder(currentFile) },
-                icon = Icons.Filled.Check,
+        if (onPickHere != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+            ) {
+                GlassIconButton(Icons.Filled.CreateNewFolder, "New folder", onClick = { paneState.showNewFolderDialog = true })
+                Spacer(Modifier.width(8.dp))
+                AccentButton(
+                    "Select this folder",
+                    onClick = onPickHere,
+                    icon = Icons.Filled.Check,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         AuroraPaneHeader(paneState, currentLoc, currentFile, dualPane, onNavigate)
         AnimatedVisibility(

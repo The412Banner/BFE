@@ -60,6 +60,9 @@ class UnpackService : Service() {
         const val EXTRA_PARTS = "parts"
         // Space-saving unpack: delete as it goes even while there is room (bfecut --eager).
         const val EXTRA_SPACE_EAGER = "spaceEager"
+        // Extracting to app storage, a root folder or a remote: an [ExtractHandoff.Target] (encoded); the
+        // dest is then a staging folder and the result is put in place after the engine finishes.
+        const val EXTRA_HANDOFF = "handoff"
 
         // Process-static so the notification's Cancel action can reach the running process even if
         // onStartCommand hasn't re-published `instance` yet.
@@ -104,6 +107,7 @@ class UnpackService : Service() {
         fun start(
             ctx: Context, archive: String, dest: String, mmt: Int, bufferBytes: Int, isInno: Boolean, totalSize: Long,
             engine: String = "7z", parts: List<String>? = null, spaceEager: Boolean = false,
+            handoff: ExtractHandoff.Target? = null,
         ) {
             val app = ctx.applicationContext
             val i = Intent(app, UnpackService::class.java).apply {
@@ -117,6 +121,7 @@ class UnpackService : Service() {
                 putExtra(EXTRA_ENGINE, engine)
                 parts?.let { putStringArrayListExtra(EXTRA_PARTS, ArrayList(it)) }
                 putExtra(EXTRA_SPACE_EAGER, spaceEager)
+                handoff?.encode()?.let { putExtra(EXTRA_HANDOFF, it) }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(i) else app.startService(i)
         }
@@ -126,7 +131,7 @@ class UnpackService : Service() {
          * another into the SAME [dest] — the GOG DLC auto-batch. [totalSize] is the combined `.bin`
          * payload of the whole folder so the one progress bar climbs across the entire batch.
          */
-        fun startBatch(ctx: Context, archives: List<String>, dest: String, totalSize: Long) {
+        fun startBatch(ctx: Context, archives: List<String>, dest: String, totalSize: Long, handoff: ExtractHandoff.Target? = null) {
             val app = ctx.applicationContext
             val i = Intent(app, UnpackService::class.java).apply {
                 action = ACTION_START
@@ -138,6 +143,7 @@ class UnpackService : Service() {
                 putExtra(EXTRA_IS_INNO, true)
                 putExtra(EXTRA_TOTAL_SIZE, totalSize)
                 putExtra(EXTRA_ENGINE, "inno")
+                handoff?.encode()?.let { putExtra(EXTRA_HANDOFF, it) }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(i) else app.startService(i)
         }
@@ -264,6 +270,7 @@ class UnpackService : Service() {
                 val engine = intent.getStringExtra(EXTRA_ENGINE) ?: "7z"
                 val parts = intent.getStringArrayListExtra(EXTRA_PARTS)
                 val spaceEager = intent.getBooleanExtra(EXTRA_SPACE_EAGER, false)
+                val handoff = ExtractHandoff.Target.decode(intent.getStringExtra(EXTRA_HANDOFF))
                 // A GOG DLC batch arrives as EXTRA_ARCHIVES (base first); a normal job as EXTRA_ARCHIVE.
                 val archives = intent.getStringArrayListExtra(EXTRA_ARCHIVES)
                     ?.map { File(it) }?.takeIf { it.isNotEmpty() }
@@ -280,7 +287,7 @@ class UnpackService : Service() {
                 startForegroundCompat(buildNotification(UnpackManager.current.copy(
                     phase = UnpackPhase.LISTING, archiveName = archives.first().name,
                 )))
-                runExtraction(archives, File(dest), mmt, buffer, isInno, totalSize, engine, parts, spaceEager)
+                runExtraction(archives, File(dest), mmt, buffer, isInno, totalSize, engine, parts, spaceEager, handoff)
                 return START_STICKY
             }
         }
@@ -289,7 +296,7 @@ class UnpackService : Service() {
 
     private fun runExtraction(
         archives: List<File>, destDir: File, mmt: Int, buffer: Int, isInno: Boolean, totalSize: Long, engine: String,
-        parts: List<String>? = null, spaceEager: Boolean = false,
+        parts: List<String>? = null, spaceEager: Boolean = false, handoff: ExtractHandoff.Target? = null,
     ) {
         cancelled = false
         paused = false
@@ -316,6 +323,7 @@ class UnpackService : Service() {
                     isInno = isInno,
                     engine = engine,
                     batchTotal = batchTotal,
+                    deliverTo = handoff?.label,
                 )
             )
             refresh()
@@ -591,6 +599,33 @@ class UnpackService : Service() {
             }
 
             proc = null
+            // Extracted into a staging folder: put the result where the user asked (ExtractHandoff).
+            var delivery: String? = null
+            var deliveryFailed = false
+            if (handoff != null && !cancelled && result.exitCode <= 1) {
+                UnpackManager.update { it.copy(phase = UnpackPhase.EXTRACTING, percent = 0, currentFile = "Copying into ${handoff.label}…", speedBps = 0, etaSeconds = -1) }
+                refresh()
+                val outcome = runCatching {
+                    ExtractHandoff.deliver(ctx, destDir, handoff, isCancelled = { cancelled }) { pct ->
+                        UnpackManager.update { it.copy(percent = pct.coerceAtLeast(0)) }
+                        refresh()
+                    }
+                }.getOrElse { ExtractHandoff.Outcome.Failed(destDir) }
+                when (outcome) {
+                    ExtractHandoff.Outcome.Copied -> delivery = "Copied into ${handoff.label}"
+                    ExtractHandoff.Outcome.Queued -> delivery = "Uploading to ${handoff.label} (see Transfers)"
+                    ExtractHandoff.Outcome.Cancelled -> Unit
+                    is ExtractHandoff.Outcome.Failed -> {
+                        deliveryFailed = true
+                        delivery = "Couldn't copy into ${handoff.label}. The files are in ${outcome.keptAt.absolutePath}"
+                        ErrorLog.record(ctx, "Extract to ${handoff.loc.javaClass.simpleName}", "copy into the destination failed",
+                            details = listOf(ErrorLog.archiveFacts(archive.name, dataSize)))
+                    }
+                }
+            } else if (handoff != null) {
+                // Failed or cancelled before anything was handed over: the staging folder is only temp.
+                destDir.parentFile?.takeIf { ExtractHandoff.isStaging(ctx, it.absolutePath) }?.deleteRecursively()
+            }
             val elapsed = SystemClock.elapsedRealtime() - startMs
             val terminal = when {
                 cancelled -> UnpackState(
@@ -602,6 +637,7 @@ class UnpackService : Service() {
                 result.exitCode <= 1 -> UnpackManager.current.copy(
                     phase = UnpackPhase.DONE, percent = 100, elapsedMs = elapsed,
                     filesExtracted = files, speedBps = 0, etaSeconds = 0, currentFile = null,
+                    delivery = delivery, deliveryFailed = deliveryFailed,
                 )
                 else -> UnpackManager.current.copy(
                     phase = UnpackPhase.ERROR, elapsedMs = elapsed, filesExtracted = files,
@@ -835,6 +871,7 @@ class UnpackService : Service() {
                 val doneText = buildString {
                     append("${s.filesExtracted} files • ${StringUtils.formatBytes(s.archiveSize)} in ${formatDuration(s.elapsedMs)}")
                     if (s.batchFailed > 0) append(" • ${s.batchFailed} DLC skipped (couldn't be read)")
+                    s.delivery?.let { append("\n").append(it) }
                 }
                 doneTitle to doneText
             }
@@ -848,7 +885,13 @@ class UnpackService : Service() {
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(tap)
-            .apply { if (s.phase == UnpackPhase.DONE && s.destPath.isNotEmpty()) addAction(openFolderAction(id, s.destPath)) }
+            // A job that went to app storage / root / a remote has no device folder to open, unless the files
+            // couldn't be put there and wait in the staging folder.
+            .apply {
+                if (s.phase == UnpackPhase.DONE && s.destPath.isNotEmpty() && (s.deliverTo == null || s.deliveryFailed)) {
+                    addAction(openFolderAction(id, s.destPath))
+                }
+            }
             .build()
         nm.notify(id, n)
     }

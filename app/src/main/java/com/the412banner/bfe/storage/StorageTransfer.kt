@@ -22,7 +22,9 @@ object StorageTransfer {
         destDir: Loc,
         targetName: String,
         onBytes: (Long) -> Unit = {},
-    ): Boolean = copyRec(context, src, destDir, targetName, longArrayOf(0L), onBytes)
+        // Checked before each item and between buffers; true stops the copy (the result is false).
+        isCancelled: () -> Boolean = { false },
+    ): Boolean = copyRec(context, src, destDir, targetName, longArrayOf(0L), onBytes, isCancelled)
 
     private fun copyRec(
         context: Context,
@@ -31,7 +33,9 @@ object StorageTransfer {
         targetName: String,
         acc: LongArray,
         onBytes: (Long) -> Unit,
+        isCancelled: () -> Boolean,
     ): Boolean {
+        if (isCancelled()) return false
         val srcBackend = Storage.backend(src)
         val dstBackend = Storage.backend(destDir)
         return if (src.isDir) {
@@ -39,7 +43,8 @@ object StorageTransfer {
             val newDir = existing ?: dstBackend.createFolder(context, destDir, targetName) ?: return false
             var ok = true
             for (child in srcBackend.listChildren(context, src)) {
-                ok = copyRec(context, child, newDir, child.name, acc, onBytes) && ok
+                if (isCancelled()) return false
+                ok = copyRec(context, child, newDir, child.name, acc, onBytes, isCancelled) && ok
             }
             ok
         } else {
@@ -50,6 +55,7 @@ object StorageTransfer {
             try {
                 val buf = ByteArray(256 * 1024)
                 while (true) {
+                    if (isCancelled()) return false
                     val n = input.read(buf)
                     if (n < 0) break
                     output.write(buf, 0, n)

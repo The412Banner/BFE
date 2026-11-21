@@ -3,14 +3,11 @@ package com.the412banner.bfe.ui.screens
 import com.the412banner.bfe.ui.components.bfeBarBackground
 import com.the412banner.bfe.ui.components.bfeCardColors
 import com.the412banner.bfe.ui.components.bfeCardBorder
-import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -89,10 +86,12 @@ import com.the412banner.bfe.unpack.UnpackService
 import com.the412banner.bfe.unpack.RepackLayers
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.Bannerlator
-import com.the412banner.bfe.util.DirPicker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.the412banner.bfe.storage.Loc
+import com.the412banner.bfe.ui.screens.home.LocationPickerOverlay
+import com.the412banner.bfe.unpack.ExtractHandoff
 import java.io.File
 
 /**
@@ -110,6 +109,9 @@ fun UnpackArchiveScreen(
     // Optional starting extract destination (BFE dual-pane: the other pane's directory). When set,
     // "Extract to" seeds a subfolder inside it instead of a sibling of the archive; still overridable.
     initialDestPath: String? = null,
+    // An app storage / root / remote destination (dual-pane: the other pane): extracted into a staging
+    // folder, then put there by the unpack job ([ExtractHandoff]). Supersedes [initialDestPath].
+    initialTarget: ExtractHandoff.Target? = null,
     // One-tap "Extract to ./<Archive name>/" from another app's Open with sheet: once the pre-flight
     // settles, press the primary action automatically (same engine, same default folder) — once only.
     autoStart: Boolean = false,
@@ -182,15 +184,23 @@ fun UnpackArchiveScreen(
             ?: if (isInno) archive.parentFile?.parentFile ?: archive.parentFile else selected.parentFile
         mutableStateOf(File(base, defaultName).absolutePath)
     }
-    val destPicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            DirPicker.resolvePath(result.data)?.let {
-                // Land inside the chosen folder, in a subfolder named for the game, so the extract
-                // never carpets someone's Games root with loose files.
-                destPath = File(it, defaultName).absolutePath
-            }
+    // Set when the destination is app storage, a root folder or a remote (not a device folder).
+    var destTarget by remember(archivePath, initialTarget) { mutableStateOf(initialTarget) }
+    var showDestPicker by remember { mutableStateOf(false) }
+    // Picked in BFE's own picker: land inside the chosen folder, in a subfolder named for the game, so the
+    // extract never carpets someone's Games root with loose files.
+    val onDestPicked: (Loc, String) -> Unit = { loc, label ->
+        showDestPicker = false
+        if (loc is Loc.FileLoc) {
+            destPath = File(loc.file, defaultName).absolutePath
+            destTarget = null
+        } else {
+            destTarget = ExtractHandoff.Target(loc, label)
         }
     }
+    // The folder the engine writes: the chosen device folder, or a fresh staging folder when the files go
+    // to app storage / a root folder / a remote afterwards.
+    fun jobDest(): String = destTarget?.let { File(ExtractHandoff.newStagingDir(context), defaultName).absolutePath } ?: destPath
 
     var powerMode by remember { mutableStateOf(PowerMode.MAX) }
     var manualCores by remember { mutableStateOf(cores) }
@@ -202,7 +212,7 @@ fun UnpackArchiveScreen(
     // the user to grant it rather than ship a half-working SAF-for-native path.
     val hasAllFiles = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
     val destOnSharedStorage = destPath.startsWith("/storage/") && !destPath.startsWith(context.filesDir.absolutePath)
-    val gatedByPermission = destOnSharedStorage && !hasAllFiles
+    val gatedByPermission = (destOnSharedStorage || destTarget != null) && !hasAllFiles
 
     // InnoSetup routing (see classifyInno). While classifying we hold the action buttons.
     val innoClassifying = isInno && innoClass == null
@@ -267,31 +277,31 @@ fun UnpackArchiveScreen(
     val canUnarc = innoFreeArc && !gatedByPermission && jobArchive.isFile && !otherJobRunning
     val startUnarc = {
         UnpackManager.clearIfTerminal()
-        UnpackService.start(context, jobArchive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize,
-            if (innoLayers) Unarc.ENGINE_LAYERS else Unarc.ENGINE)
+        UnpackService.start(context, jobArchive.absolutePath, jobDest(), 1, buffer.bytes, true, sourceSize,
+            if (innoLayers) Unarc.ENGINE_LAYERS else Unarc.ENGINE, handoff = destTarget)
     }
     val canInno = innoExtract && !engineMissingInno && !gatedByPermission && archive.isFile && !otherJobRunning
     val startInno = {
         UnpackManager.clearIfTerminal()
         // isInno=true selects the innoextract engine in the service.
         if (alsoExtractDlc && dlcInstallers.size > 1) {
-            UnpackService.startBatch(context, dlcInstallers.map { it.absolutePath }, destPath, sourceSize)
+            UnpackService.startBatch(context, dlcInstallers.map { it.absolutePath }, jobDest(), sourceSize, destTarget)
         } else {
-            UnpackService.start(context, archive.absolutePath, destPath, 1, buffer.bytes, true, sourceSize)
+            UnpackService.start(context, archive.absolutePath, jobDest(), 1, buffer.bytes, true, sourceSize, handoff = destTarget)
         }
     }
     val canSevenZip = sevenZipAllowed && !gatedByPermission && !engineMissing && archive.isFile && !otherJobRunning
     val startSevenZip = {
         UnpackManager.clearIfTerminal()
         val mmt = UnpackManager.mmtFor(powerMode, manualCores)
-        UnpackService.start(context, archive.absolutePath, destPath, mmt, buffer.bytes, false, sourceSize)
+        UnpackService.start(context, archive.absolutePath, jobDest(), mmt, buffer.bytes, false, sourceSize, handoff = destTarget)
     }
     val canExtra = extraAllowed && !gatedByPermission && archive.isFile && !otherJobRunning &&
         (!isPayload || chosenParts.isNotEmpty())
     val startExtra = {
         UnpackManager.clearIfTerminal()
         val parts = if (isPayload) extraProbe?.partitions?.map { it.name }?.filter { it in chosenParts } else null
-        UnpackService.start(context, archive.absolutePath, destPath, 1, buffer.bytes, false, sourceSize, ExtraFormats.ENGINE, parts)
+        UnpackService.start(context, archive.absolutePath, jobDest(), 1, buffer.bytes, false, sourceSize, ExtraFormats.ENGINE, parts, handoff = destTarget)
     }
 
     // ── Space-saving unpack ("unpack and delete the download as it goes", SpaceSaver / bfecut) ──
@@ -299,7 +309,8 @@ fun UnpackArchiveScreen(
     // (BFE's own copy), not where All Files access is missing. The engine's plan decides the rest.
     val spaceTarget = if (innoFreeArcBuiltin) jobArchive else archive
     val spaceEngine = remember { SpaceSaver.isAvailable(context) }
-    val spaceEligible = spaceEngine && (sevenZipAllowed || innoFreeArcBuiltin) && !gatedByPermission &&
+    // Device folders only: with a staging folder the download would be gone before the copy succeeded.
+    val spaceEligible = spaceEngine && destTarget == null && (sevenZipAllowed || innoFreeArcBuiltin) && !gatedByPermission &&
         !spaceTarget.absolutePath.startsWith(com.the412banner.bfe.util.IncomingFile.incomingDir(context).absolutePath + "/")
     var spacePlan by remember(archivePath) { mutableStateOf<SpaceSaver.Plan?>(null) }
     var spaceMode by remember(archivePath) { mutableStateOf(false) }
@@ -442,17 +453,26 @@ fun UnpackArchiveScreen(
                 Text("Extract to", style = sectionTitle())
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    destPath,
+                    destTarget?.let { "${it.label}/$defaultName" } ?: destPath,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                destTarget?.let { t ->
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        if (t.loc is Loc.RemoteLoc) "Unpacks on this device first, then uploads in the background."
+                        else "Unpacks on this device first, then copies there.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     enabled = !running,
-                    onClick = { destPicker.launch(DirPicker.buildDirIntent()) },
+                    onClick = { showDestPicker = true },
                     border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                 ) {
                     BfeIcon(FileIcons.FOLDER, size = 18.dp)
@@ -958,7 +978,12 @@ fun UnpackArchiveScreen(
                                 Text("The download was deleted as it unpacked.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                             }
                             Spacer(Modifier.height(2.dp))
-                            Text(state.destPath, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (state.deliverTo != null && !state.deliveryFailed) {
+                                Text(state.delivery ?: state.deliverTo.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            } else {
+                                state.delivery?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
+                                Text(state.destPath, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                     UnpackPhase.ERROR -> {
@@ -1009,6 +1034,15 @@ fun UnpackArchiveScreen(
                 }
             }
         }
+    }
+
+    // BFE's own destination picker (every Home place, remotes included), over the whole screen.
+    if (showDestPicker) {
+        LocationPickerOverlay(
+            title = "Extract to",
+            onPick = onDestPicked,
+            onDismiss = { showDestPicker = false },
+        )
     }
 }
 

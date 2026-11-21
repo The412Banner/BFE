@@ -1,8 +1,6 @@
 package com.the412banner.bfe.ui.screens
 
 import android.content.Context
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -69,7 +67,6 @@ import com.the412banner.bfe.storage.Loc
 import com.the412banner.bfe.unpack.SevenZip
 import com.the412banner.bfe.util.AppSnackbar
 import com.the412banner.bfe.util.DateText
-import com.the412banner.bfe.util.DirPicker
 import com.the412banner.bfe.util.ErrorLog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -408,13 +405,11 @@ private fun ArchiveExtractDialog(
     val context = LocalContext.current
     val newFolderName = remember(outerArchive) { outerArchive?.let { SevenZip.suggestedTargetName(it) } ?: "Extracted" }
     var choice by remember { mutableStateOf(if (otherPane != null) ExtractDest.OTHER else ExtractDest.HERE) }
-    var picked by remember { mutableStateOf<File?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
-        val path = DirPicker.resolvePath(r.data)
-        val dir = path?.let(::File)?.takeIf { it.isDirectory }
-        if (dir != null) { picked = dir; choice = ExtractDest.PICKED }
-        else if (r.data?.data != null) AppSnackbar.show(context, "That folder can't be used — pick one on internal storage or an SD card")
-    }
+    // Chosen in BFE's own picker (any place: device, app storage, root, cloud, remote) and its name.
+    var picked by remember { mutableStateOf<Pair<Loc, String>?>(null) }
+    // The picker covers the screen; this dialog steps aside meanwhile (its choices are kept).
+    var picking by remember { mutableStateOf(false) }
+    val chrome = LocalFmChrome.current
 
     @Composable
     fun Option(dest: ExtractDest, title: String, detail: String?, onClick: () -> Unit = { choice = dest }) {
@@ -432,7 +427,7 @@ private fun ArchiveExtractDialog(
         }
     }
 
-    OutlinedAlertDialog(
+    if (!picking) OutlinedAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (items.size == 1) "Extract ${items[0].name}" else "Extract ${items.size} items") },
         text = {
@@ -444,9 +439,13 @@ private fun ArchiveExtractDialog(
                     Option(ExtractDest.HERE, "Next to the archive", hereDir.absolutePath)
                     Option(ExtractDest.NEW_FOLDER, "New folder “$newFolderName”", "Next to the archive")
                 }
-                Option(ExtractDest.PICKED, "Choose folder…", picked?.absolutePath) {
-                    runCatching { picker.launch(DirPicker.buildDirIntent()) }
-                        .onFailure { AppSnackbar.show(context, "No folder picker available") }
+                Option(ExtractDest.PICKED, "Choose folder…", picked?.second) {
+                    val open = chrome.pickLocation
+                    if (open == null) AppSnackbar.show(context, "No folder picker available")
+                    else {
+                        picking = true
+                        open("Extract to", { loc, name -> picked = loc to name; choice = ExtractDest.PICKED; picking = false }, { picking = false })
+                    }
                 }
             }
         },
@@ -461,7 +460,7 @@ private fun ArchiveExtractDialog(
                     when (choice) {
                         ExtractDest.OTHER -> otherPane?.let(onConfirm)
                         ExtractDest.HERE -> hereDir?.let { onConfirm(Loc.FileLoc(it)) }
-                        ExtractDest.PICKED -> picked?.let { onConfirm(Loc.FileLoc(it)) }
+                        ExtractDest.PICKED -> picked?.first?.let(onConfirm)
                         ExtractDest.NEW_FOLDER -> hereDir?.let { here ->
                             scope.launch {
                                 val dir = File(here, newFolderName)

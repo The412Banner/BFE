@@ -535,7 +535,10 @@ class PaneState(
     /** The pane's current directory, as a backend-agnostic [Loc]. */
     val currentLoc: Loc get() = if (isAlt) altStack.last() else Loc.FileLoc(File(path))
 
-    val canGoUp: Boolean get() = if (isAlt) true else path != rootPath
+    // Destination pickers: the top of a root / app storage / remote location is the floor (Back there
+    // returns to the picker's places list instead of dropping to a device folder).
+    var altRootIsFloor = false
+    val canGoUp: Boolean get() = if (isAlt) !(altRootIsFloor && altStack.size == 1) else path != rootPath
 
     fun openAltRoot(root: Loc, label: String) { altStack = listOf(root); altLabel = label }
     /** Whether the pane is showing the inside of an archive (read-only). */
@@ -627,6 +630,10 @@ fun FileManagerScreen(
     onBackAtRoot: (() -> Unit)? = null,
     // Aurora Glass: the "Sharing" status chip opens the Access-from-network screen.
     onOpenServer: (() -> Unit)? = null,
+    // Destination pickers (LocationPickerOverlay): "Select this folder" works in any location, not only
+    // device folders, and returns it with a plain name; the top of such a location is a Back floor.
+    onPickLoc: ((Loc, String) -> Unit)? = null,
+    altRootIsFloor: Boolean = false,
 ) {
     val context = LocalContext.current
     val prefs = remember { androidx.preference.PreferenceManager.getDefaultSharedPreferences(context) }
@@ -668,6 +675,8 @@ fun FileManagerScreen(
         activeIndex = 0
     }
     val active = if (effectiveDual && activeIndex == 1) rightPane else leftPane
+    leftPane.altRootIsFloor = altRootIsFloor
+    rightPane.altRootIsFloor = altRootIsFloor
 
     // Drive list for the toolbar's dropdown; re-enumerated when we come back to the screen.
     var storageTick by remember { mutableIntStateOf(0) }
@@ -796,6 +805,8 @@ fun FileManagerScreen(
     fmChrome.onOpenPinned = { openPinned(it) }
     fmChrome.onAddAppStorage = { showAddStorage = true }
     fmChrome.onUnpin = { p -> PinnedStorage.remove(context, p); pinnedTick++ }
+    var locPick by remember { mutableStateOf<LocPickRequest?>(null) }
+    fmChrome.pickLocation = { title, onPicked, onCancel -> locPick = LocPickRequest(title, onPicked, onCancel) }
     val hazeState = remember { HazeState() }
     val otherPane = if (active === leftPane) rightPane else leftPane
     // The selection pill follows the active pane, or the other one if only it is selecting.
@@ -880,6 +891,7 @@ fun FileManagerScreen(
                     initialDir = initialDir,
                     pickerTitle = pickerTitle,
                     onPick = onPick,
+                    onPickLoc = onPickLoc,
                     modifier = Modifier.weight(1f).fillMaxWidth()
                         .then(if (aurora) Modifier.padding(start = if (landscape) 2.dp else 10.dp, end = 10.dp, top = 2.dp, bottom = 8.dp).auroraPaneCard(true) else Modifier),
                 )
@@ -928,8 +940,21 @@ fun FileManagerScreen(
             )
         }
     }
+    // BFE's destination picker (e.g. an archive's Extract to… › Choose folder…), over the whole screen.
+    locPick?.let { r ->
+        com.the412banner.bfe.ui.screens.home.LocationPickerOverlay(
+            title = r.title,
+            onPick = { loc, name -> locPick = null; r.onPick(loc, name) },
+            onDismiss = { locPick = null; r.onCancel() },
+        )
+    }
     }
 }
+
+/** Where a dual-pane extraction writes ([dir]) and, for app storage / root / remotes, where it goes after. */
+private class ExtractTarget(val dir: File, val handoff: com.the412banner.bfe.unpack.ExtractHandoff.Target?)
+
+private class LocPickRequest(val title: String, val onPick: (Loc, String) -> Unit, val onCancel: () -> Unit)
 
 /**
  * "Add app storage" picker with two sections:
@@ -1465,6 +1490,7 @@ fun BrowserPane(
     initialDir: File? = null,
     pickerTitle: String? = null,
     onPick: ((File) -> Unit)? = null,
+    onPickLoc: ((Loc, String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1491,6 +1517,14 @@ fun BrowserPane(
     // way. currentFile is non-null only in File mode, for the File-only extras (free space, favourites).
     val currentLoc: Loc = paneState.currentLoc
     val currentFile: File? = (currentLoc as? Loc.FileLoc)?.file
+    // Folder-pick mode's "Select this folder": any location for a destination picker ([onPickLoc]),
+    // else device folders only. Never inside an archive (read-only).
+    val pickHere: (() -> Unit)? = when {
+        !pickDirMode || currentLoc is Loc.ArchiveLoc -> null
+        onPickLoc != null -> ({ onPickLoc(currentLoc, pickedName(paneState, currentLoc)) })
+        currentFile != null -> ({ onPick?.invoke(currentFile) })
+        else -> null
+    }
     var entries by remember { mutableStateOf<List<Loc>>(emptyList()) }
     // The location [entries] were listed from (Aurora animates folder changes off it).
     var entriesFor by remember { mutableStateOf<String?>(null) }
@@ -1962,53 +1996,19 @@ fun BrowserPane(
         openBuiltInOrSheet(loc, fromArchive = null)
     }
 
-    // Extraction into a SAF/root pane: the native engines need a real app-owned path, so we extract
-    // into a temp dir under our cache and, once the job reports DONE, stream-copy the result into the
-    // target location (root writes get chown'd to the app uid by RootBackend), then delete the temp.
-    var pendingExtractCopy by remember { mutableStateOf<Pair<File, Loc>?>(null) }
-
-    // In dual-pane mode, extraction defaults into the OTHER pane: directly when it's a File dir, via a
-    // temp dir + post-copy when it's SAF/root. Single-pane keeps the engine's sibling-folder default.
-    fun extractDest(): File? {
+    // In dual-pane mode, extraction defaults into the OTHER pane: directly when it's a device folder;
+    // app storage, root folders and remotes get a staging folder, and the unpack job itself puts the
+    // result there afterwards (ExtractHandoff), so it lands even if this screen is closed meanwhile.
+    // Single-pane keeps the engine's sibling-folder default.
+    fun extractTarget(): ExtractTarget? {
         if (!dualPane) return null
         return when (val other = otherPaneDir()) {
             null -> null
-            is Loc.FileLoc -> other.file
-            else -> File(context.cacheDir, "extract-${System.currentTimeMillis()}").also {
-                it.mkdirs()
-                pendingExtractCopy = it to other
-            }
-        }
-    }
-
-    val unpackState by com.the412banner.bfe.unpack.UnpackManager.state.collectAsState()
-    LaunchedEffect(unpackState.phase, pendingExtractCopy) {
-        val pending = pendingExtractCopy ?: return@LaunchedEffect
-        val (tmp, target) = pending
-        when (unpackState.phase) {
-            com.the412banner.bfe.unpack.UnpackPhase.DONE -> {
-                if (!unpackState.destPath.startsWith(tmp.absolutePath)) return@LaunchedEffect
-                pendingExtractCopy = null
-                isOperationRunning = true
-                operationDeterminate = false
-                operationLabel = "Copying extracted files into ${target.name}…"
-                val ok = withContext(Dispatchers.IO) {
-                    val extracted = File(unpackState.destPath)
-                    val r = StorageTransfer.copyInto(context, Loc.FileLoc(extracted), target, extracted.name)
-                    tmp.deleteRecursively()
-                    r
-                }
-                isOperationRunning = false
-                onRequestOtherReload()
-                AppSnackbar.show(context, if (ok) "Extracted into ${target.name}" else "Some extracted files couldn't be copied", long = true)
-            }
-            com.the412banner.bfe.unpack.UnpackPhase.ERROR, com.the412banner.bfe.unpack.UnpackPhase.CANCELLED -> {
-                if (unpackState.destPath.startsWith(tmp.absolutePath)) {
-                    pendingExtractCopy = null
-                    withContext(Dispatchers.IO) { tmp.deleteRecursively() }
-                }
-            }
-            else -> Unit
+            is Loc.FileLoc -> ExtractTarget(other.file, null)
+            else -> ExtractTarget(
+                com.the412banner.bfe.unpack.ExtractHandoff.newStagingDir(context),
+                com.the412banner.bfe.unpack.ExtractHandoff.Target(other, RemotePaste.placeOf(other)),
+            )
         }
     }
 
@@ -2018,9 +2018,9 @@ fun BrowserPane(
         val file = (loc as? Loc.FileLoc)?.file ?: run {
             AppSnackbar.show(context, "Extraction from app storage isn't supported yet"); return
         }
-        val dest = extractDest()
+        val target = extractTarget()
         scope.launch {
-            when (val o = com.the412banner.bfe.unpack.FastExtract.start(context, file, dest)) {
+            when (val o = com.the412banner.bfe.unpack.FastExtract.start(context, file, target?.dir, target?.handoff)) {
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.Started -> {
                     AppSnackbar.show(context, "Unpacking ${o.name}…")
                     if (dualPane) onRequestOtherReload()
@@ -2032,7 +2032,7 @@ fun BrowserPane(
                 is com.the412banner.bfe.unpack.FastExtract.Outcome.OpenScreen -> {
                     o.toast?.let { AppSnackbar.show(context, it) }
                     context.startActivity(
-                        com.the412banner.bfe.UnpackArchiveActivity.intent(context, o.archivePath, dest?.absolutePath)
+                        com.the412banner.bfe.UnpackArchiveActivity.intent(context, o.archivePath, target?.dir?.takeIf { target?.handoff == null }?.absolutePath, target?.handoff)
                     )
                 }
             }
@@ -2042,8 +2042,12 @@ fun BrowserPane(
     fun launchUnpack(loc: Loc) {
         showMenuFor = null
         val file = (loc as? Loc.FileLoc)?.file ?: return
+        // The Unpack screen makes its own staging folder for app storage / root / remote destinations.
+        val other = if (dualPane) otherPaneDir() else null
+        val handoff = other?.takeIf { com.the412banner.bfe.unpack.ExtractHandoff.needed(it) }
+            ?.let { com.the412banner.bfe.unpack.ExtractHandoff.Target(it, RemotePaste.placeOf(it)) }
         context.startActivity(
-            com.the412banner.bfe.UnpackArchiveActivity.intent(context, file.absolutePath, extractDest()?.absolutePath)
+            com.the412banner.bfe.UnpackArchiveActivity.intent(context, file.absolutePath, (other as? Loc.FileLoc)?.file?.absolutePath, handoff)
         )
     }
 
@@ -3302,7 +3306,7 @@ fun BrowserPane(
             pickMode = pickMode,
             pickDirMode = pickDirMode,
             pickerTitle = pickerTitle,
-            onPickFolder = { f -> onPick?.invoke(f) },
+            onPickHere = pickHere,
             clipboard = clipboard,
             isCut = isCutOperation,
             onPaste = { performPaste() },
@@ -3355,17 +3359,19 @@ fun BrowserPane(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             )
         }
-        // ── Dir-pick action bar: confirm the currently-browsed folder (File locations only) ──
-        if (pickDirMode && currentFile != null) {
-            Button(
-                onClick = { onPick?.invoke(currentFile) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+        // ── Dir-pick action bar: a new folder here, or confirm the currently-browsed folder ──
+        if (pickHere != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
-                BfeIcon(FileIcons.FOLDER, size = 18.dp)
+                OutlinedButton(onClick = { paneState.showNewFolderDialog = true }) { Text("New folder") }
                 Spacer(Modifier.width(8.dp))
-                Text("Select this folder")
+                Button(onClick = pickHere, modifier = Modifier.weight(1f)) {
+                    BfeIcon(FileIcons.FOLDER, size = 18.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Select this folder")
+                }
             }
         }
         // ── Search field ── (toggled by the shared toolbar) filters the current folder only.
@@ -4865,6 +4871,18 @@ private fun PaneDivider(onDrag: (Float) -> Unit, onDragEnd: () -> Unit, onReset:
                 .background(MaterialTheme.colorScheme.outline),
         )
     }
+}
+
+/**
+ * A picked folder in plain words: a device or root folder's path, a remote's "name/path", or an app
+ * storage folder's place followed by the folders opened below it.
+ */
+internal fun pickedName(pane: PaneState, loc: Loc): String = when (loc) {
+    is Loc.FileLoc -> loc.file.absolutePath
+    is Loc.RootLoc -> loc.path
+    is Loc.RemoteLoc -> if (loc.path.isEmpty()) loc.remote else "${loc.remote}/${loc.path}"
+    else -> (listOf(pane.altLabel.ifBlank { pane.altStack.firstOrNull()?.name.orEmpty() }) + pane.altStack.drop(1).map { it.name })
+        .filter { it.isNotBlank() }.joinToString("/").ifBlank { loc.name }
 }
 
 /** The pane's second line under a remote folder's error: what to try, and where the details went. */

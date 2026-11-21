@@ -37,8 +37,10 @@ object FastExtract {
      * @param destOverride when non-null (BFE dual-pane: the OTHER pane's directory), the extracted
      *   game/archive folder lands inside it instead of a sibling of the source; null keeps the
      *   engine's default (a new sibling folder next to the archive).
+     * @param handoff when non-null, [destOverride] is a staging folder and the result goes there
+     *   afterwards (app storage, a root folder or a remote; see [ExtractHandoff]).
      */
-    suspend fun start(context: Context, file: File, destOverride: File? = null): Outcome {
+    suspend fun start(context: Context, file: File, destOverride: File? = null, handoff: ExtractHandoff.Target? = null): Outcome {
         if (UnpackManager.current.isRunning) return Outcome.Busy
 
         val innoTarget = SevenZip.resolveInnoTarget(file)
@@ -61,10 +63,10 @@ object FastExtract {
                     // .bin in the folder, so it doubles as the combined batch payload for the bar.
                     val installers = withContext(Dispatchers.IO) { SevenZip.siblingInnoInstallers(archive) }
                     if (installers.size > 1) {
-                        UnpackService.startBatch(context, installers.map { it.absolutePath }, dest, size)
+                        UnpackService.startBatch(context, installers.map { it.absolutePath }, dest, size, handoff = handoff)
                         Outcome.Started("${archive.name} + ${installers.size - 1} DLC")
                     } else {
-                        UnpackService.start(context, archive.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, "inno")
+                        UnpackService.start(context, archive.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, "inno", handoff = handoff)
                         Outcome.Started(archive.name)
                     }
                 }
@@ -72,14 +74,14 @@ object FastExtract {
                     if (!hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
                     val job = cls.freeArcArchive ?: archive
                     val dest = defaultDest(archive, isInno = true, overrideBase = destOverride)
-                    UnpackService.start(context, job.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, "unarc")
+                    UnpackService.start(context, job.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, "unarc", handoff = handoff)
                     Outcome.Started(job.name)
                 }
                 SevenZip.InnoRoute.FREEARC_LAYERS -> {
                     if (!hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
                     val job = cls.freeArcArchive ?: archive
                     val dest = defaultDest(archive, isInno = true, overrideBase = destOverride)
-                    UnpackService.start(context, job.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, Unarc.ENGINE_LAYERS)
+                    UnpackService.start(context, job.absolutePath, dest, 1, ReadBuffer.MB1.bytes, true, size, Unarc.ENGINE_LAYERS, handoff = handoff)
                     Outcome.Started(job.name)
                 }
                 // A layer BFE can't decode, or no engine: the Unpack screen explains and offers Bannerlator.
@@ -94,7 +96,7 @@ object FastExtract {
         if (extra != null) {
             if (extra.problem != null || !hasAllFiles) return Outcome.OpenScreen(file.absolutePath, null)
             val dest = defaultDest(archive, isInno = false, overrideBase = destOverride)
-            UnpackService.start(context, archive.absolutePath, dest, 1, ReadBuffer.MB1.bytes, false, archive.length(), ExtraFormats.ENGINE)
+            UnpackService.start(context, archive.absolutePath, dest, 1, ReadBuffer.MB1.bytes, false, archive.length(), ExtraFormats.ENGINE, handoff = handoff)
             return Outcome.Started(archive.name)
         }
 
@@ -105,7 +107,7 @@ object FastExtract {
 
         val dest = defaultDest(archive, isInno = false, overrideBase = destOverride)
         val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
-        UnpackService.start(context, archive.absolutePath, dest, UnpackManager.mmtFor(PowerMode.AUTO, cores), ReadBuffer.MB1.bytes, false, archive.length(), "7z")
+        UnpackService.start(context, archive.absolutePath, dest, UnpackManager.mmtFor(PowerMode.AUTO, cores), ReadBuffer.MB1.bytes, false, archive.length(), "7z", handoff = handoff)
         return Outcome.Started(archive.name)
     }
 

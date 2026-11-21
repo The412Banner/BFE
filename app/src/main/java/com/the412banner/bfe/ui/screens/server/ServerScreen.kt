@@ -3,10 +3,7 @@ package com.the412banner.bfe.ui.screens.server
 import com.the412banner.bfe.ui.components.bfeTopBarColors
 import com.the412banner.bfe.ui.components.bfeCardColors
 import com.the412banner.bfe.ui.components.bfeCardBorder
-import android.app.Activity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -93,10 +90,11 @@ import com.the412banner.bfe.server.ServerSettings
 import com.the412banner.bfe.server.ServerState
 import com.the412banner.bfe.server.SharedFolder
 import com.the412banner.bfe.util.AppSnackbar
-import com.the412banner.bfe.util.DirPicker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.the412banner.bfe.storage.Loc
+import com.the412banner.bfe.ui.screens.home.LocationPickerOverlay
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -133,6 +131,17 @@ fun ServerScreen(onBack: () -> Unit) {
     }
     val addresses = if (st.anyRunning) st.addresses else lan
 
+    // "Add folder…": BFE's own picker, device folders only (the servers share real folders).
+    var showFolderPicker by remember { mutableStateOf(false) }
+    fun addSharedFolder(dir: File) {
+        val path = dir.absolutePath
+        if (settings.folders.any { it.path == path }) return
+        val volumes = runCatching { StorageRoots.list(context) }.getOrDefault(emptyList())
+        val label = volumes.firstOrNull { it.dir.absolutePath == path }?.label ?: dir.name.ifEmpty { path }
+        commit(settings.copy(wholeStorage = false, folders = settings.folders + SharedFolder(path, readOnly = false, label = label)))
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
             title = { Text("Access from network") },
@@ -204,11 +213,20 @@ fun ServerScreen(onBack: () -> Unit) {
                 onStop = { ServerService.setRunning(context, ftp = false) },
             )
             if (st.anyRunning) ActivityCard(st.activity)
-            SharesCard(settings, ::commit)
+            SharesCard(settings, ::commit, onAddFolder = { showFolderPicker = true })
             AccessCard(settings, ::commit)
             OptionsCard(settings, st, ::commit)
             Spacer(Modifier.height(8.dp))
         }
+    }
+    if (showFolderPicker) {
+        LocationPickerOverlay(
+            title = "Share a folder",
+            deviceOnly = true,
+            onPick = { loc, _ -> showFolderPicker = false; (loc as? Loc.FileLoc)?.file?.let(::addSharedFolder) },
+            onDismiss = { showFolderPicker = false },
+        )
+    }
     }
 }
 
@@ -412,19 +430,9 @@ private fun ActivityCard(a: ServerActivity.Snapshot) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SharesCard(settings: ServerSettings, commit: (ServerSettings) -> Unit) {
+private fun SharesCard(settings: ServerSettings, commit: (ServerSettings) -> Unit, onAddFolder: () -> Unit) {
     val context = LocalContext.current
     val volumes = remember { runCatching { StorageRoots.list(context) }.getOrDefault(emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
-        val path = DirPicker.resolvePath(result.data) ?: run {
-            AppSnackbar.show(context, "That folder can't be shared (pick one on internal storage or an SD card).", long = true)
-            return@rememberLauncherForActivityResult
-        }
-        if (settings.folders.any { it.path == path }) return@rememberLauncherForActivityResult
-        val label = volumes.firstOrNull { it.dir.absolutePath == path }?.label ?: File(path).name.ifEmpty { path }
-        commit(settings.copy(wholeStorage = false, folders = settings.folders + SharedFolder(path, readOnly = false, label = label)))
-    }
 
     SectionCard {
         Text("What's shared", style = sectionTitle())
@@ -485,7 +493,7 @@ private fun SharesCard(settings: ServerSettings, commit: (ServerSettings) -> Uni
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedButton(
-                    onClick = { picker.launch(DirPicker.buildDirIntent()) },
+                    onClick = onAddFolder,
                     border = bfeCardBorder(BorderStroke(1.dp, MaterialTheme.colorScheme.outline)),
                 ) {
                     Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))

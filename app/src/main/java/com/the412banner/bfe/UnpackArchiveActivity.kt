@@ -52,7 +52,7 @@ import kotlinx.coroutines.withContext
  */
 private sealed interface Stage {
     data object Resolving : Stage
-    data class Ready(val path: String, val initialDest: String?) : Stage
+    data class Ready(val path: String, val initialDest: String?, val initialTarget: String? = null) : Stage
     data class Copying(val name: String, val size: Long) : Stage
     data class Failed(val message: String) : Stage
 }
@@ -64,6 +64,7 @@ class UnpackArchiveActivity : ComponentActivity() {
 
         val explicitPath = intent.getStringExtra(EXTRA_ARCHIVE_PATH)?.takeIf { it.isNotBlank() }
         val initialDest = intent.getStringExtra(EXTRA_INITIAL_DEST)?.takeIf { it.isNotBlank() }
+        val initialTarget = intent.getStringExtra(EXTRA_INITIAL_TARGET)?.takeIf { it.isNotBlank() }
         val uri: Uri? = intent.data ?: (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
         // "Extract to ./<Archive name>/" with BFE's notifications off: show this screen, but auto-start.
         val autoStart = intent.getBooleanExtra(EXTRA_AUTO_START, false)
@@ -71,7 +72,7 @@ class UnpackArchiveActivity : ComponentActivity() {
             BfeTheme {
                 BfePage {
                     var stage by remember {
-                        mutableStateOf<Stage>(if (explicitPath != null) Stage.Ready(explicitPath, initialDest) else Stage.Resolving)
+                        mutableStateOf<Stage>(if (explicitPath != null) Stage.Ready(explicitPath, initialDest, initialTarget) else Stage.Resolving)
                     }
                     var copied by remember { mutableLongStateOf(0L) }
                     LaunchedEffect(Unit) {
@@ -82,6 +83,7 @@ class UnpackArchiveActivity : ComponentActivity() {
                         is Stage.Ready -> UnpackArchiveScreen(
                             archivePath = s.path,
                             initialDestPath = s.initialDest,
+                            initialTarget = remember(s.initialTarget) { com.the412banner.bfe.unpack.ExtractHandoff.Target.decode(s.initialTarget) },
                             autoStart = autoStart,
                             onClose = { finish() },
                         )
@@ -135,16 +137,22 @@ class UnpackArchiveActivity : ComponentActivity() {
         const val EXTRA_ARCHIVE_PATH = "archivePath"
         const val EXTRA_INITIAL_DEST = "initialDest"
         const val EXTRA_AUTO_START = "autoStart"
+        // An app storage / root / remote destination (ExtractHandoff.Target, encoded): supersedes EXTRA_INITIAL_DEST.
+        const val EXTRA_INITIAL_TARGET = "initialTarget"
 
         /**
          * @param initialDest optional starting extract destination (BFE dual-pane: the other pane's
          *   directory). When set, the screen seeds "Extract to" with a subfolder inside it; the user
          *   can still change it. Null keeps the screen's own sibling-folder default.
          */
-        fun intent(context: Context, archivePath: String, initialDest: String? = null): Intent =
+        fun intent(
+            context: Context, archivePath: String, initialDest: String? = null,
+            initialTarget: com.the412banner.bfe.unpack.ExtractHandoff.Target? = null,
+        ): Intent =
             Intent(context, UnpackArchiveActivity::class.java)
                 .putExtra(EXTRA_ARCHIVE_PATH, archivePath)
                 .apply { initialDest?.let { putExtra(EXTRA_INITIAL_DEST, it) } }
+                .apply { initialTarget?.encode()?.let { putExtra(EXTRA_INITIAL_TARGET, it) } }
     }
 }
 

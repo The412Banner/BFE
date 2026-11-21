@@ -58,6 +58,15 @@ data class UnpackState(
     val batchFailed: Int = 0,
     /** Space-saving unpack ([SpaceSaver]): bytes of the download already freed. */
     val freedBytes: Long = 0L,
+    /**
+     * Extracting to app storage, a root folder or a remote ([ExtractHandoff]): where the files finally
+     * go, in plain words. [destPath] is then BFE's staging folder.
+     */
+    val deliverTo: String? = null,
+    /** After such a job: what happened to the files ("Copied into …", "Uploading to …", or why not). */
+    val delivery: String? = null,
+    /** The files couldn't be put in place and are still in the staging folder ([destPath]). */
+    val deliveryFailed: Boolean = false,
 ) {
     val isRunning: Boolean get() = phase == UnpackPhase.LISTING || phase == UnpackPhase.EXTRACTING
 }
