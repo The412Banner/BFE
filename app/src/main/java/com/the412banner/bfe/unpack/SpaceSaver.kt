@@ -105,6 +105,8 @@ object SpaceSaver {
         onProgress: (Progress) -> Unit,
         onPhase: (String) -> Unit,
         onProcess: (Process) -> Unit,
+        /** How far the check before any deleting is (0..100), when 7-Zip reports it. */
+        onVerify: (Int) -> Unit = {},
     ): Result {
         dest.mkdirs()
         val args = mutableListOf("run", archive.absolutePath, "--dest", dest.absolutePath, "--keep-free", KEEP_FREE.toString())
@@ -128,7 +130,7 @@ object SpaceSaver {
                             file = j.optString("file").takeIf { it.isNotBlank() }, done = j.optInt("done"), total = j.optInt("total"),
                         )
                     )
-                    "verify" -> onPhase("verify")
+                    "verify" -> j.optInt("pct", -1).let { if (it >= 0) onVerify(it) else onPhase("verify") }
                     "error" -> { errCode = j.optString("code"); errMsg = j.optString("msg") }
                 }
             }

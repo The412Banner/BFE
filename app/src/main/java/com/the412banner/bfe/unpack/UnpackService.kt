@@ -480,6 +480,11 @@ class UnpackService : Service() {
                         },
                         onPhase = { },
                         onProcess = { proc = it },
+                        // Reading the whole download first takes minutes for a big one: show how far it is.
+                        onVerify = { pct ->
+                            UnpackManager.update { it.copy(percent = pct, currentFile = "Checking the download before anything is deleted… $pct%") }
+                            refresh()
+                        },
                     )
                     files = (measureDir(destDir).first - baseCount).coerceAtLeast(0)
                     if (r.exitCode != 0) inplaceError = SpaceSaver.explain(r.errorCode, r.message)

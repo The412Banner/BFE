@@ -809,10 +809,16 @@ impl SevenZ {
         let tool = ctx.tool7z.as_ref().ok_or_else(|| Error::new(Kind::Unsupported, "7-Zip is needed for 7z archives"))?;
         let mut c = crate::util::tool(tool);
         if test {
-            c.arg("t");
-        } else {
-            c.arg("x").arg(format!("-o{}", ctx.stage.display()));
+            // The check before any deleting reads the whole download: report its progress.
+            c.arg("t").arg("-y").arg("-bsp1").arg("-p-").arg(archive);
+            let (ok, stderr) = crate::util::run_7z_test(c)?;
+            if !ok {
+                let msg = stderr.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").to_string();
+                return Err(Error::new(Kind::Damaged, format!("7-Zip: {msg}")));
+            }
+            return Ok(());
         }
+        c.arg("x").arg(format!("-o{}", ctx.stage.display()));
         let out = c.arg("-y").arg("-bd").arg("-p-").arg(archive).stdin(Stdio::null()).output().map_err(Error::from)?;
         if !out.status.success() {
             let msg = String::from_utf8_lossy(&out.stderr).lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").to_string();

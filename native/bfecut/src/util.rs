@@ -182,6 +182,87 @@ extern "C" {
     fn prctl(option: i32, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32;
 }
 
+/// Reads 7-Zip's `-bsp1` progress: it redraws "NN%" in place with backspaces, so a percentage is
+/// the digits right before a '%' byte. Values before the "--" line (opening the archive, e.g.
+/// " 83% 256 Open") are skipped: the test itself comes after it. Returns each new value (0..=100).
+#[derive(Default)]
+pub struct PctScan {
+    digits: String,
+    last: i32,
+    started: bool,
+    line: Vec<u8>,
+    armed: bool,
+}
+
+impl PctScan {
+    pub fn feed(&mut self, bytes: &[u8]) -> Vec<i32> {
+        let mut out = Vec::new();
+        for &b in bytes {
+            if b == b'\n' || b == b'\r' {
+                if self.line.as_slice() == b"--" {
+                    self.armed = true;
+                }
+                self.line.clear();
+            } else if self.line.len() < 8 {
+                self.line.push(b);
+            }
+            if !self.armed {
+                continue;
+            }
+            if b.is_ascii_digit() {
+                self.digits.push(b as char);
+                if self.digits.len() > 3 {
+                    self.digits.remove(0);
+                }
+            } else {
+                if b == b'%' {
+                    if let Ok(p) = self.digits.parse::<i32>() {
+                        if p <= 100 && (!self.started || p != self.last) {
+                            self.started = true;
+                            self.last = p;
+                            out.push(p);
+                        }
+                    }
+                }
+                self.digits.clear();
+            }
+        }
+        out
+    }
+}
+
+/// Runs a 7-Zip test (`t ... -bsp1`, built by the caller without `-bd`) and reports its progress as
+/// `{"ev":"verify","pct":N}` lines, so the app can show how far the check before any deleting is.
+/// Returns whether it passed and 7-Zip's error output.
+pub fn run_7z_test(mut c: std::process::Command) -> Res<(bool, String)> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(Error::from)?;
+    let mut err_pipe = child.stderr.take().ok_or_else(|| Error::new(Kind::Io, "no stderr"))?;
+    let err_thread = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err_pipe.read_to_string(&mut s);
+        s
+    });
+    if let Some(mut out) = child.stdout.take() {
+        let mut scan = PctScan::default();
+        let mut buf = [0u8; 4096];
+        loop {
+            match out.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    for p in scan.feed(&buf[..n]) {
+                        emit(&format!("{{\"ev\":\"verify\",\"pct\":{p}}}"));
+                    }
+                }
+            }
+        }
+    }
+    let status = child.wait().map_err(Error::from)?;
+    let err = err_thread.join().unwrap_or_default();
+    Ok((status.success(), err))
+}
+
 /// A helper program (7-Zip, unarc) that is killed when bfecut dies, so a stopped or crashed run
 /// never leaves it writing into the stage folder while the next run starts.
 pub fn tool(path: &Path) -> std::process::Command {
@@ -332,4 +413,30 @@ pub fn le64(b: &[u8], p: usize) -> u64 {
     let mut a = [0u8; 8];
     a.copy_from_slice(&b[p..p + 8]);
     u64::from_le_bytes(a)
+}
+
+#[cfg(test)]
+mod pct_tests {
+    use super::PctScan;
+
+    #[test]
+    fn backspace_redraws() {
+        // 7-Zip 24.08 with -bsp1: the percentage is redrawn in place with backspaces.
+        let mut s = PctScan::default();
+        // Opening the archive comes first and is not the test: skipped until the "--" line.
+        assert_eq!(s.feed(b"Testing archive: /x/DOOM.rar\n 83% 256 Open\x08\x08\x08\x08\x08\x08\x08\x08\x08\x08\x08\x08\n--\nPath = /x/DOOM.rar\n"), Vec::<i32>::new());
+        assert_eq!(s.feed(b"  0%\x08\x08\x08\x08  1% 3 - DOOM/a.bin\x08\x08\x08\x08 50%"), vec![0, 1, 50]);
+        // A value split across two reads, and a repeat that is not reported again.
+        assert_eq!(s.feed(b"\x08\x08\x08\x0810"), Vec::<i32>::new());
+        assert_eq!(s.feed(b"0%\x08\x08\x08\x08100%"), vec![100]);
+    }
+
+    #[test]
+    fn ignores_other_numbers() {
+        let mut s = PctScan::default();
+        assert_eq!(s.feed(b"--\nEverything is Ok\nFiles: 581\nSize: 124544660338\n"), Vec::<i32>::new());
+        // Without the "--" line nothing is reported (the app then just says it's checking).
+        let mut t = PctScan::default();
+        assert_eq!(t.feed(b" 40%\x08\x08\x08\x08 41%"), Vec::<i32>::new());
+    }
 }

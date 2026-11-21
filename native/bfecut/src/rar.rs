@@ -476,9 +476,12 @@ impl Format for Rar {
 
     fn verify(&mut self, store: &mut Store, ctx: &mut Ctx) -> Res<()> {
         let tool = ctx.tool7z.as_ref().ok_or_else(|| Error::new(Kind::Unsupported, "7-Zip is needed for RAR archives"))?;
-        let out = crate::util::tool(tool).arg("t").arg("-bd").arg("-p-").arg(&store.vols[0].path).stdin(Stdio::null()).output().map_err(Error::from)?;
-        if !out.status.success() {
-            let msg = String::from_utf8_lossy(&out.stderr).lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").to_string();
+        // Progress is reported as it goes: this reads the whole download and takes minutes for a big one.
+        let mut c = crate::util::tool(tool);
+        c.arg("t").arg("-bsp1").arg("-p-").arg(&store.vols[0].path);
+        let (ok, stderr) = crate::util::run_7z_test(c)?;
+        if !ok {
+            let msg = stderr.lines().filter(|l| !l.trim().is_empty()).last().unwrap_or("").to_string();
             return Err(Error::new(Kind::Damaged, format!("7-Zip test: {msg}")));
         }
         Ok(())
