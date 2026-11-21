@@ -319,7 +319,9 @@ fun UnpackArchiveScreen(
     var confirmSpace by remember { mutableStateOf(false) }
     var abandoning by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    LaunchedEffect(spaceEligible, destPath, state.phase, planTick) {
+    LaunchedEffect(spaceEligible, destPath, destTarget, state.phase, planTick) {
+        // A staged destination (app storage / root / remote) never offers it: drop a plan made before.
+        if (destTarget != null && !state.isRunning) { spacePlan = null; spaceMode = false }
         if (!spaceEligible || state.isRunning) return@LaunchedEffect
         spacePlan = withContext(Dispatchers.IO) {
             if (spaceTarget.isFile) SpaceSaver.plan(context, spaceTarget, File(destPath)) else null
