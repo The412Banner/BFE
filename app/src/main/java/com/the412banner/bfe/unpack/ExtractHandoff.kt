@@ -55,6 +55,33 @@ object ExtractHandoff {
         return File(root, System.currentTimeMillis().toString()).also { it.mkdirs() }
     }
 
+    /**
+     * The staging folder for a space-saving unpack ([SpaceSaver]) of [archive]: always the same one,
+     * because the engine keeps its resume journal there and the download is already partly deleted
+     * when a run stops. `<it>/<folder name>` is what the engine writes; [noteTarget] records where it
+     * goes, so a reopened Unpack screen can continue it.
+     */
+    fun spaceSaverDir(ctx: Context, archive: File): File {
+        val id = java.security.MessageDigest.getInstance("SHA-256").digest(archive.absolutePath.toByteArray())
+            .take(8).joinToString("") { "%02x".format(it) }
+        return File(stagingRoot(ctx), "keep-$id")
+    }
+
+    private const val TARGET_FILE = ".bfe-target"
+
+    /** Remembers [target] next to the extracted folder [extracted] (in its staging folder, never uploaded). */
+    fun noteTarget(extracted: File, target: Target) {
+        val dir = extracted.parentFile ?: return
+        runCatching { dir.mkdirs(); File(dir, TARGET_FILE).writeText(target.encode().orEmpty()) }
+    }
+
+    /** Where an unfinished space-saving unpack of [archive] into staging was going, or null. */
+    fun unfinishedTarget(ctx: Context, archive: File, name: String): Target? {
+        val dir = spaceSaverDir(ctx, archive)
+        if (!File(dir, "$name/.bfe-inplace").isDirectory) return null
+        return runCatching { Target.decode(File(dir, TARGET_FILE).readText()) }.getOrNull()
+    }
+
     private fun isEmptyTree(dir: File): Boolean =
         dir.listFiles()?.all { it.isDirectory && isEmptyTree(it) } ?: true
 
@@ -97,6 +124,7 @@ object ExtractHandoff {
                 dstDirId = loc.id,
             )
             CloudTransfers.enqueue(ctx, listOf(item))
+            stagingJob?.let { File(it, TARGET_FILE).delete() }
             return Outcome.Queued
         }
         if (loc is Loc.RootLoc && !RootAccess.ensure()) return Outcome.Failed(extracted)

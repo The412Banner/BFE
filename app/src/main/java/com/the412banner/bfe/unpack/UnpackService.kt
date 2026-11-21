@@ -345,6 +345,7 @@ class UnpackService : Service() {
             // ExtraFormats engines (lzip/lzop/LZ4/ECM/ALZ/EGG/ACE/LZX/OTA payload), else 7-Zip.
             val isExtra = engine == ExtraFormats.ENGINE
             val isInplace = engine == SpaceSaver.ENGINE
+            if (isInplace && handoff != null) ExtractHandoff.noteTarget(destDir, handoff)
             val extraProbe = if (isExtra) ExtraFormats.probe(ctx, archive) else null
             val info = if (isInno || isExtra || isInplace) null else SevenZip.list(ctx, archive)
             UnpackManager.update {
@@ -622,8 +623,9 @@ class UnpackService : Service() {
                             details = listOf(ErrorLog.archiveFacts(archive.name, dataSize)))
                     }
                 }
-            } else if (handoff != null) {
+            } else if (handoff != null && !isInplace) {
                 // Failed or cancelled before anything was handed over: the staging folder is only temp.
+                // (A space-saving unpack keeps it: the journal there continues it, the download is partly gone.)
                 destDir.parentFile?.takeIf { ExtractHandoff.isStaging(ctx, it.absolutePath) }?.deleteRecursively()
             }
             val elapsed = SystemClock.elapsedRealtime() - startMs

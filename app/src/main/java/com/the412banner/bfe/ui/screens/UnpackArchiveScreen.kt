@@ -309,8 +309,19 @@ fun UnpackArchiveScreen(
     // (BFE's own copy), not where All Files access is missing. The engine's plan decides the rest.
     val spaceTarget = if (innoFreeArcBuiltin) jobArchive else archive
     val spaceEngine = remember { SpaceSaver.isAvailable(context) }
-    // Device folders only: with a staging folder the download would be gone before the copy succeeded.
-    val spaceEligible = spaceEngine && destTarget == null && (sevenZipAllowed || innoFreeArcBuiltin) && !gatedByPermission &&
+    // App storage / root / remote destinations unpack into BFE's fixed staging folder for this download
+    // (its journal resumes a stopped run), then the result is put in place as for any staged extract.
+    val spaceDest = remember(destTarget, destPath, spaceTarget.absolutePath) {
+        destTarget?.let { File(ExtractHandoff.spaceSaverDir(context, spaceTarget), defaultName) } ?: File(destPath)
+    }
+    // Reopened (e.g. from the notification) without its destination: an unfinished space-saving unpack
+    // into staging brings it back, so Continue picks up where it stopped.
+    LaunchedEffect(spaceTarget.absolutePath) {
+        if (destTarget == null) {
+            withContext(Dispatchers.IO) { ExtractHandoff.unfinishedTarget(context, spaceTarget, defaultName) }?.let { destTarget = it }
+        }
+    }
+    val spaceEligible = spaceEngine && (sevenZipAllowed || innoFreeArcBuiltin) && !gatedByPermission &&
         !spaceTarget.absolutePath.startsWith(com.the412banner.bfe.util.IncomingFile.incomingDir(context).absolutePath + "/")
     var spacePlan by remember(archivePath) { mutableStateOf<SpaceSaver.Plan?>(null) }
     var spaceMode by remember(archivePath) { mutableStateOf(false) }
@@ -320,11 +331,9 @@ fun UnpackArchiveScreen(
     var abandoning by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(spaceEligible, destPath, destTarget, state.phase, planTick) {
-        // A staged destination (app storage / root / remote) never offers it: drop a plan made before.
-        if (destTarget != null && !state.isRunning) { spacePlan = null; spaceMode = false }
         if (!spaceEligible || state.isRunning) return@LaunchedEffect
         spacePlan = withContext(Dispatchers.IO) {
-            if (spaceTarget.isFile) SpaceSaver.plan(context, spaceTarget, File(destPath)) else null
+            if (spaceTarget.isFile) SpaceSaver.plan(context, spaceTarget, spaceDest) else null
         }
         if (spacePlan?.let { it.usable && !it.resume } != true) spaceMode = false
     }
@@ -332,7 +341,7 @@ fun UnpackArchiveScreen(
     val canSpace = spacePlan?.usable == true && spaceTarget.isFile && !otherJobRunning && !gatedByPermission
     val startSpace = {
         UnpackManager.clearIfTerminal()
-        UnpackService.start(context, spaceTarget.absolutePath, destPath, 1, buffer.bytes, false, spaceTarget.length(), SpaceSaver.ENGINE,
+        UnpackService.start(context, spaceTarget.absolutePath, spaceDest.absolutePath, 1, buffer.bytes, false, spaceTarget.length(), SpaceSaver.ENGINE, handoff = destTarget,
             spaceEager = spaceEager && spacePlan?.eagerMatters == true)
     }
 
@@ -719,9 +728,15 @@ fun UnpackArchiveScreen(
                     onPutBack = {
                         abandoning = true
                         scope.launch {
-                            val r = withContext(Dispatchers.IO) { SpaceSaver.abandon(context, spaceTarget, File(destPath)) }
+                            val r = withContext(Dispatchers.IO) { SpaceSaver.abandon(context, spaceTarget, spaceDest) }
                             abandoning = false
-                            AppSnackbar.show(context, if (r.exitCode == 0) "Put back: ${spaceTarget.name} holds the rest again" else SpaceSaver.explain(r.errorCode, r.message))
+                            AppSnackbar.show(
+                                context,
+                                if (r.exitCode == 0) "Put back: ${spaceTarget.name} holds the rest again" +
+                                    (if (destTarget != null) ". Files already unpacked: ${spaceDest.absolutePath}" else "")
+                                else SpaceSaver.explain(r.errorCode, r.message),
+                                long = destTarget != null,
+                            )
                             planTick++
                         }
                     })
@@ -876,9 +891,15 @@ fun UnpackArchiveScreen(
                     onPutBack = {
                         abandoning = true
                         scope.launch {
-                            val r = withContext(Dispatchers.IO) { SpaceSaver.abandon(context, spaceTarget, File(destPath)) }
+                            val r = withContext(Dispatchers.IO) { SpaceSaver.abandon(context, spaceTarget, spaceDest) }
                             abandoning = false
-                            AppSnackbar.show(context, if (r.exitCode == 0) "Put back: ${spaceTarget.name} holds the rest again" else SpaceSaver.explain(r.errorCode, r.message))
+                            AppSnackbar.show(
+                                context,
+                                if (r.exitCode == 0) "Put back: ${spaceTarget.name} holds the rest again" +
+                                    (if (destTarget != null) ". Files already unpacked: ${spaceDest.absolutePath}" else "")
+                                else SpaceSaver.explain(r.errorCode, r.message),
+                                long = destTarget != null,
+                            )
                             planTick++
                         }
                     })
