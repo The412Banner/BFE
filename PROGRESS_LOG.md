@@ -24,6 +24,10 @@ only screens that 1.6.1 also has are used. Peers root-2a + root-e8 acked the tak
 only storage totals and the GameHub/DroidDeck app-storage tiles on Home. View mode was switched to grid for shot 3 and
 set back to the user's compact list (toolbar icon pixel-identical to before). Demo folder + temp shots + scripts deleted;
 crash buffer empty since 17:48; Termux back in front; peers root-2a/root-e8 sent "done".
+**Round 2 (user ~17:55 EST: "get the dual panel view also for screenshots and tools provided to open files with"):**
+planned shots = dual-pane view (toolbar ViewColumn toggle; saved as pref `fmDualPane`, must be set back to off) and the
+Open with sheet's "Open in BFE as" tool tiles. Demo folder re-created for it, deleted after. Preview of round 1:
+`/sdcard/Download/BFE-store-screenshots-preview.png`.
 **Resume point:** if the session dies, bring Termux back (`am start -n com.termux/.app.TermuxActivity`), send peers
 root-2a/root-e8 "done", delete `/sdcard/Download/Demo` and any `/sdcard/Download/.bfe-shot-*.png`.
 
