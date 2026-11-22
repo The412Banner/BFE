@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-22 — Store screenshots for Orion Store (`feat/store-screenshots`, SHOTS ADDED, awaiting user go for main)
+## 2026-11-22 — Store screenshots for Orion Store (`feat/store-screenshots`, 8 SHOTS ADDED, awaiting user go for main)
 **Why:** user asked "is bfe ready for Orion store?" — checked live 17:46 EST: everything ready (public, GPL-3.0,
 stable v1.6.1 APK, keyword `apk`, package com.the412banner.bfe, fastlane icon) EXCEPT screenshots: Orion Store's
 submit form (Orion-Store 0dda56c8 `ui/Community.kt:1043`) refuses with "At least 3 screenshots are required." and
@@ -28,6 +28,11 @@ crash buffer empty since 17:48; Termux back in front; peers root-2a/root-e8 sent
 planned shots = dual-pane view (toolbar ViewColumn toggle; saved as pref `fmDualPane`, must be set back to off) and the
 Open with sheet's "Open in BFE as" tool tiles. Demo folder re-created for it, deleted after. Preview of round 1:
 `/sdcard/Download/BFE-store-screenshots-preview.png`.
+**Round 2 done 17:54–17:57 EST:** + `3-dual-pane` (both panes in the demo folder; the right pane first showed the
+real storage root, so it was walked to Download → Demo; in-between captures deleted unviewed except a crop used to find
+the Demo row) and `6-open-with-tools` ("Open in BFE as" tiles + Open as chips; cropped to 1080×1615 to drop the row of
+other installed apps). Files renumbered 1–8. Dual pane set back off: prefs `fmDualPane=false`, `fmViewMode=compact`
+(read from shared_prefs). Crash buffer empty since 17:53; Termux back; demo + temp files deleted; peers sent "done".
 **Resume point:** if the session dies, bring Termux back (`am start -n com.termux/.app.TermuxActivity`), send peers
 root-2a/root-e8 "done", delete `/sdcard/Download/Demo` and any `/sdcard/Download/.bfe-shot-*.png`.
 
