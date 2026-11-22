@@ -6,7 +6,7 @@ where it stands*.
 
 ---
 
-## 2026-11-22 — Store screenshots for Orion Store (`feat/store-screenshots`, IN PROGRESS)
+## 2026-11-22 — Store screenshots for Orion Store (`feat/store-screenshots`, SHOTS ADDED, awaiting user go for main)
 **Why:** user asked "is bfe ready for Orion store?" — checked live 17:46 EST: everything ready (public, GPL-3.0,
 stable v1.6.1 APK, keyword `apk`, package com.the412banner.bfe, fastlane icon) EXCEPT screenshots: Orion Store's
 submit form (Orion-Store 0dda56c8 `ui/Community.kt:1043`) refuses with "At least 3 screenshots are required." and
@@ -17,6 +17,13 @@ a 7z) pushed to `/sdcard/Download/Demo` on the FIT, so no personal file names sh
 root `screencap`; check each picture for private data; add 3+ to `fastlane/.../phoneScreenshots`; delete the demo folder.
 **Device:** Pocket FIT, installed BFE = feat/extract-anywhere dev build (label 1.6.1 vc24, installed 11-21 16:57 EST);
 only screens that 1.6.1 also has are used. Peers root-2a + root-e8 acked the takeover (root-2a wants the screen after).
+**Done 17:50–17:53 EST (FIT, user said "go" in Termux; first try 17:4x aborted by the gate: Discord in front):**
+6 shots added to `fastlane/metadata/android/en-US/images/phoneScreenshots/` (1080×1920 PNG, 85–141 KB):
+1-home, 2-file-list (demo folder), 3-photo-grid, 4-file-actions (Fast Extract / Unpack / Compress menu),
+5-document-viewer (Report.docx = test fixture sample.docx), 6-settings (Version 1.6.1). Checked each for private data:
+only storage totals and the GameHub/DroidDeck app-storage tiles on Home. View mode was switched to grid for shot 3 and
+set back to the user's compact list (toolbar icon pixel-identical to before). Demo folder + temp shots + scripts deleted;
+crash buffer empty since 17:48; Termux back in front; peers root-2a/root-e8 sent "done".
 **Resume point:** if the session dies, bring Termux back (`am start -n com.termux/.app.TermuxActivity`), send peers
 root-2a/root-e8 "done", delete `/sdcard/Download/Demo` and any `/sdcard/Download/.bfe-shot-*.png`.
 
