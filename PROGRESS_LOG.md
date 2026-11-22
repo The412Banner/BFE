@@ -6,6 +6,20 @@ where it stands*.
 
 ---
 
+## 2026-11-22 — Store screenshots for Orion Store (`feat/store-screenshots`, IN PROGRESS)
+**Why:** user asked "is bfe ready for Orion store?" — checked live 17:46 EST: everything ready (public, GPL-3.0,
+stable v1.6.1 APK, keyword `apk`, package com.the412banner.bfe, fastlane icon) EXCEPT screenshots: Orion Store's
+submit form (Orion-Store 0dda56c8 `ui/Community.kt:1043`) refuses with "At least 3 screenshots are required." and
+`fastlane/metadata/android/en-US/images/phoneScreenshots` did not exist. User: "open bfe and take screenshots if needed".
+**Plan:** demo folder of generated sample files (8 gradient JPGs, docs copied from app/src/test/resources/docs, a zip +
+a 7z) pushed to `/sdcard/Download/Demo` on the FIT, so no personal file names show; open BFE there via
+`--es com.the412banner.bfe.extra.OPEN_PATH`; capture Home, folder list, archive view, document viewer, settings with
+root `screencap`; check each picture for private data; add 3+ to `fastlane/.../phoneScreenshots`; delete the demo folder.
+**Device:** Pocket FIT, installed BFE = feat/extract-anywhere dev build (label 1.6.1 vc24, installed 11-21 16:57 EST);
+only screens that 1.6.1 also has are used. Peers root-2a + root-e8 acked the takeover (root-2a wants the screen after).
+**Resume point:** if the session dies, bring Termux back (`am start -n com.termux/.app.TermuxActivity`), send peers
+root-2a/root-e8 "done", delete `/sdcard/Download/Demo` and any `/sdcard/Download/.bfe-shot-*.png`.
+
 ## 2026-11-20 — Empty Android/obb folder left after a cancelled bundle install (`fix/obb-empty-folder`, DEVICE-PROVEN, MERGED, RELEASED 1.6.1)
 **Why:** found in the 1.6.0 test (12:24 EST): Cancel removed the staged OBB but left the EMPTY `Android/obb/com.github.android`
 folder BFE created (owner 10182 = BFE). Android hands the folder to the app's uid only at install, so a leftover stays
